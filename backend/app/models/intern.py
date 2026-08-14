@@ -34,5 +34,4 @@ class InternSkill(Base):
     intern_id: Mapped[UUID] = mapped_column(ForeignKey("interns_and_students.intern_id"), nullable=False)
     skill_id: Mapped[UUID] = mapped_column(ForeignKey("skills.skill_id"), nullable=False)
     proficiency_level: Mapped[float] = mapped_column(Float, default=1.0)
-    skill_embedding = mapped_column(Vector(768), nullable=True)
     extraction_confidence: Mapped[float] = mapped_column(Float, default=0.85)

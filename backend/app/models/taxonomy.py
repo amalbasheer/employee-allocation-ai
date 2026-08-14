@@ -1,4 +1,5 @@
 # app/models/taxonomy.py
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import String, Float, ForeignKey, Text, Integer
 from sqlalchemy.orm import Mapped, mapped_column
 from uuid import uuid4, UUID
@@ -11,7 +12,7 @@ class Skill(Base):
     skill_id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     name: Mapped[str] = mapped_column("skill_name", String(100), unique=True, nullable=False)
     category: Mapped[Optional[str]] = mapped_column("category", String(50), nullable=True, default=None)
-
+    skill_embedding = mapped_column(Vector(768), nullable=True)
 
 class Designation(Base):
     __tablename__ = "designations"
