@@ -47,7 +47,6 @@ async def upload_resume_file(
     college_institution: str = Form(...),
     degree_program: Optional[str] = Form(None),
     role: str = Form("intern"),
-    weekly_capacity_hours: int = Form(20),
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
@@ -70,7 +69,6 @@ async def upload_resume_file(
         college_institution=college_institution,
         degree_program=degree_program,
         role=role,
-        weekly_capacity_hours=weekly_capacity_hours,
         resume_document_url=file_url
     )
     db.add(candidate)

@@ -1,13 +1,16 @@
 # app/schemas/intern.py
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import Optional, Literal
 from uuid import UUID
 
 class InternBase(BaseModel):
     name: str
     email: EmailStr
-    college_university: Optional[str] = None
-    resume_url: Optional[str] = None
+    college_institution: str
+    degree_program: Optional[str] = None
+    role: Literal["intern", "student"] = "intern"
+    resume_document_url: str
+    current_status: Optional[str] = "AVAILABLE"
 
 class InternCreate(InternBase):
     pass
@@ -19,6 +22,11 @@ class InternRegisterWithUrl(BaseModel):
 
 class InternResponse(InternBase):
     intern_id: UUID
+    name: str
+    email: EmailStr
+    college_institution: str
+    resume_document_url: str
+    review_status: str
 
     class Config:
         from_attributes = True

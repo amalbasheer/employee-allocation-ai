@@ -1,5 +1,5 @@
 # app/models/taxonomy.py
-from sqlalchemy import String, Float, ForeignKey
+from sqlalchemy import String, Float, ForeignKey, Text, Integer
 from sqlalchemy.orm import Mapped, mapped_column
 from uuid import uuid4, UUID
 from app.database import Base
@@ -18,6 +18,8 @@ class Designation(Base):
 
     designation_id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     title: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    department: Mapped[str] = mapped_column(String(50), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
 
 class DesignationSkill(Base):
     __tablename__ = "designation_skills"
@@ -25,4 +27,4 @@ class DesignationSkill(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     designation_id: Mapped[UUID] = mapped_column(ForeignKey("designations.designation_id"), nullable=False)
     skill_id: Mapped[UUID] = mapped_column(ForeignKey("skills.skill_id"), nullable=False)
-    min_proficiency: Mapped[float] = mapped_column(Float, default=1.0)
+    default_proficiency: Mapped[int] = mapped_column(Integer, default=3)
