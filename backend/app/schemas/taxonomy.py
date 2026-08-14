@@ -1,20 +1,29 @@
-# backend/app/schemas/taxonomy.py
-from pydantic import BaseModel
+# app/schemas/taxonomy.py
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from uuid import UUID
 
-class SkillResponse(BaseModel):
+class SkillBase(BaseModel):
+    name: str
+    category: Optional[str] = None
+
+class SkillCreate(SkillBase):
+    pass
+
+class SkillResponse(SkillBase):
     skill_id: UUID
-    skill_name: str
-    category: Optional[str]
 
     class Config:
         from_attributes = True
 
-class DesignationResponse(BaseModel):
-    designation_id: UUID
+class DesignationBase(BaseModel):
     title: str
-    department: str
+
+class DesignationCreate(DesignationBase):
+    pass
+
+class DesignationResponse(DesignationBase):
+    designation_id: UUID
 
     class Config:
         from_attributes = True

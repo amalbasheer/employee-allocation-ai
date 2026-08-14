@@ -1,17 +1,21 @@
-import uuid
+# app/utils/supabase_client.py
 from supabase import create_client, Client
 from app.config import settings
 
-supabase_client: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+supabase_client: Client | None = None
 
-def upload_resume_to_supabase(file_bytes: bytes, original_filename: str) -> str:
-    """Uploads PDF to 'resumes' bucket and returns public URL."""
-    file_path = f"{uuid.uuid4()}_{original_filename}"
+if settings.SUPABASE_URL and settings.SUPABASE_KEY:
+    try:
+        supabase_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+    except Exception as e:
+        print(f"⚠️ Failed to initialize Supabase client: {e}")
+else:
+    print("⚠️ Warning: SUPABASE_URL or SUPABASE_KEY is missing in .env")
+
+def upload_file_to_supabase(file, bucket_name: str, destination_path: str):
+    if not supabase_client:
+        raise ValueError("Supabase client is not configured. Please set SUPABASE_URL and SUPABASE_KEY in .env.")
     
-    supabase_client.storage.from_("resumes").upload(
-        path=file_path,
-        file=file_bytes,
-        file_options={"content-type": "application/pdf"}
-    )
-    
-    return supabase_client.storage.from_("resumes").get_public_url(file_path)
+    # Existing file upload logic here...
+    response = supabase_client.storage.from_(bucket_name).upload(destination_path, file)
+    return response

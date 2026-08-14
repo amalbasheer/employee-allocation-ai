@@ -1,27 +1,28 @@
-import uuid
-from typing import Optional
-from sqlalchemy import String, Text, Integer, ForeignKey
+# app/models/taxonomy.py
+from sqlalchemy import String, Float, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
+from uuid import uuid4, UUID
 from app.database import Base
-
-class Designation(Base):
-    __tablename__ = "designations"
-
-    designation_id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    title: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
-    department: Mapped[str] = mapped_column(String(50), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text)
+from typing import Optional
 
 class Skill(Base):
     __tablename__ = "skills"
 
-    skill_id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    skill_name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
-    category: Mapped[Optional[str]] = mapped_column(String(50))
+    skill_id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    name: Mapped[str] = mapped_column("skill_name", String(100), unique=True, nullable=False)
+    category: Mapped[Optional[str]] = mapped_column("category", String(50), nullable=True, default=None)
+
+
+class Designation(Base):
+    __tablename__ = "designations"
+
+    designation_id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    title: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
 
 class DesignationSkill(Base):
     __tablename__ = "designation_skills"
 
-    designation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("designations.designation_id", ondelete="CASCADE"), primary_key=True)
-    skill_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("skills.skill_id", ondelete="CASCADE"), primary_key=True)
-    default_proficiency: Mapped[int] = mapped_column(Integer, default=3)
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    designation_id: Mapped[UUID] = mapped_column(ForeignKey("designations.designation_id"), nullable=False)
+    skill_id: Mapped[UUID] = mapped_column(ForeignKey("skills.skill_id"), nullable=False)
+    min_proficiency: Mapped[float] = mapped_column(Float, default=1.0)
