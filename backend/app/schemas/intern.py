@@ -1,24 +1,22 @@
-from pydantic import BaseModel, EmailStr, HttpUrl
-from typing import Optional
+from pydantic import BaseModel, EmailStr
+from typing import Optional, Literal
 from uuid import UUID
 
-# Option 1: Direct Resume URL (e.g. Existing Company Storage)
-class InternRegisterWithUrl(BaseModel):
+class InternBase(BaseModel):
     name: str
     email: EmailStr
     college_institution: str
     degree_program: Optional[str] = None
-    resume_document_url: str  # Direct URL string
-    weekly_capacity_hours: Optional[int] = 20
+    role: Literal["intern", "student"] = "intern"  # 🆕 Restricted to 'intern' or 'student'
+    weekly_capacity_hours: int = 20
 
-# Response Model
-class InternResponse(BaseModel):
-    intern_id: UUID
-    name: str
-    email: EmailStr
-    college_institution: str
+class InternCreate(InternBase):
     resume_document_url: str
+
+class InternResponse(InternBase):
+    intern_id: UUID
     review_status: str
+    resume_document_url: str
 
     class Config:
         from_attributes = True
