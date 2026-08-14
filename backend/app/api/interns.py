@@ -1,77 +1,155 @@
 # app/api/interns.py
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, status
-from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List
 from uuid import UUID
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
-from app.models import InternsAndStudents
-from app.schemas import InternResponse, InternCreate
-from app.utils.supabase_client import upload_file_to_supabase
+from app.database import get_db
+from app.models.intern import InternsAndStudents, InternSkill
+from app.schemas.intern import (
+    InternCreate,
+    InternResponse,
+    InternUpdate,
+    InternSkillCreate,
+    InternSkillResponse,
+)
 
 router = APIRouter()
 
-@router.get("/", response_model=List[InternResponse])
-def get_interns_and_students(
-    role: Optional[str] = Query(None, description="Filter by role: 'intern' or 'student'"),
-    review_status: Optional[str] = Query(None, description="Filter by status e.g. 'pending_review'"),
-    db: Session = Depends(get_db)
-):
-    """List all candidates with optional role filtering."""
-    query = db.query(InternsAndStudents)
+
+# ==========================================
+# INTERNS & STUDENTS ENDPOINTS
+# ==========================================
+@router.get("", response_model=List[InternResponse])
+def get_interns(db: Session = Depends(get_db)):
+    """Fetch all interns/students along with their extracted skills."""
+    interns = db.query(InternsAndStudents).all()
     
-    if role:
-        query = query.filter(InternsAndStudents.role == role.lower())
-    if review_status:
-        query = query.filter(InternsAndStudents.review_status == review_status)
+    for intern in interns:
+        intern.skills = (
+            db.query(InternSkill)
+            .filter(InternSkill.intern_id == intern.intern_id)
+            .all()
+        )
+    return interns
+
+
+@router.post("", response_model=InternResponse, status_code=status.HTTP_201_CREATED)
+def create_intern(intern_in: InternCreate, db: Session = Depends(get_db)):
+    """Create a new intern or student entry (optionally with skill mappings)."""
+    # Check if email is unique
+    existing = db.query(InternsAndStudents).filter(InternsAndStudents.email == intern_in.email).first()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"An intern with email '{intern_in.email}' already exists."
+        )
+
+    intern_data = intern_in.model_dump(exclude={"skills"})
+    new_intern = InternsAndStudents(**intern_data)
+    
+    db.add(new_intern)
+    db.commit()
+    db.refresh(new_intern)
+
+    # Attach initial skills if provided in creation request
+    created_skills = []
+    if intern_in.skills:
+        for skill in intern_in.skills:
+            db_skill = InternSkill(
+                intern_id=new_intern.intern_id,
+                **skill.model_dump()
+            )
+            db.add(db_skill)
+            created_skills.append(db_skill)
         
-    return query.all()
+        db.commit()
+        for skill in created_skills:
+            db.refresh(skill)
 
-@router.post("/by-link", response_model=InternResponse, status_code=status.HTTP_201_CREATED)
-def create_intern_with_url(candidate_in: InternCreate, db: Session = Depends(get_db)):
-    """Create candidate entry using a Google Drive or external URL link."""
-    existing = db.query(InternsAndStudents).filter(InternsAndStudents.email == candidate_in.email).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Candidate with this email already exists")
-    
-    candidate = InternsAndStudents(**candidate_in.model_dump())
-    db.add(candidate)
-    db.commit()
-    db.refresh(candidate)
-    return candidate
+    new_intern.skills = created_skills
+    return new_intern
 
-@router.post("/upload-resume", response_model=InternResponse, status_code=status.HTTP_201_CREATED)
-async def upload_resume_file(
-    name: str = Form(...),
-    email: str = Form(...),
-    college_institution: str = Form(...),
-    degree_program: Optional[str] = Form(None),
-    role: str = Form("intern"),
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db)
-):
-    """Upload a physical resume file (.pdf/.docx) to Supabase Storage and create candidate entry."""
-    existing = db.query(InternsAndStudents).filter(InternsAndStudents.email == email).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Candidate with this email already exists")
 
-    # Upload to Supabase Bucket 'resumes'
-    file_bytes = await file.read()
-    file_url = upload_file_to_supabase(
-        file_bytes=file_bytes,
-        filename=file.filename,
-        content_type=file.content_type
+@router.get("/{intern_id}", response_model=InternResponse)
+def get_intern_by_id(intern_id: UUID, db: Session = Depends(get_db)):
+    """Fetch a single intern by UUID."""
+    intern = db.query(InternsAndStudents).filter(InternsAndStudents.intern_id == intern_id).first()
+    if not intern:
+        raise HTTPException(status_code=404, detail="Intern/Student record not found")
+
+    intern.skills = (
+        db.query(InternSkill)
+        .filter(InternSkill.intern_id == intern_id)
+        .all()
     )
+    return intern
 
-    candidate = InternsAndStudents(
-        name=name,
-        email=email,
-        college_institution=college_institution,
-        degree_program=degree_program,
-        role=role,
-        resume_document_url=file_url
-    )
-    db.add(candidate)
+
+@router.patch("/{intern_id}", response_model=InternResponse)
+def update_intern(intern_id: UUID, intern_in: InternUpdate, db: Session = Depends(get_db)):
+    """Update intern details, status (AVAILABLE/ASSIGNED), or review status."""
+    intern = db.query(InternsAndStudents).filter(InternsAndStudents.intern_id == intern_id).first()
+    if not intern:
+        raise HTTPException(status_code=404, detail="Intern/Student record not found")
+
+    update_data = intern_in.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(intern, field, value)
+
     db.commit()
-    db.refresh(candidate)
-    return candidate
+    db.refresh(intern)
+
+    intern.skills = (
+        db.query(InternSkill)
+        .filter(InternSkill.intern_id == intern_id)
+        .all()
+    )
+    return intern
+
+
+@router.delete("/{intern_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_intern(intern_id: UUID, db: Session = Depends(get_db)):
+    """Delete an intern record."""
+    intern = db.query(InternsAndStudents).filter(InternsAndStudents.intern_id == intern_id).first()
+    if not intern:
+        raise HTTPException(status_code=404, detail="Intern/Student record not found")
+
+    db.delete(intern)
+    db.commit()
+    return None
+
+
+# ==========================================
+# INTERN SKILLS ENDPOINTS
+# ==========================================
+@router.post("/{intern_id}/skills", response_model=InternSkillResponse, status_code=status.HTTP_201_CREATED)
+def add_intern_skill(intern_id: UUID, skill_in: InternSkillCreate, db: Session = Depends(get_db)):
+    """Add or link a new skill to an existing intern."""
+    intern = db.query(InternsAndStudents).filter(InternsAndStudents.intern_id == intern_id).first()
+    if not intern:
+        raise HTTPException(status_code=404, detail="Intern/Student record not found")
+
+    skill_data = skill_in.model_dump(exclude={"intern_id"})
+    new_skill = InternSkill(intern_id=intern_id, **skill_data)
+
+    db.add(new_skill)
+    db.commit()
+    db.refresh(new_skill)
+    return new_skill
+
+
+@router.delete("/{intern_id}/skills/{skill_entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_intern_skill(intern_id: UUID, skill_entry_id: UUID, db: Session = Depends(get_db)):
+    """Remove a skill entry from an intern."""
+    skill_entry = db.query(InternSkill).filter(
+        InternSkill.id == skill_entry_id,
+        InternSkill.intern_id == intern_id
+    ).first()
+
+    if not skill_entry:
+        raise HTTPException(status_code=404, detail="Intern skill entry not found")
+
+    db.delete(skill_entry)
+    db.commit()
+    return None

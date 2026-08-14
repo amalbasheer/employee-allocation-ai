@@ -1,58 +1,94 @@
 # app/schemas/employee.py
-from pydantic import BaseModel, EmailStr
-from typing import Optional
+from datetime import date, datetime
+from typing import List, Optional
 from uuid import UUID
+from pydantic import BaseModel, ConfigDict, EmailStr
 
-class EmployeeBase(BaseModel):
+
+# ==========================================
+# EMPLOYEE SKILL SCHEMAS (Composite Key)
+# ==========================================
+class EmployeeSkillBase(BaseModel):
+    skill_id: UUID
+    proficiency_level: int = 1
+    is_custom_override: bool = False
+
+
+class EmployeeSkillCreate(EmployeeSkillBase):
+    employee_id: Optional[UUID] = None
+    skill_embedding: Optional[List[float]] = None  # 768-dim float list for Gemini
+
+
+class EmployeeSkillUpdate(BaseModel):
+    proficiency_level: Optional[int] = None
+    is_custom_override: Optional[bool] = None
+    skill_embedding: Optional[List[float]] = None
+
+
+class EmployeeSkillResponse(EmployeeSkillBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    employee_id: UUID
+    skill_embedding: Optional[List[float]] = None
+
+
+# ==========================================
+# AVAILABILITY SCHEMAS
+# ==========================================
+class AvailabilityBase(BaseModel):
+    resource_type: str = "employee"  # 'employee' or 'intern'
+    resource_id: UUID
+    week_start_date: date
+    available_hours: int
+    is_on_leave: bool = False
+
+
+class AvailabilityCreate(AvailabilityBase):
+    pass
+
+
+class AvailabilityUpdate(BaseModel):
+    available_hours: Optional[int] = None
+    is_on_leave: Optional[bool] = None
+
+
+class AvailabilityResponse(AvailabilityBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    availability_id: UUID
+
+
+# ==========================================
+# COMPANY EMPLOYEE SCHEMAS
+# ==========================================
+class CompanyEmployeeBase(BaseModel):
     name: str
     email: EmailStr
-    designation_id: Optional[UUID] = None
     department: str
+    designation_id: Optional[UUID] = None
     experience_years: float = 0.0
     weekly_capacity_hours: int = 40
     is_team_lead: bool = False
 
-class EmployeeCreate(EmployeeBase):
-    pass
 
-class EmployeeUpdate(BaseModel):
+class CompanyEmployeeCreate(CompanyEmployeeBase):
+    # Allows attaching initial skills during employee creation
+    skills: Optional[List[EmployeeSkillBase]] = None
+
+
+class CompanyEmployeeUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
-    designation_id: Optional[UUID] = None
     department: Optional[str] = None
+    designation_id: Optional[UUID] = None
     experience_years: Optional[float] = None
     weekly_capacity_hours: Optional[int] = None
     is_team_lead: Optional[bool] = None
 
-class EmployeeResponse(EmployeeBase):
+
+class CompanyEmployeeResponse(CompanyEmployeeBase):
+    model_config = ConfigDict(from_attributes=True)
+
     employee_id: UUID
-
-    class Config:
-        from_attributes = True
-
-class EmployeeSkillBase(BaseModel):
-    skill_id: UUID
-    proficiency_level: float = 1.0
-    years_experience: float = 0.0
-
-class EmployeeSkillCreate(EmployeeSkillBase):
-    pass
-
-class EmployeeSkillResponse(EmployeeSkillBase):
-    id: UUID
-    employee_id: UUID
-
-    class Config:
-        from_attributes = True
-
-class AvailabilityBase(BaseModel):
-    resource_id: UUID
-    resource_type: str
-    allocated_hours: int = 0
-    available_hours: int = 40
-
-class AvailabilityResponse(AvailabilityBase):
-    availability_id: UUID
-
-    class Config:
-        from_attributes = True
+    created_at: datetime
+    skills: List[EmployeeSkillResponse] = []

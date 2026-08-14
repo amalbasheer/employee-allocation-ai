@@ -1,46 +1,72 @@
 # app/schemas/intern.py
-from pydantic import BaseModel, EmailStr
-from typing import Optional, Literal
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 from uuid import UUID
+from pydantic import BaseModel, ConfigDict, EmailStr
 
+
+# ==========================================
+# INTERN SKILL SCHEMAS
+# ==========================================
+class InternSkillBase(BaseModel):
+    skill_id: UUID
+    proficiency_level: float = 1.0
+    extraction_confidence: float = 0.85
+
+
+class InternSkillCreate(InternSkillBase):
+    intern_id: Optional[UUID] = None
+
+
+class InternSkillUpdate(BaseModel):
+    proficiency_level: Optional[float] = None
+    extraction_confidence: Optional[float] = None
+
+
+class InternSkillResponse(InternSkillBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    intern_id: UUID
+
+
+# ==========================================
+# INTERNS & STUDENTS SCHEMAS
+# ==========================================
 class InternBase(BaseModel):
     name: str
     email: EmailStr
     college_institution: str
     degree_program: Optional[str] = None
-    role: Literal["intern", "student"] = "intern"
     resume_document_url: str
-    current_status: Optional[str] = "AVAILABLE"
+    extracted_skills_raw: Optional[Any] = None  # JSONB field payload
+    review_status: str = "pending_review"
+    reviewed_by: Optional[str] = None
+    role: str = "intern"
+    current_status: str = "AVAILABLE"
+
 
 class InternCreate(InternBase):
-    pass
+    # Allows attaching initial skills during intern onboarding/resume parsing
+    skills: Optional[List[InternSkillBase]] = None
 
-class InternRegisterWithUrl(BaseModel):
-    name: str
-    email: EmailStr
-    resume_url: str
+
+class InternUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    college_institution: Optional[str] = None
+    degree_program: Optional[str] = None
+    resume_document_url: Optional[str] = None
+    extracted_skills_raw: Optional[Any] = None
+    review_status: Optional[str] = None
+    reviewed_by: Optional[str] = None
+    role: Optional[str] = None
+    current_status: Optional[str] = None  # e.g., 'AVAILABLE' or 'ASSIGNED'
+
 
 class InternResponse(InternBase):
+    model_config = ConfigDict(from_attributes=True)
+
     intern_id: UUID
-    name: str
-    email: EmailStr
-    college_institution: str
-    resume_document_url: str
-    review_status: str
-
-    class Config:
-        from_attributes = True
-
-class InternSkillBase(BaseModel):
-    skill_id: UUID
-    proficiency_level: float = 1.0
-
-class InternSkillCreate(InternSkillBase):
-    pass
-
-class InternSkillResponse(InternSkillBase):
-    id: UUID
-    intern_id: UUID
-
-    class Config:
-        from_attributes = True
+    created_at: datetime
+    skills: List[InternSkillResponse] = []
