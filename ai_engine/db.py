@@ -1,12 +1,8 @@
 """
 db.py
 All the raw database reads live here — one place, so if TM renames a
-column later, you only fix it in this file.
-
-NOTE: column names below match what's been discussed so far
-(college_institution, role, current_status, skill_embedding on the
-skills table, can_lead_projects on designations). If her live schema
-differs, update the SQL here — nothing else needs to change.
+column later, you only fix it in this file, not scattered across
+extraction/matching/recommend code.
 """
 
 import os
@@ -23,6 +19,7 @@ engine = create_engine(DATABASE_URL)
 
 
 def get_project(project_id: str) -> dict:
+    """Fetch one project's core fields (title, type, status, etc.)."""
     with engine.connect() as conn:
         row = conn.execute(
             text("SELECT * FROM projects WHERE project_id = :pid"),
@@ -32,6 +29,10 @@ def get_project(project_id: str) -> dict:
 
 
 def get_project_requirements(project_id: str) -> list[dict]:
+    """
+    Fetch a project's required skills, joined with the shared skills
+    table to get each skill's embedding.
+    """
     with engine.connect() as conn:
         rows = conn.execute(
             text("""
@@ -55,26 +56,31 @@ def get_project_requirements(project_id: str) -> list[dict]:
 
 
 def get_available_mentors() -> list[dict]:
+    """
+    Fetch mentors/employees. is_team_lead lives directly on
+    company_employees — no join needed.
+    """
     with engine.connect() as conn:
         rows = conn.execute(
             text("""
-                SELECT e.employee_id AS id, e.name, e.weekly_capacity_hours,
-                       d.can_lead_projects
-                FROM company_employees e
-                JOIN designations d ON e.designation_id = d.designation_id
-                WHERE e.is_active = TRUE
+                SELECT employee_id AS id, name, weekly_capacity_hours, is_team_lead
+                FROM company_employees
             """)
         ).mappings().fetchall()
     return [dict(r) for r in rows]
 
 
 def get_available_interns() -> list[dict]:
+    """
+    Fetch interns/students who are currently free — one project at a
+    time, so this is a simple status check, not hours math.
+    """
     with engine.connect() as conn:
         rows = conn.execute(
             text("""
                 SELECT intern_id AS id, name, role, current_status
                 FROM interns_and_students
-                WHERE current_status = 'available'
+                WHERE current_status = 'AVAILABLE'
                   AND review_status = 'verified'
             """)
         ).mappings().fetchall()
@@ -82,6 +88,11 @@ def get_available_interns() -> list[dict]:
 
 
 def get_person_skills(person_id: str, person_type: str) -> list[dict]:
+    """
+    Fetch one person's skills + embeddings, joined through the shared
+    skills table. Works for either an employee or an intern — same
+    shape either way, so matching.py doesn't need to know which.
+    """
     table = "employee_skills" if person_type == "employee" else "intern_skills"
     id_column = "employee_id" if person_type == "employee" else "intern_id"
 
