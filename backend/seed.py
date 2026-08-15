@@ -55,11 +55,25 @@ try:
         print("Generating embeddings for master skills...", flush=True)
         skill_data = [
             ("Python", "tech_stack"),
-            ("FastAPI", "tech_stack"),
             ("React.js", "tech_stack"),
+            ("FastAPI", "tech_stack"),
+            ("SQL", "tech_stack"),
             ("PostgreSQL", "tech_stack"),
+            ("Docker", "tech_stack"),
+            ("Git", "tech_stack"),
+            ("PyTorch", "tech_stack"),
+            ("TensorFlow", "tech_stack"),
+            ("LangChain", "tech_stack"),
             ("Machine Learning", "domain"),
+            ("Deep Learning", "domain"),
+            ("Data Analytics", "domain"),
+            ("Natural Language Processing", "domain"),
             ("Computer Vision", "domain"),
+            ("Power BI", "tech_stack"),
+            ("Tableau", "tech_stack"),
+            ("Communication", "soft_skill"),
+            ("Public Speaking", "soft_skill"),
+            ("Mentoring", "soft_skill"),
         ]
         names = [name for name, _ in skill_data]
         vectors = generate_embeddings_batch(names)  # ONE API call for all of them

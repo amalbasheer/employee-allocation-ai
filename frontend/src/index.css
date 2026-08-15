@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-slate-950 text-slate-100 font-sans antialiased selection:bg-indigo-500/30 selection:text-indigo-200 overflow-x-hidden;
+  }
+
+  /* Custom minimal dark mode scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #020617;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #1e293b;
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #334155;
+  }
+}
+
+@layer utilities {
+  /* Glassmorphism helpers */
+  .glass-card {
+    @apply bg-slate-900/80 backdrop-blur-md border border-slate-800/80 shadow-2xl;
+  }
+
+  .glass-panel {
+    @apply bg-slate-950/70 backdrop-blur-lg border border-slate-800/60;
+  }
+
+  /* Gradient stroke utility for active vector cards */
+  .gradient-border {
+    position: relative;
+    background: linear-gradient(#0f172a, #0f172a) padding-box,
+                linear-gradient(to right, #6366f1, #10b981) border-box;
+    border: 1px solid transparent;
+  }
+}
