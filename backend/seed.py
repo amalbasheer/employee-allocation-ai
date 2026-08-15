@@ -48,52 +48,43 @@ print(">>> [5/5] Seeding master taxonomy data...", flush=True)
 
 db = SessionLocal()
 try:
-    existing_skills = db.query(Skill).first()
-    if existing_skills:
-        print("ℹ️ Database is already seeded. Skipping insert.", flush=True)
-    else:
+    if not db.query(Skill).first():
         print("Generating embeddings for master skills...", flush=True)
         skill_data = [
             ("Python", "tech_stack"),
-            ("React.js", "tech_stack"),
             ("FastAPI", "tech_stack"),
-            ("SQL", "tech_stack"),
+            ("React.js", "tech_stack"),
             ("PostgreSQL", "tech_stack"),
-            ("Docker", "tech_stack"),
-            ("Git", "tech_stack"),
-            ("PyTorch", "tech_stack"),
-            ("TensorFlow", "tech_stack"),
-            ("LangChain", "tech_stack"),
             ("Machine Learning", "domain"),
-            ("Deep Learning", "domain"),
-            ("Data Analytics", "domain"),
-            ("Natural Language Processing", "domain"),
             ("Computer Vision", "domain"),
-            ("Power BI", "tech_stack"),
-            ("Tableau", "tech_stack"),
-            ("Communication", "soft_skill"),
-            ("Public Speaking", "soft_skill"),
-            ("Mentoring", "soft_skill"),
         ]
         names = [name for name, _ in skill_data]
-        vectors = generate_embeddings_batch(names)  # ONE API call for all of them
+        vectors = generate_embeddings_batch(names)
 
         print("Inserting master skills (with embeddings)...", flush=True)
         skills = [
-            Skill(skill_name=name, category=category, skill_embedding=vector)
+            Skill(name=name, category=category, skill_embedding=vector)
             for (name, category), vector in zip(skill_data, vectors)
         ]
         db.add_all(skills)
+        db.commit()
+        print("✅ Skills inserted.", flush=True)
+    else:
+        print("ℹ️ Skills already seeded, skipping.", flush=True)
 
+    if not db.query(Designation).first():
         print("Inserting master designations...", flush=True)
         designations = [
             Designation(title="Senior AI Engineer", department="AI/ML"),
             Designation(title="Fullstack Developer", department="Web Dev"),
         ]
         db.add_all(designations)
-
         db.commit()
-        print("🎉 SUCCESS: Master data + embeddings inserted into Supabase!", flush=True)
+        print("✅ Designations inserted.", flush=True)
+    else:
+        print("ℹ️ Designations already seeded, skipping.", flush=True)
+
+    print("🎉 SUCCESS: Seeding complete!", flush=True)
 
 except Exception as e:
     db.rollback()
