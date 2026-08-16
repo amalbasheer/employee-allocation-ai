@@ -8,7 +8,7 @@ skill gap) to actually stress-test matching/optimization logic.
 import random
 from uuid import uuid4
 from sqlalchemy import text
-from db import engine
+from app.database import engine
 from seed_skills import get_or_create_skill
 
 DA_SKILLS = ["Python", "SQL", "Data Analytics", "Power BI", "Tableau", "Statistics"]
@@ -74,6 +74,3 @@ def seed_dummy_interns():
 
     print("✅ 20 interns created (10 DA, 10 DS) — 2 marked busy, 2 given weak skill spreads.")
 
-
-if __name__ == "__main__":
-    seed_dummy_interns()

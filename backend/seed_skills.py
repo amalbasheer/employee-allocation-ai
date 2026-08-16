@@ -1,3 +1,4 @@
+# backend/seed.py
 """
 seed_skills.py
 Populates the `skills` table with a starter list of skills, each with
@@ -7,9 +8,15 @@ reuse an existing skill's embedding instead of regenerating it.
 """
 
 import os
+import sys
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
-from embedding import generate_embeddings_batch, generate_embedding
+from pathlib import Path
+
+# Add project root (one level up) to sys.path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+from ai_engine.embedding import generate_embeddings_batch, generate_embedding
 
 load_dotenv()
 
@@ -95,6 +102,7 @@ def get_or_create_skill(skill_name: str, category: str = "tech_stack") -> str:
         return row[0]  # existing skill_id, no new API call
 
     # New skill — one embedding call, one insert
+    sys.path.append(os.path.join(os.path.dirname(__file__), "..", "ai_engine"))
     embedding = generate_embedding(skill_name)
     with engine.begin() as conn:
         result = conn.execute(
@@ -108,7 +116,3 @@ def get_or_create_skill(skill_name: str, category: str = "tech_stack") -> str:
         new_id = result.fetchone()[0]
 
     return new_id
-
-
-if __name__ == "__main__":
-    seed_skills()

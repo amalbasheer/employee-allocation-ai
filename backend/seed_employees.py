@@ -8,7 +8,7 @@ one nearly-at-capacity, one with a skill gap.
 import random
 from uuid import uuid4
 from sqlalchemy import text
-from db import engine
+from app.database import engine
 from seed_skills import get_or_create_skill
 
 DA_SKILLS = ["Python", "SQL", "Data Analytics", "Power BI", "Tableau", "Statistics"]
@@ -83,6 +83,3 @@ def seed_dummy_employees():
 
     print("✅ 20 employees created (10 DA, 10 DS) — 4 team leads each, 1 near-capacity, 1 skill-gap per domain.")
 
-
-if __name__ == "__main__":
-    seed_dummy_employees()

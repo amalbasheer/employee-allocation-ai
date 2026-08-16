@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { Sparkles, ShieldCheck, AlertCircle } from 'lucide-react';
+import { ShieldCheck, AlertCircle } from 'lucide-react';
+import { AlignIQLogo } from '../../components/common/AlignIQLogo';
 import api from '../../services/api';
 
 export const Login: React.FC = () => {
@@ -50,8 +51,8 @@ export const Login: React.FC = () => {
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
       <div className="w-full max-w-md bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl space-y-6">
         <div className="text-center space-y-2">
-          <div className="w-12 h-12 bg-indigo-600/20 border border-indigo-500/30 text-indigo-400 rounded-2xl flex items-center justify-center mx-auto mb-2">
-            <Sparkles className="w-6 h-6" />
+          <div className="flex items-center justify-center">
+            <AlignIQLogo className="w-6 h-6 text-indigo-400" />
           </div>
           <h1 className="text-xl font-bold text-white tracking-tight">AlignIQ</h1>
           <p className="text-xs text-slate-400">Sign in to access your assigned workspace</p>
@@ -102,6 +103,17 @@ export const Login: React.FC = () => {
             {loading ? 'Authenticating...' : 'Enter Workspace'}
           </button>
         </form>
+
+        {/* Link to Register Page */}
+        <div className="pt-2 text-center text-xs text-slate-400 border-t border-slate-800/60">
+          Don't have an account?{' '}
+          <Link
+            to="/register"
+            className="text-indigo-400 hover:text-indigo-300 font-medium transition-colors"
+          >
+            Create an account
+          </Link>
+        </div>
       </div>
     </div>
   );

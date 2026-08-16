@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppLayout } from './components/layout/AppLayout';
 import { Login } from './pages/auth/Login';
+import { Register } from './pages/auth/Register';
 import { OverviewDashboard } from './pages/admin/OverviewDashboard';
 import { UserManagement } from './pages/admin/UserManagement';
 import { WebinarManagement } from './pages/admin/WebinarManagement';
@@ -42,6 +43,8 @@ export default function App() {
           {/* Public Login Route */}
           <Route path="/login" element={<Login />} />
           <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/register" element={<Register />} />
+          
 
           {/* Protected Routes inside AppLayout */}
           <Route element={<ProtectedRoute />}>
