@@ -1,531 +1,601 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  GitMerge, 
-  Sparkles, 
-  Send, 
-  CheckCircle2, 
-  Clock, 
-  Search, 
-  Cpu, 
-  Zap, 
-  ChevronRight,
-  ShieldAlert
-} from 'lucide-react';
+import React, { useState } from 'react';
 import { Card } from '../../components/common/Card';
-import { Badge } from '../../components/common/Badge';
-import { Modal } from '../../components/common/Modal';
-import { projectService } from '../../services/projectService';
-import { allocationService } from '../../services/allocationService';
-import { Project, ResourceMatch } from '../../types';
+import { 
+  FolderPlus, Plus, Calendar, CheckCircle2, Clock, Users, X, 
+  Layers, UserPlus, Tag, GraduationCap, UserCheck, Sliders, 
+  ArrowRight, Star, Send, XCircle
+} from 'lucide-react';
+
+export type ProjectStatus = 'UNASSIGNED' | 'PROPOSED' | 'ACCEPTED' | 'REJECTED' | 'ALLOCATED';
+export type MainTab = 'ALL_PROJECTS' | 'RECOMMENDATIONS';
+export type RecommendationSubTab = 'MENTORS' | 'STUDENTS';
+
+export interface Mentor {
+  id: string;
+  name: string;
+  role: string;
+  matchScore: number;
+  skills: string[];
+}
+
+export interface Student {
+  id: string;
+  name: string;
+  university: string;
+  matchScore: number;
+  skills: string[];
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  category: string;
+  status: ProjectStatus;
+  requiredSkills: string[];
+  startDate: string;
+  proposedMentorId?: string;
+  proposedMentorName?: string;
+  allocatedStudents: string[];
+}
+
+// Mock Data Pool
+const mockMentors: Mentor[] = [
+  { id: 'm-1', name: 'Dr. Sarah Jenkins', role: 'Principal AI Engineer', matchScore: 98, skills: ['PyTorch', 'CUDA', 'FastAPI'] },
+  { id: 'm-2', name: 'Alex Morgan', role: 'Staff Systems Architect', matchScore: 91, skills: ['Go', 'Kubernetes', 'AWS'] },
+  { id: 'm-3', name: 'Elena Rostova', role: 'Lead Cloud Security Engineer', matchScore: 84, skills: ['Terraform', 'Security', 'Python'] },
+];
+
+const mockStudents: Student[] = [
+  { id: 's-1', name: 'John Doe', university: 'Stanford University', matchScore: 95, skills: ['Python', 'PyTorch', 'Git'] },
+  { id: 's-2', name: 'Maya Patel', university: 'MIT', matchScore: 89, skills: ['FastAPI', 'Docker', 'REST API'] },
+  { id: 's-3', name: 'Liam Vance', university: 'UC Berkeley', matchScore: 82, skills: ['Go', 'Kubernetes', 'Linux'] },
+];
+
+const initialProjects: Project[] = [
+  {
+    id: 'p-101',
+    name: 'AI-Powered Recommendation Engine',
+    category: 'Machine Learning',
+    status: 'ACCEPTED',
+    requiredSkills: ['Python', 'PyTorch', 'FastAPI'],
+    startDate: 'Sep 01, 2026',
+    proposedMentorId: 'm-1',
+    proposedMentorName: 'Dr. Sarah Jenkins',
+    allocatedStudents: ['John Doe'],
+  },
+  {
+    id: 'p-102',
+    name: 'Cloud Infrastructure Migration',
+    category: 'DevOps & Security',
+    status: 'UNASSIGNED',
+    requiredSkills: ['AWS', 'Kubernetes', 'Terraform'],
+    startDate: 'Sep 15, 2026',
+    allocatedStudents: [],
+  },
+  {
+    id: 'p-103',
+    name: 'Distributed Database Analytics Pipeline',
+    category: 'Backend Architecture',
+    status: 'PROPOSED',
+    requiredSkills: ['Go', 'PostgreSQL', 'Docker'],
+    startDate: 'Oct 01, 2026',
+    proposedMentorId: 'm-2',
+    proposedMentorName: 'Alex Morgan',
+    allocatedStudents: [],
+  },
+];
 
 export const ProjectAllocation: React.FC = () => {
-  // Projects State
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  const [loadingProjects, setLoadingProjects] = useState<boolean>(true);
-
-  // Recommendations / Vector Matching State
-  const [recommendations, setRecommendations] = useState<ResourceMatch[]>([]);
-  const [loadingRecommendations, setLoadingRecommendations] = useState<boolean>(false);
-  const [searchQuery, setSearchQuery] = useState<string>('');
-
-  // Proposal Modal State
+  const [projects, setProjects] = useState<Project[]>(initialProjects);
+  const [activeTab, setActiveTab] = useState<MainTab>('ALL_PROJECTS');
+  const [recommendationSubTab, setRecommendationSubTab] = useState<RecommendationSubTab>('MENTORS');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('p-102');
+  
+  // Modal State
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
-  const [selectedCandidate, setSelectedCandidate] = useState<ResourceMatch | null>(null);
-  const [roleOnProject, setRoleOnProject] = useState<string>('');
-  const [submittingProposal, setSubmittingProposal] = useState<boolean>(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [projectName, setProjectName] = useState('');
+  const [category, setCategory] = useState('Machine Learning');
+  const [startDate, setStartDate] = useState('');
+  const [skillsInput, setSkillsInput] = useState('');
 
-  // Fallback Projects Data
-  const fallbackProjects: Project[] = [
-    {
-      project_id: 'proj-101',
-      title: 'LLM Fine-Tuning & RAG Pipeline',
-      description: 'Build an enterprise RAG knowledge graph with vector embeddings and custom LoRA adapters.',
-      department: 'AI/ML Engineering',
-      required_skills: ['Python', 'FastAPI', 'PyTorch', 'PostgreSQL', 'LangChain'],
-      status: 'OPEN',
-      created_at: '2026-08-10',
-    },
-    {
-      project_id: 'proj-102',
-      title: 'Real-time Computer Vision Edge Analytics',
-      description: 'Deploy low-latency Object Detection models on edge devices for manufacturing quality inspection.',
-      department: 'Computer Vision',
-      required_skills: ['Python', 'Computer Vision', 'PyTorch', 'Docker', 'Git'],
-      status: 'OPEN',
-      created_at: '2026-08-12',
-    },
-    {
-      project_id: 'proj-103',
-      title: 'Automated Financial Forecasting Dashboard',
-      description: 'Create interactive dashboards and statistical forecasting models for executive metrics.',
-      department: 'Data Analytics',
-      required_skills: ['SQL', 'Power BI', 'Data Analytics', 'Python', 'Communication'],
-      status: 'IN_PROGRESS',
-      created_at: '2026-08-01',
-    },
-  ];
+  const selectedProject = projects.find((p) => p.id === selectedProjectId) || projects[0];
 
-  // Fallback Candidate Vector Matches
-  const fallbackMatches: Record<string, ResourceMatch[]> = {
-    'proj-101': [
-      {
-        resource_id: 'res-1',
-        name: 'Dr. Sarah Jenkins',
-        resource_type: 'EMPLOYEE',
-        designation: 'Senior AI Engineer',
-        suitability_score: 95.8,
-        matching_skills: ['Python', 'FastAPI', 'PyTorch', 'LangChain', 'PostgreSQL'],
-        missing_skills: [],
-        availability_status: 'AVAILABLE',
-      },
-      {
-        resource_id: 'res-2',
-        name: 'Alex Rivera',
-        resource_type: 'STUDENT',
-        department_or_domain: 'AI Research Intern',
-        suitability_score: 88.4,
-        matched_skills: ['Python', 'FastAPI', 'PostgreSQL'],
-        missing_skills: ['PyTorch', 'LangChain'],
-        availability_status: 'AVAILABLE',
-      },
-      {
-        resource_id: 'res-3',
-        name: 'Marcus Vance',
-        resource_type: 'EMPLOYEE',
-        designation: 'Fullstack Developer',
-        suitability_score: 74.2,
-        matching_skills: ['Python', 'FastAPI', 'PostgreSQL'],
-        missing_skills: ['PyTorch', 'LangChain'],
-        availability_status: 'AVAILABLE',
-      },
-    ],
-    'proj-102': [
-      {
-        resource_id: 'res-4',
-        name: 'Elena Rostova',
-        resource_type: 'EMPLOYEE',
-        department_or_domain: 'Computer Vision',
-        suitability_score: 94.1,
-        matched_skills: ['Python', 'Computer Vision', 'PyTorch', 'Docker'],
-        missing_skills: ['Git'],
-        availability_status: 'AVAILABLE',
-      },
-    ],
-  };
-
-  // Load Initial Projects
-  useEffect(() => {
-    const fetchProjects = async () => {
-      setLoadingProjects(true);
-      try {
-        const data = await projectService.getProjects();
-        if (data && data.length > 0) {
-          setProjects(data);
-          setSelectedProject(data[0]);
-        } else {
-          setProjects(fallbackProjects);
-          setSelectedProject(fallbackProjects[0]);
-        }
-      } catch (err) {
-        console.warn('API unavailable, using initial fallback project data.', err);
-        setProjects(fallbackProjects);
-        setSelectedProject(fallbackProjects[0]);
-      } finally {
-        setLoadingProjects(false);
-      }
-    };
-
-    fetchProjects();
-  }, []);
-
-  // Retrieve Vector Recommendations when Selected Project Changes
-  useEffect(() => {
-    if (!selectedProject) return;
-
-    const fetchRecommendations = async () => {
-      setLoadingRecommendations(true);
-      try {
-        const matches = await allocationService.getRecommendations(selectedProject.project_id, 3);
-        if (matches && matches.length > 0) {
-          setRecommendations(matches);
-        } else {
-          setRecommendations(fallbackMatches[selectedProject.project_id] || fallbackMatches['proj-101']);
-        }
-      } catch (err) {
-        console.warn('API unavailable, using fallback vector recommendation calculations.', err);
-        setRecommendations(fallbackMatches[selectedProject.project_id] || fallbackMatches['proj-101']);
-      } finally {
-        setLoadingRecommendations(false);
-      }
-    };
-
-    fetchRecommendations();
-  }, [selectedProject]);
-
-  // Open Proposal Modal
-  const handleOpenProposal = (candidate: ResourceMatch) => {
-    setSelectedCandidate(candidate);
-    setRoleOnProject(candidate.department_or_domain || 'Project Member');
-    setIsModalOpen(true);
-  };
-
-  // Submit Proposal
-  const handleSendProposal = async (e: React.FormEvent) => {
+  // --- Handlers ---
+  const handleAddProject = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedProject || !selectedCandidate) return;
+    if (!projectName.trim()) return;
 
-    setSubmittingProposal(true);
-    try {
-      await allocationService.proposeAllocation(
-        selectedProject.project_id,
-        selectedCandidate.resource_id,
-        roleOnProject
-      );
-      showToast(`Proposal successfully dispatched to ${selectedCandidate.name}!`);
-    } catch (err) {
-      console.warn('Backend API fallback triggered for proposal submission.', err);
-      showToast(`Proposal sent to ${selectedCandidate.name} (Demo Mode).`);
-    } finally {
-      setSubmittingProposal(false);
-      setIsModalOpen(false);
+    const newProject: Project = {
+      id: `p-${Date.now()}`,
+      name: projectName,
+      category,
+      status: 'UNASSIGNED',
+      requiredSkills: skillsInput ? skillsInput.split(',').map((s) => s.trim()) : [],
+      startDate: startDate || 'TBD',
+      allocatedStudents: [],
+    };
+
+    setProjects([newProject, ...projects]);
+    setProjectName('');
+    setCategory('Machine Learning');
+    setStartDate('');
+    setSkillsInput('');
+    setIsModalOpen(false);
+  };
+
+  const handleProposeMentor = (projectId: string, mentor: Mentor) => {
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === projectId
+          ? { ...p, status: 'PROPOSED', proposedMentorId: mentor.id, proposedMentorName: mentor.name }
+          : p
+      )
+    );
+  };
+
+  const handleConfirmMentor = (projectId: string) => {
+    setProjects((prev) =>
+      prev.map((p) => (p.id === projectId ? { ...p, status: 'ALLOCATED' } : p))
+    );
+  };
+
+  const handleAssignStudent = (projectId: string, studentName: string) => {
+    setProjects((prev) =>
+      prev.map((p) => {
+        if (p.id === projectId) {
+          const isAlreadyAssigned = p.allocatedStudents.includes(studentName);
+          const updatedStudents = isAlreadyAssigned
+            ? p.allocatedStudents.filter((name) => name !== studentName)
+            : [...p.allocatedStudents, studentName];
+          return { ...p, allocatedStudents: updatedStudents };
+        }
+        return p;
+      })
+    );
+  };
+
+  const handleManageAllocation = (projectId: string, initialSubTab: RecommendationSubTab = 'MENTORS') => {
+    setSelectedProjectId(projectId);
+    setRecommendationSubTab(initialSubTab);
+    setActiveTab('RECOMMENDATIONS');
+  };
+
+  const renderStatusBadge = (status: ProjectStatus) => {
+    switch (status) {
+      case 'UNASSIGNED':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700">
+            <Clock className="w-3 h-3" /> Unassigned
+          </span>
+        );
+      case 'PROPOSED':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+            <Send className="w-3 h-3" /> Proposed
+          </span>
+        );
+      case 'ACCEPTED':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
+            <UserCheck className="w-3 h-3" /> Mentor Accepted
+          </span>
+        );
+      case 'REJECTED':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20">
+            <XCircle className="w-3 h-3" /> Declined
+          </span>
+        );
+      case 'ALLOCATED':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <CheckCircle2 className="w-3 h-3" /> Fully Allocated
+          </span>
+        );
     }
   };
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 4000);
-  };
-
-  // Safe filtering handling optional/undefined department values
-  const filteredProjects = projects.filter((p) => {
-    const titleMatch = (p.title || '').toLowerCase().includes(searchQuery.toLowerCase());
-    const deptMatch = (p.department || '').toLowerCase().includes(searchQuery.toLowerCase());
-    return titleMatch || deptMatch;
-  });
-
   return (
     <div className="space-y-6">
-      {/* Toast Notification Banner */}
-      {toastMessage && (
-        <div className="fixed top-20 right-6 z-50 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 backdrop-blur-md animate-in fade-in slide-in-from-top-4">
-          <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-          <span className="text-xs font-semibold">{toastMessage}</span>
-        </div>
-      )}
-
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex justify-between items-center">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold text-white tracking-tight">Project Allocations</h1>
-            <span className="text-xs font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-              pgvector Engine
-            </span>
-          </div>
-          <p className="text-slate-400 text-sm mt-0.5">
-            Compute cosine similarity embeddings to match qualified staff and interns with active project requirements.
-          </p>
+          <h1 className="text-2xl font-bold text-white">Project Allocation Portal</h1>
+          <p className="text-slate-400 text-sm">Manage projects and assign recommended mentors and students.</p>
         </div>
+        <button
+          onClick={() => setIsModalOpen(true)}
+          className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg transition-all"
+        >
+          <Plus className="w-4 h-4" /> Add Project
+        </button>
       </div>
 
-      {/* Main Layout Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Project Selector (5 cols) */}
-        <div className="lg:col-span-5 space-y-4">
-          <Card 
-            title="Active Projects" 
-            subtitle="Select a project to calculate AI vector recommendations"
-          >
-            {/* Search Input */}
-            <div className="relative mb-4">
-              <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Search projects by title or department..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 text-xs text-white pl-9 pr-4 py-2 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              />
+      {/* Main Navigation Tabs */}
+      <div className="flex border-b border-slate-800 gap-6">
+        <button
+          onClick={() => setActiveTab('ALL_PROJECTS')}
+          className={`pb-3 text-sm font-medium flex items-center gap-2 border-b-2 transition-all ${
+            activeTab === 'ALL_PROJECTS'
+              ? 'border-indigo-500 text-indigo-400'
+              : 'border-transparent text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Layers className="w-4 h-4" /> All Projects ({projects.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('RECOMMENDATIONS')}
+          className={`pb-3 text-sm font-medium flex items-center gap-2 border-b-2 transition-all ${
+            activeTab === 'RECOMMENDATIONS'
+              ? 'border-indigo-500 text-indigo-400'
+              : 'border-transparent text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Sliders className="w-4 h-4" /> Resource Recommendations & Allocation
+        </button>
+      </div>
+
+      {/* TAB 1: ALL PROJECTS LIST */}
+      {activeTab === 'ALL_PROJECTS' && (
+        <Card title="Project Directory">
+          <div className="space-y-4">
+            {projects.map((project) => (
+              <div
+                key={project.id}
+                className="p-5 bg-slate-950 border border-slate-800 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all hover:border-slate-700"
+              >
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <h4 className="font-bold text-white text-base">{project.name}</h4>
+                    {renderStatusBadge(project.status)}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400">
+                    <span className="flex items-center gap-1 text-slate-300">
+                      <Tag className="w-3.5 h-3.5 text-indigo-400" /> {project.category}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Calendar className="w-3.5 h-3.5" /> Start: {project.startDate}
+                    </span>
+                  </div>
+
+                  {/* Skills required */}
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {project.requiredSkills.map((skill, index) => (
+                      <span key={index} className="text-[11px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded-md border border-slate-800">
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Resource Info & Actions */}
+                <div className="flex flex-col md:items-end gap-3 border-t md:border-t-0 border-slate-800 pt-3 md:pt-0">
+                  <div className="text-xs text-slate-400 space-y-1 md:text-right">
+                    <div>
+                      Mentor: {project.proposedMentorName ? (
+                        <strong className="text-slate-200">{project.proposedMentorName}</strong>
+                      ) : (
+                        <span className="text-amber-400/80 italic">Unassigned</span>
+                      )}
+                    </div>
+                    <div>
+                      Students ({project.allocatedStudents.length}): {project.allocatedStudents.length > 0 ? (
+                        <strong className="text-slate-200">{project.allocatedStudents.join(', ')}</strong>
+                      ) : (
+                        <span className="text-slate-500">None assigned</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => handleManageAllocation(project.id)}
+                    className="bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-700 flex items-center gap-1.5 transition-all self-start md:self-end"
+                  >
+                    Allocate Resources <ArrowRight className="w-3.5 h-3.5 text-indigo-400" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* TAB 2: RECOMMENDATIONS & ALLOCATION */}
+      {activeTab === 'RECOMMENDATIONS' && (
+        <Card title="Resource Recommendation Portal">
+          <div className="space-y-6">
+            
+            {/* Project Selector Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-slate-900 border border-slate-800 rounded-xl">
+              <div>
+                <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1">
+                  Select Target Project
+                </label>
+                <select
+                  value={selectedProjectId}
+                  onChange={(e) => setSelectedProjectId(e.target.value)}
+                  className="bg-slate-950 text-white text-sm font-semibold rounded-lg border border-slate-700 px-3 py-2 focus:outline-none focus:border-indigo-500"
+                >
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.category})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-slate-400">Current Status:</span>
+                {renderStatusBadge(selectedProject.status)}
+              </div>
             </div>
 
-            {/* Projects List */}
-            {loadingProjects ? (
-              <div className="py-8 text-center text-slate-500 text-xs flex flex-col items-center gap-2">
-                <Cpu className="w-6 h-6 animate-spin text-indigo-400" />
-                <span>Loading active project pool...</span>
-              </div>
-            ) : filteredProjects.length === 0 ? (
-              <p className="text-xs text-slate-500 text-center py-6">No matching projects found.</p>
-            ) : (
-              <div className="space-y-3">
-                {filteredProjects.map((proj) => {
-                  const isSelected = selectedProject?.project_id === proj.project_id;
-                  return (
-                    <div
-                      key={proj.project_id}
-                      onClick={() => setSelectedProject(proj)}
-                      className={`p-4 rounded-xl border transition-all cursor-pointer ${
-                        isSelected
-                          ? 'bg-indigo-600/10 border-indigo-500/50 shadow-md shadow-indigo-500/5'
-                          : 'bg-slate-950/70 border-slate-800 hover:border-slate-700 hover:bg-slate-950'
-                      }`}
-                    >
-                      <div className="flex justify-between items-start mb-1.5">
-                        <h4 className="font-bold text-white text-xs sm:text-sm line-clamp-1">
-                          {proj.title}
-                        </h4>
-                        <Badge
-                          label={proj.status || 'OPEN'}
-                          variant={proj.status === 'OPEN' ? 'emerald' : 'amber'}
-                        />
-                      </div>
-                      <p className="text-[11px] text-slate-400 line-clamp-2 mb-3">
-                        {proj.description}
-                      </p>
-
-                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/60 text-[10px]">
-                        <span className="text-slate-500">{proj.required_roles?.join(', ') || 'General'}</span>
-                        <div className="flex items-center gap-1 text-indigo-400 font-medium">
-                          <span>View Match Pool</span>
-                          <ChevronRight className="w-3.5 h-3.5" />
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+            {/* Mentor Acceptance Prompt (if mentor accepted) */}
+            {selectedProject.status === 'ACCEPTED' && (
+              <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-bold text-blue-300">Mentor Accepted Proposal!</p>
+                  <p className="text-xs text-slate-400">{selectedProject.proposedMentorName} accepted to lead this project.</p>
+                </div>
+                <button
+                  onClick={() => handleConfirmMentor(selectedProject.id)}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-all shadow-md"
+                >
+                  Confirm Mentor Allocation
+                </button>
               </div>
             )}
-          </Card>
-        </div>
 
-        {/* Right Column: Candidate Matching Panel (7 cols) */}
-        <div className="lg:col-span-7 space-y-4">
-          {selectedProject ? (
-            <Card
-              title="Candidate Recommendations"
-              subtitle={`Calculated embeddings for "${selectedProject.title}"`}
-              action={
-                <button
-                  onClick={() => setSelectedProject({ ...selectedProject })}
-                  className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg flex items-center gap-1.5 transition-colors"
-                >
-                  <Zap className="w-3.5 h-3.5 text-amber-400" />
-                  Recalculate Scores
-                </button>
-              }
-            >
-              {/* Project Requirements Overview Banner */}
-              <div className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl mb-6 space-y-2">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-slate-400">Target Department: <strong className="text-white">{selectedProject.department || 'N/A'}</strong></span>
-                  <span className="text-slate-500 text-[11px]">ID: {selectedProject.project_id}</span>
-                </div>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[11px] font-semibold text-slate-400 mr-1">Required Skills:</span>
-                  {(selectedProject.requirements?.map((req) => req.skill_name) || []).map((skill) => (
-                    <span
-                      key={skill}
-                      className="px-2 py-0.5 bg-slate-900 border border-slate-800 text-indigo-300 text-[10px] rounded-md font-mono"
-                    >
-                      {skill}
-                    </span>
-                  ))}
-                </div>
-              </div>
+            {/* Sub-Tabs for Separate Mentor and Student Recommendations */}
+            <div className="flex border-b border-slate-800 gap-4 pt-2">
+              <button
+                onClick={() => setRecommendationSubTab('MENTORS')}
+                className={`pb-2 text-xs font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-all ${
+                  recommendationSubTab === 'MENTORS'
+                    ? 'border-indigo-500 text-indigo-400'
+                    : 'border-transparent text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                <UserCheck className="w-4 h-4" /> Recommended Mentors
+              </button>
+              <button
+                onClick={() => setRecommendationSubTab('STUDENTS')}
+                className={`pb-2 text-xs font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-all ${
+                  recommendationSubTab === 'STUDENTS'
+                    ? 'border-indigo-500 text-indigo-400'
+                    : 'border-transparent text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                <GraduationCap className="w-4 h-4" /> Recommended Students / Interns
+              </button>
+            </div>
 
-              {/* Recommendations List */}
-              {loadingRecommendations ? (
-                <div className="py-12 text-center text-slate-500 text-xs flex flex-col items-center gap-3">
-                  <Sparkles className="w-8 h-8 animate-spin text-indigo-400" />
-                  <span>Generating pgvector cosine similarity rankings...</span>
-                </div>
-              ) : recommendations.length === 0 ? (
-                <div className="p-8 text-center bg-slate-950 rounded-xl border border-slate-800 text-slate-500 text-xs">
-                  No suitable candidates found meeting vector threshold limits.
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {recommendations.map((candidate, idx) => (
-                    <div
-                      key={candidate.resource_id}
-                      className="p-5 bg-slate-950 border border-slate-800 rounded-xl space-y-4 relative overflow-hidden group hover:border-slate-700 transition-all"
-                    >
-                      {/* Top Rank Badge */}
-                      {idx === 0 && (
-                        <div className="absolute top-0 right-0 bg-gradient-to-l from-emerald-500 to-teal-500 text-slate-950 text-[10px] font-black tracking-wider px-3 py-0.5 rounded-bl-lg uppercase">
-                          Top Match Recommendation
-                        </div>
-                      )}
+            {/* SUB-SECTION 1: MENTOR RECOMMENDATIONS */}
+            {recommendationSubTab === 'MENTORS' && (
+              <div className="space-y-3">
+                <p className="text-xs text-slate-400">
+                  Mentors are matched based on required project skills ({selectedProject.requiredSkills.join(', ')}). 
+                  Proposing sends an invitation for the mentor to accept or decline.
+                </p>
 
-                      {/* Header Info */}
-                      <div className="flex justify-between items-start pt-1">
-                        <div>
+                <div className="grid grid-cols-1 gap-3 pt-2">
+                  {mockMentors.map((mentor) => {
+                    const isProposed = selectedProject.proposedMentorId === mentor.id;
+
+                    return (
+                      <div
+                        key={mentor.id}
+                        className={`p-4 bg-slate-950 border rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
+                          isProposed ? 'border-indigo-500/50 bg-indigo-950/10' : 'border-slate-800'
+                        }`}
+                      >
+                        <div className="space-y-1">
                           <div className="flex items-center gap-2">
-                            <h3 className="font-bold text-white text-base">{candidate.name}</h3>
-                            <Badge
-                              label={candidate.resource_type || 'EMPLOYEE'}
-                              variant={candidate.resource_type === 'EMPLOYEE' ? 'emerald' : 'amber'}
-                            />
+                            <h5 className="font-bold text-white text-sm">{mentor.name}</h5>
+                            <span className="text-[10px] bg-emerald-500/10 text-emerald-400 font-mono px-2 py-0.5 rounded border border-emerald-500/20 flex items-center gap-1">
+                              <Star className="w-3 h-3 fill-emerald-400" /> {mentor.matchScore}% Match
+                            </span>
                           </div>
-                          <p className="text-xs text-slate-400 mt-0.5">{candidate.department_or_domain || 'Unspecified Domain'}</p>
-                        </div>
+                          <p className="text-xs text-slate-400">{mentor.role}</p>
 
-                        {/* Suitability Score Gauge */}
-                        <div className="text-right">
-                          <div className="text-xl font-black font-mono text-emerald-400">
-                            {(candidate.suitability_score || 0).toFixed(1)}%
-                          </div>
-                          <span className="text-[10px] text-slate-500">Cosine Similarity</span>
-                        </div>
-                      </div>
-
-                      {/* Vector Similarity Bar */}
-                      <div className="space-y-1">
-                        <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden border border-slate-800">
-                          <div
-                            className="bg-gradient-to-r from-indigo-500 via-teal-500 to-emerald-400 h-full rounded-full transition-all duration-500"
-                            style={{ width: `${candidate.suitability_score || 0}%` }}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Matching & Missing Skills Breakdown */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 text-xs">
-                        <div className="bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/80">
-                          <span className="text-[10px] font-semibold text-emerald-400 block mb-1.5 uppercase">
-                            Matched Vector Skills ({(candidate.matched_skills || []).length})
-                          </span>
-                          <div className="flex flex-wrap gap-1">
-                            {(candidate.matched_skills || []).map((s) => (
-                              <span key={s} className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-300 rounded text-[10px]">
-                                ✓ {s}
+                          <div className="flex flex-wrap gap-1 pt-1">
+                            {mentor.skills.map((skill, i) => (
+                              <span key={i} className="text-[10px] bg-slate-900 text-slate-400 px-2 py-0.5 rounded border border-slate-800">
+                                {skill}
                               </span>
                             ))}
                           </div>
                         </div>
 
-                        <div className="bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/80">
-                          <span className="text-[10px] font-semibold text-rose-400 block mb-1.5 uppercase">
-                            Missing Requirements ({(candidate.missing_skills || []).length})
-                          </span>
-                          <div className="flex flex-wrap gap-1">
-                            {(!candidate.missing_skills || candidate.missing_skills.length === 0) ? (
-                              <span className="text-[10px] text-slate-500 italic">None - Complete match</span>
-                            ) : (
-                              candidate.missing_skills.map((s) => (
-                                <span key={s} className="px-1.5 py-0.5 bg-rose-500/10 text-rose-300 rounded text-[10px]">
-                                  ✕ {s}
-                                </span>
-                              ))
-                            )}
-                          </div>
+                        {/* MENTOR WORKFLOW ACTIONS */}
+                        <div>
+                          {selectedProject.status === 'UNASSIGNED' && (
+                            <button
+                              onClick={() => handleProposeMentor(selectedProject.id, mentor)}
+                              className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all"
+                            >
+                              <UserPlus className="w-3.5 h-3.5" /> Propose Mentor
+                            </button>
+                          )}
+
+                          {isProposed && selectedProject.status === 'PROPOSED' && (
+                            <span className="text-xs text-amber-400 font-medium italic flex items-center gap-1.5 bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/20">
+                              <Clock className="w-3.5 h-3.5" /> Awaiting Acceptance
+                            </span>
+                          )}
+
+                          {isProposed && selectedProject.status === 'ACCEPTED' && (
+                            <button
+                              onClick={() => handleConfirmMentor(selectedProject.id)}
+                              className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-all"
+                            >
+                              Confirm
+                            </button>
+                          )}
+
+                          {isProposed && selectedProject.status === 'ALLOCATED' && (
+                            <span className="text-xs text-emerald-400 font-bold flex items-center gap-1.5 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/20">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Assigned Mentor
+                            </span>
+                          )}
                         </div>
                       </div>
-
-                      {/* Proposal Action Footer */}
-                      <div className="flex justify-between items-center pt-3 border-t border-slate-800 text-xs">
-                        <span className="text-slate-500 flex items-center gap-1.5 text-[11px]">
-                          <Clock className="w-3.5 h-3.5 text-amber-400" />
-                          Triggers 72-hour SLA response window
-                        </span>
-
-                        <button
-                          onClick={() => handleOpenProposal(candidate)}
-                          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-xl flex items-center gap-2 shadow-md shadow-indigo-600/20 transition-all"
-                        >
-                          <Send className="w-3.5 h-3.5" />
-                          Propose Allocation
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
-              )}
-            </Card>
-          ) : (
-            <Card>
-              <div className="py-16 text-center text-slate-500 text-xs flex flex-col items-center gap-2">
-                <GitMerge className="w-8 h-8 text-slate-700" />
-                <span>Select a project from the left panel to inspect vector allocations.</span>
               </div>
-            </Card>
-          )}
-        </div>
-      </div>
+            )}
 
-      {/* Proposal Modal */}
-      <Modal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        title="Propose Project Allocation"
-      >
-        {selectedCandidate && selectedProject && (
-          <form onSubmit={handleSendProposal} className="space-y-5">
-            {/* Context Summary */}
-            <div className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl space-y-2 text-xs">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Target Project:</span>
-                <strong className="text-white">{selectedProject.title}</strong>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Candidate:</span>
-                <strong className="text-emerald-400">{selectedCandidate.name} ({selectedCandidate.resource_type})</strong>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Similarity Match:</span>
-                <strong className="text-indigo-400 font-mono">{(selectedCandidate.suitability_score || 0).toFixed(1)}%</strong>
-              </div>
-            </div>
+            {/* SUB-SECTION 2: STUDENT RECOMMENDATIONS */}
+            {recommendationSubTab === 'STUDENTS' && (
+              <div className="space-y-3">
+                <p className="text-xs text-slate-400">
+                  Students/Interns can be directly assigned to projects by the admin without proposal steps.
+                </p>
 
-            {/* Role Assignment Input */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                Role Assignment on Project
-              </label>
-              <input
-                type="text"
-                value={roleOnProject}
-                onChange={(e) => setRoleOnProject(e.target.value)}
-                required
-                placeholder="e.g. Lead AI Engineer / Mentored Intern"
-                className="w-full bg-slate-950 border border-slate-800 text-xs text-white px-3 py-2.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              />
-            </div>
+                <div className="grid grid-cols-1 gap-3 pt-2">
+                  {mockStudents.map((student) => {
+                    const isAssigned = selectedProject.allocatedStudents.includes(student.name);
 
-            {/* SLA Warning Notice */}
-            <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-300 rounded-xl text-[11px] flex items-start gap-2.5">
-              <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-semibold block">72-Hour SLA Automated Rollover</span>
-                The candidate will receive an in-app proposal notification. If unaccepted after 72 hours, the platform will automatically offer the position to the secondary fallback match.
+                    return (
+                      <div
+                        key={student.id}
+                        className={`p-4 bg-slate-950 border rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
+                          isAssigned ? 'border-blue-500/50 bg-blue-950/10' : 'border-slate-800'
+                        }`}
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <h5 className="font-bold text-white text-sm">{student.name}</h5>
+                            <span className="text-[10px] bg-emerald-500/10 text-emerald-400 font-mono px-2 py-0.5 rounded border border-emerald-500/20 flex items-center gap-1">
+                              <Star className="w-3 h-3 fill-emerald-400" /> {student.matchScore}% Skill Match
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-400">{student.university}</p>
+
+                          <div className="flex flex-wrap gap-1 pt-1">
+                            {student.skills.map((skill, i) => (
+                              <span key={i} className="text-[10px] bg-slate-900 text-slate-400 px-2 py-0.5 rounded border border-slate-800">
+                                {skill}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* STUDENT DIRECT ASSIGNMENT ACTION */}
+                        <div>
+                          <button
+                            onClick={() => handleAssignStudent(selectedProject.id, student.name)}
+                            className={`text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all ${
+                              isAssigned
+                                ? 'bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/30'
+                                : 'bg-blue-600 hover:bg-blue-500 text-white'
+                            }`}
+                          >
+                            {isAssigned ? (
+                              <>Remove Student</>
+                            ) : (
+                              <><Users className="w-3.5 h-3.5" /> Assign Student</>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Form Actions */}
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+          </div>
+        </Card>
+      )}
+
+      {/* ADD PROJECT MODAL */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-5 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-4">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <FolderPlus className="w-5 h-5 text-indigo-400" /> Create New Project
+              </h3>
               <button
-                type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl"
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-all"
               >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={submittingProposal}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl flex items-center gap-2 shadow-lg shadow-indigo-600/20 disabled:opacity-50"
-              >
-                {submittingProposal ? 'Dispatching...' : 'Confirm & Dispatch Proposal'}
+                <X className="w-5 h-5" />
               </button>
             </div>
-          </form>
-        )}
-      </Modal>
+
+            <form onSubmit={handleAddProject} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">Project Title *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Distributed Database Optimization"
+                  value={projectName}
+                  onChange={(e) => setProjectName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Category</label>
+                  <select
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="Machine Learning">Machine Learning</option>
+                    <option value="DevOps & Security">DevOps & Security</option>
+                    <option value="Full Stack">Full Stack</option>
+                    <option value="Backend Architecture">Backend Architecture</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Start Date</label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">Required Skills (Comma Separated)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Go, Kubernetes, PostgreSQL"
+                  value={skillsInput}
+                  onChange={(e) => setSkillsInput(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-xl transition-all shadow-md"
+                >
+                  Create Project
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
-
-export const ProjectAllocations = ProjectAllocation;
-export default ProjectAllocation;

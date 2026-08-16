@@ -25,15 +25,3 @@ class Designation(Base):
     description: Mapped[Optional[str]] = mapped_column(Text)
 
 
-class DesignationSkill(Base):
-    __tablename__ = "designation_skills"
-
-    designation_id: Mapped[UUID] = mapped_column(
-        ForeignKey("designations.designation_id", ondelete="CASCADE"), 
-        primary_key=True
-    )
-    skill_id: Mapped[UUID] = mapped_column(
-        ForeignKey("skills.skill_id", ondelete="CASCADE"), 
-        primary_key=True
-    )
-    default_proficiency: Mapped[int] = mapped_column(Integer, default=3)

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { ShieldCheck, AlertCircle } from 'lucide-react';
+import { ShieldCheck, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { AlignIQLogo } from '../../components/common/AlignIQLogo';
 import api from '../../services/api';
 
@@ -13,36 +13,54 @@ export const Login: React.FC = () => {
 
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const successMessage = location.state?.message;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
+    console.log('⚡ STEP 1: Form submitted for:', email);
+
     try {
-      // 1. Send credentials to your FastAPI backend
+      console.log('⚡ STEP 2: Sending request to /api/auth/login...');
+      
+      // Axios wraps the backend payload in .data
       const response = await api.post('/api/auth/login', { email, password });
+      
+      console.log('⚡ STEP 3: API Response received:', response.data);
+
       const { user: userData, token } = response.data;
 
-      // 2. Save user session in global state & localStorage
+      console.log('⚡ STEP 4: Calling login() in AuthContext...');
       login(userData, token);
+      console.log('⚡ STEP 5: AuthContext updated successfully.');
 
-      // 3. Redirect dynamically based on role returned from backend
-      const role = userData.role?.toLowerCase();
+      const role = userData?.role?.toLowerCase();
+      console.log('⚡ STEP 6: User role detected as:', role);
+
       if (role === 'admin') {
+        console.log('⚡ STEP 7: Navigating to /admin/overview');
         navigate('/admin/overview', { replace: true });
       } else if (role === 'student' || role === 'intern') {
+        console.log('⚡ STEP 7: Navigating to /student/dashboard');
         navigate('/student/dashboard', { replace: true });
       } else {
+        console.log('⚡ STEP 7: Navigating to /employee/dashboard');
         navigate('/employee/dashboard', { replace: true });
       }
     } catch (err: any) {
+      console.error('❌ STEP ERROR: Login failed with error:', err);
       const msg =
-        err.response?.data?.detail ||
-        err.response?.data?.message ||
+        err?.response?.data?.detail ||
+        err?.response?.data?.message ||
+        err?.message ||
         'Invalid email or password. Please try again.';
       setError(msg);
     } finally {
+      console.log('⚡ STEP 8: Cleaning up loading state.');
       setLoading(false);
     }
   };
@@ -57,6 +75,13 @@ export const Login: React.FC = () => {
           <h1 className="text-xl font-bold text-white tracking-tight">AlignIQ</h1>
           <p className="text-xs text-slate-400">Sign in to access your assigned workspace</p>
         </div>
+
+        {successMessage && (
+          <div className="flex items-center gap-2 p-3 bg-emerald-950/50 border border-emerald-800/80 text-emerald-300 text-xs rounded-xl">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+            <span>{successMessage}</span>
+          </div>
+        )}
 
         {error && (
           <div className="flex items-center gap-2 p-3 bg-red-950/50 border border-red-800/80 text-red-300 text-xs rounded-xl">
@@ -104,14 +129,13 @@ export const Login: React.FC = () => {
           </button>
         </form>
 
-        {/* Link to Register Page */}
         <div className="pt-2 text-center text-xs text-slate-400 border-t border-slate-800/60">
-          Don't have an account?{' '}
+          Need to set up your password?{' '}
           <Link
-            to="/register"
+            to="/activate"
             className="text-indigo-400 hover:text-indigo-300 font-medium transition-colors"
           >
-            Create an account
+            Activate account
           </Link>
         </div>
       </div>

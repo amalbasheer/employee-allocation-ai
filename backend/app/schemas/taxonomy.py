@@ -53,19 +53,3 @@ class DesignationResponse(DesignationBase):
 
     designation_id: UUID
 
-
-# ==========================================
-# DESIGNATION SKILL SCHEMAS (Composite Primary Key)
-# ==========================================
-class DesignationSkillBase(BaseModel):
-    designation_id: UUID
-    skill_id: UUID
-    default_proficiency: int = 3
-
-
-class DesignationSkillCreate(DesignationSkillBase):
-    pass
-
-
-class DesignationSkillResponse(DesignationSkillBase):
-    model_config = ConfigDict(from_attributes=True)

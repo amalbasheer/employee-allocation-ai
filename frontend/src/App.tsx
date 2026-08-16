@@ -3,14 +3,14 @@ import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppLayout } from './components/layout/AppLayout';
 import { Login } from './pages/auth/Login';
-import { Register } from './pages/auth/Register';
+import { ActivateAccount } from './pages/auth/ActivateAccount';
 import { OverviewDashboard } from './pages/admin/OverviewDashboard';
 import { UserManagement } from './pages/admin/UserManagement';
 import { WebinarManagement } from './pages/admin/WebinarManagement';
 import { EmployeeDashboard } from './pages/employee/EmployeeDashboard';
-import { StudentDashboard } from './pages/student/StudentDashboard';
+import   StudentDashboard  from './pages/student/StudentDashboard';
 import { Role } from './types';
-import { ProjectAllocations } from './pages/admin/ProjectAllocations';
+import { ProjectAllocation } from './pages/admin/ProjectAllocations';
 
 interface ProtectedRouteProps {
   children?: React.ReactNode;
@@ -43,7 +43,7 @@ export default function App() {
           {/* Public Login Route */}
           <Route path="/login" element={<Login />} />
           <Route path="/" element={<Navigate to="/login" replace />} />
-          <Route path="/register" element={<Register />} />
+          <Route path="/activate" element={<ActivateAccount />} />
           
 
           {/* Protected Routes inside AppLayout */}
@@ -66,10 +66,10 @@ export default function App() {
                 }
               />
               <Route 
-                path="/admin/project-allocation" 
+                path="/admin/allocations" 
                 element={
                   <ProtectedRoute allowedRoles={['ADMIN']}>
-                    <ProjectAllocations />
+                    <ProjectAllocation />
                   </ProtectedRoute>
                 }
               />
@@ -89,6 +89,7 @@ export default function App() {
                   </ProtectedRoute>
                 }
               />
+              <Route path="/student/dashboard" element={<StudentDashboard />} />
               <Route
                 path="/student/dashboard"
                 element={

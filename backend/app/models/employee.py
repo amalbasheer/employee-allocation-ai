@@ -26,9 +26,7 @@ class EmployeeSkill(Base):
     employee_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("company_employees.employee_id", ondelete="CASCADE"), primary_key=True)
     skill_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("skills.skill_id", ondelete="CASCADE"), primary_key=True)
     proficiency_level: Mapped[int] = mapped_column(Integer, default=1)
-    skill_embedding = mapped_column(Vector(768), nullable=True)  # 768-dim for Gemini
-    is_custom_override: Mapped[bool] = mapped_column(Boolean, default=False)
-
+    
 class Availability(Base):
     __tablename__ = "availability"
 

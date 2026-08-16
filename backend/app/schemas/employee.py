@@ -11,25 +11,23 @@ from pydantic import BaseModel, ConfigDict, EmailStr
 class EmployeeSkillBase(BaseModel):
     skill_id: UUID
     proficiency_level: int = 1
-    is_custom_override: bool = False
+   
 
 
 class EmployeeSkillCreate(EmployeeSkillBase):
     employee_id: Optional[UUID] = None
-    skill_embedding: Optional[List[float]] = None  # 768-dim float list for Gemini
 
 
 class EmployeeSkillUpdate(BaseModel):
     proficiency_level: Optional[int] = None
-    is_custom_override: Optional[bool] = None
-    skill_embedding: Optional[List[float]] = None
+
 
 
 class EmployeeSkillResponse(EmployeeSkillBase):
     model_config = ConfigDict(from_attributes=True)
 
     employee_id: UUID
-    skill_embedding: Optional[List[float]] = None
+    
 
 
 # ==========================================
