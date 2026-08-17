@@ -1,35 +1,55 @@
+// src/services/allocationService.ts
 import { apiClient } from './api';
-import { Allocation, ResourceMatch } from '../types';
+import { 
+  Allocation, 
+  AllocationStatus, 
+  ProposeAllocationPayload, 
+  SubstituteAllocationPayload,
+  ResourceMatch 
+} from '../types';
 
 export const allocationService = {
-  // Get recommendations for a project
+  // Fetch logged-in candidate's allocations
+  getMyAllocations: async (): Promise<Allocation[]> => {
+    const response = await apiClient.get<Allocation[]>('/allocations/my-allocations');
+    return response.data;
+  },
+
+  // Get AI recommendations for a project
   getRecommendations: async (projectId: string, topK: number = 3): Promise<ResourceMatch[]> => {
     const response = await apiClient.post<ResourceMatch[]>(`/allocations/recommend/${projectId}`, { top_k: topK });
     return response.data;
   },
 
-  // Propose an allocation to candidate
-  proposeAllocation: async (projectId: string, resourceId: string, roleOnProject: string) => {
-    const response = await apiClient.post<Allocation>('/allocations/propose', {
-      project_id: projectId,
-      resource_id: resourceId,
-      role_on_project: roleOnProject,
-    });
+  // Admin: Propose candidate allocation
+  proposeAllocation: async (payload: ProposeAllocationPayload): Promise<Allocation> => {
+    const response = await apiClient.post<Allocation>('/allocations/propose', payload);
     return response.data;
   },
 
-  // Employee accept/reject response
-  respondToProposal: async (allocationId: string, accept: boolean, reason?: string) => {
-    const response = await apiClient.post<Allocation>(`/allocations/${allocationId}/respond`, {
-      accept,
-      rejection_reason: reason,
-    });
+  // Single status update method (Employee Accept/Reject, Admin Confirm/Assign)
+  updateStatus: async (allocationId: string, status: AllocationStatus): Promise<Allocation> => {
+    const response = await apiClient.patch<Allocation>(`/allocations/${allocationId}/status`, { status });
     return response.data;
   },
 
-  // Admin approval & trigger cascading rollover if rejected
-  approveAllocation: async (allocationId: string) => {
-    const response = await apiClient.post<Allocation>(`/allocations/${allocationId}/approve`);
+  // Convenient helper for Employee response
+  respondToProposal: async (allocationId: string, accept: boolean): Promise<Allocation> => {
+    const status = accept ? AllocationStatus.ACCEPTED : AllocationStatus.REJECTED;
+    return allocationService.updateStatus(allocationId, status);
+  },
+
+  // Convenient helper for Admin final confirmation
+  confirmAllocation: async (allocationId: string): Promise<Allocation> => {
+    return allocationService.updateStatus(allocationId, AllocationStatus.ASSIGNED);
+  },
+
+  // Admin: Substitute a candidate for a rejected allocation
+  substituteAllocation: async (
+    allocationId: string, 
+    payload: SubstituteAllocationPayload
+  ): Promise<Allocation> => {
+    const response = await apiClient.post<Allocation>(`/allocations/${allocationId}/substitute`, payload);
     return response.data;
   },
 };
