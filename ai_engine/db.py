@@ -70,21 +70,39 @@ def get_available_mentors() -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def get_available_interns() -> list[dict]:
+def get_available_mentors(week_start_date: str = None) -> list[dict]:
     """
-    Fetch interns/students who are currently free — one project at a
-    time, so this is a simple status check, not hours math.
+    Fetch mentors/employees along with how many hours they've already
+    booked this week (from availability), so the optimizer can respect
+    real remaining capacity, not just their raw weekly max.
+
+    Args:
+        week_start_date: optional 'YYYY-MM-DD' string for a specific week.
+                          Defaults to the current week if not given.
     """
     with engine.connect() as conn:
         rows = conn.execute(
             text("""
-                SELECT intern_id AS id, name, role, current_status
-                FROM interns_and_students
-                WHERE current_status = 'AVAILABLE'
-                  AND review_status = 'verified'
-            """)
+                SELECT
+                    e.employee_id AS id,
+                    e.name,
+                    e.weekly_capacity_hours,
+                    e.is_team_lead,
+                    COALESCE(
+                        e.weekly_capacity_hours - a.available_hours, 0
+                    ) AS already_allocated_hours,
+                    COALESCE(a.is_on_leave, FALSE) AS is_on_leave
+                FROM company_employees e
+                LEFT JOIN availability a
+                    ON a.resource_id = e.employee_id
+                    AND a.resource_type = 'employee'
+                    AND a.week_start_date = COALESCE(:week, CURRENT_DATE)
+            """),
+            {"week": week_start_date},
         ).mappings().fetchall()
-    return [dict(r) for r in rows]
+
+    # Exclude anyone marked on leave for that week
+    return [dict(r) for r in rows if not r["is_on_leave"]]
 
 
 def get_person_skills(person_id: str, person_type: str) -> list[dict]:

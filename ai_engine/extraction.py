@@ -83,7 +83,7 @@ def extract_skills_from_text(text: str, source_type: str = "resume") -> dict:
 if __name__ == "__main__":
     # Quick manual test — run `python extraction.py` to sanity check the prompt
     sample_resume = """
-    Amal Basheer — B.Tech Computer Science, XYZ College.
+    Tom John — B.Tech Computer Science, XYZ College.
     Built a full-stack web app using React and FastAPI.
     Completed a machine learning internship working with PyTorch and
     scikit-learn on image classification. Comfortable with SQL and Git.
