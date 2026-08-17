@@ -1,282 +1,199 @@
 # app/api/allocations.py
-from typing import List, Optional
-from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+import uuid
+from datetime import datetime
+from typing import List
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.database import get_db
-from app.models.allocation import Allocation, Substitution, AllocationLog
+from app.api.deps import get_db, get_current_user, require_admin
+from app.models.allocation import Allocation, AllocationLog, Substitution
+from app.models.project import Project
+from app.models.enums import AllocationStatus, ProjectStatus
+from app.schemas.project import UserProfile
 from app.schemas.allocation import (
-    AllocationCreate,
+    ProposeAllocationRequest,
+    AllocationStatusUpdateRequest,
+    SubstituteRequest,
     AllocationResponse,
-    AllocationUpdate,
-    SubstitutionCreate,
-    SubstitutionUpdate,
     SubstitutionResponse,
-    AllocationLogCreate,
     AllocationLogResponse,
 )
 
 router = APIRouter()
 
+# -------------------------------------------------------------------
+# 1. ADMIN PROPOSES AN ALLOCATION
+# -------------------------------------------------------------------
+@router.post("/propose", response_model=AllocationResponse, status_code=status.HTTP_201_CREATED)
+def propose_allocation(
+    payload: ProposeAllocationRequest,
+    db: Session = Depends(get_db),
+    admin_user: UserProfile = Depends(require_admin)
+):
+    project = db.query(Project).filter(Project.project_id == payload.project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
 
-# Helper function to auto-record audit trail entries
-def _log_allocation_change(db: Session, allocation_id: UUID, action: str, changed_by: str = "System"):
+    new_allocation = Allocation(
+        project_id=payload.project_id,
+        resource_type=payload.resource_type,
+        resource_id=payload.resource_id,
+        role_on_project=payload.role_on_project,
+        allocated_hours=payload.allocated_hours,
+        suitability_score=payload.suitability_score,
+        status=AllocationStatus.PROPOSED,
+        assigned_by=admin_user.email
+    )
+    db.add(new_allocation)
+    db.flush()
+
+    # Log action
     log = AllocationLog(
-        allocation_id=allocation_id,
-        action=action,
-        changed_by=changed_by
+        allocation_id=new_allocation.allocation_id,
+        action=f"PROPOSED by {admin_user.email}",
+        changed_by=admin_user.email
     )
     db.add(log)
     db.commit()
+    db.refresh(new_allocation)
+    return new_allocation
 
 
-# ==========================================
-# ALLOCATION LOG ENDPOINTS
-# ==========================================
-@router.get("/logs", response_model=List[AllocationLogResponse])
-def get_all_logs(db: Session = Depends(get_db)):
-    """Fetch history of all allocation decisions and status changes."""
-    return db.query(AllocationLog).order_by(AllocationLog.timestamp.desc()).all()
-
-
-@router.get("/logs/allocation/{allocation_id}", response_model=List[AllocationLogResponse])
-def get_logs_for_allocation(allocation_id: UUID, db: Session = Depends(get_db)):
-    """Fetch logs for a specific allocation record."""
-    return (
-        db.query(AllocationLog)
-        .filter(AllocationLog.allocation_id == allocation_id)
-        .order_by(AllocationLog.timestamp.desc())
-        .all()
-    )
-
-
-@router.post("/logs", response_model=AllocationLogResponse, status_code=status.HTTP_201_CREATED)
-def create_log(log_in: AllocationLogCreate, db: Session = Depends(get_db)):
-    """Record a manual or system log entry."""
-    alloc = db.query(Allocation).filter(Allocation.allocation_id == log_in.allocation_id).first()
-    if not alloc:
-        raise HTTPException(status_code=404, detail="Target allocation not found")
-
-    log = AllocationLog(**log_in.model_dump())
-    db.add(log)
-    db.commit()
-    db.refresh(log)
-    return log
-
-
-# ==========================================
-# SUBSTITUTION ENDPOINTS
-# ==========================================
-@router.get("/substitutions", response_model=List[SubstitutionResponse])
-def get_substitutions(
-    project_id: Optional[UUID] = Query(None, description="Filter by project UUID"),
-    status: Optional[str] = Query(None, description="Filter by allocation status"),
-    db: Session = Depends(get_db)
+# -------------------------------------------------------------------
+# 2. STATUS TRANSITION (ACCEPT / REJECT / ASSIGN)
+# -------------------------------------------------------------------
+@router.patch("/{allocation_id}/status", response_model=AllocationResponse)
+def update_allocation_status(
+    allocation_id: uuid.UUID,
+    payload: AllocationStatusUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: UserProfile = Depends(get_current_user)
 ):
-    """List substitution requests with optional filters using joined Allocation table."""
-    query = db.query(Substitution)
+    allocation = db.query(Allocation).filter(Allocation.allocation_id == allocation_id).first()
+    if not allocation:
+        raise HTTPException(status_code=404, detail="Allocation not found")
 
-    if project_id or status:
-        query = query.join(Allocation, Substitution.original_allocation_id == Allocation.allocation_id)
-        if project_id:
-            query = query.filter(Allocation.project_id == project_id)
-        if status:
-            query = query.filter(Allocation.status == status)
+    user_role = current_user.role.lower()
+    prev_status = allocation.status
+    target_status = payload.status
 
-    return query.all()
+    # --- ACTION HANDLER: ADMIN CONFIRM (ASSIGN) ---
+    if user_role in ["admin", "superadmin"]:
+        if target_status == AllocationStatus.ASSIGNED:
+            if prev_status != AllocationStatus.ACCEPTED:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot confirm assignment. Current status is '{prev_status}', but employee must 'ACCEPTED' first."
+                )
+            allocation.status = AllocationStatus.ASSIGNED
+            
+            # Automatically update main project status to IN_PROGRESS
+            project = db.query(Project).filter(Project.project_id == allocation.project_id).first()
+            if project and project.status == ProjectStatus.OPEN:
+                project.status = ProjectStatus.IN_PROGRESS
 
+        elif target_status in [AllocationStatus.CANCELLED, AllocationStatus.PROPOSED]:
+            allocation.status = target_status
+        else:
+            raise HTTPException(status_code=400, detail=f"Invalid target status '{target_status}' for Admin action.")
 
-@router.post("/substitutions", response_model=SubstitutionResponse, status_code=status.HTTP_201_CREATED)
-def request_substitution(sub_in: SubstitutionCreate, db: Session = Depends(get_db)):
-    """Request a replacement for an existing allocated resource on a project."""
-    alloc = db.query(Allocation).filter(Allocation.allocation_id == sub_in.original_allocation_id).first()
-    if not alloc:
-        raise HTTPException(status_code=404, detail="Original allocation record not found")
-
-    sub = Substitution(**sub_in.model_dump())
-    db.add(sub)
-    db.commit()
-    db.refresh(sub)
-
-    # Log substitution request
-    _log_allocation_change(
-        db=db,
-        allocation_id=alloc.allocation_id,
-        action=f"Substitution requested with resource '{sub.substitute_resource_id}' ({sub.substitute_resource_type}). Reason: {sub.reason}"
-    )
-
-    return sub
-
-
-@router.patch("/substitutions/{substitution_id}", response_model=SubstitutionResponse)
-def update_substitution_status(
-    substitution_id: UUID,
-    sub_update: SubstitutionUpdate,
-    db: Session = Depends(get_db)
-):
-    """Approve or reject a substitution request and swap active resource if approved."""
-    sub = db.query(Substitution).filter(Substitution.substitution_id == substitution_id).first()
-    if not sub:
-        raise HTTPException(status_code=404, detail="Substitution record not found")
-
-    alloc = db.query(Allocation).filter(Allocation.allocation_id == sub.original_allocation_id).first()
-
-    if alloc and sub_update.status:
-        # Update allocation status (e.g. 'approved', 'substituted', 'rejected')
-        alloc.status = sub_update.status
-
-        # If approved, perform the resource swap on the target allocation
-        if sub_update.status.lower() in ["approved", "substituted"]:
-            old_resource_id = alloc.resource_id
-            alloc.resource_id = sub.substitute_resource_id
-            alloc.resource_type = sub.substitute_resource_type
-
-            _log_allocation_change(
-                db=db,
-                allocation_id=alloc.allocation_id,
-                action=f"Substitution approved. Swapped resource from '{old_resource_id}' to '{sub.substitute_resource_id}'"
+    # --- ACTION HANDLER: EMPLOYEE ACCEPT / REJECT ---
+    elif user_role in ["employee", "student", "intern"]:
+        if str(allocation.resource_id) != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only accept/reject allocations assigned to your account."
             )
 
+        if prev_status != AllocationStatus.PROPOSED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Allocation cannot be updated from status '{prev_status}'."
+            )
+
+        if target_status in [AllocationStatus.ACCEPTED, AllocationStatus.REJECTED]:
+            allocation.status = target_status
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Employees can only change status to 'ACCEPTED' or 'REJECTED'."
+            )
+    else:
+        raise HTTPException(status_code=403, detail="Unauthorized role.")
+
+    # Create Audit Log
+    log = AllocationLog(
+        allocation_id=allocation.allocation_id,
+        action=f"STATUS_CHANGE: {prev_status} -> {target_status}",
+        changed_by=current_user.email
+    )
+    db.add(log)
     db.commit()
-    db.refresh(sub)
-    return sub
+    db.refresh(allocation)
+    return allocation
 
 
-# ==========================================
-# ALLOCATION CRUD ENDPOINTS
-# ==========================================
-@router.get("", response_model=List[AllocationResponse])
-def get_allocations(
-    project_id: Optional[UUID] = Query(None, description="Filter allocations by project ID"),
-    resource_id: Optional[UUID] = Query(None, description="Filter allocations by resource ID"),
-    status_filter: Optional[str] = Query(None, alias="status", description="Filter allocations by status"),
-    db: Session = Depends(get_db)
+# -------------------------------------------------------------------
+# 3. SUBSTITUTE REJECTED ALLOCATION (ADMIN)
+# -------------------------------------------------------------------
+@router.post("/{allocation_id}/substitute", response_model=SubstitutionResponse, status_code=status.HTTP_201_CREATED)
+def substitute_allocation(
+    allocation_id: uuid.UUID,
+    payload: SubstituteRequest,
+    db: Session = Depends(get_db),
+    admin_user: UserProfile = Depends(require_admin)
 ):
-    """Fetch allocations with optional filtering by project, resource, or status."""
-    query = db.query(Allocation)
+    orig_allocation = db.query(Allocation).filter(Allocation.allocation_id == allocation_id).first()
+    if not orig_allocation:
+        raise HTTPException(status_code=404, detail="Original allocation not found")
 
-    if project_id:
-        query = query.filter(Allocation.project_id == project_id)
-    if resource_id:
-        query = query.filter(Allocation.resource_id == resource_id)
-    if status_filter:
-        query = query.filter(Allocation.status == status_filter)
+    # Mark original allocation as SUBSTITUTED
+    orig_allocation.status = AllocationStatus.SUBSTITUTED
 
-    allocations = query.all()
+    # Create Substitution entry
+    sub_record = Substitution(
+        original_allocation_id=orig_allocation.allocation_id,
+        substitute_resource_type=payload.substitute_resource_type,
+        substitute_resource_id=payload.substitute_resource_id,
+        reason=payload.reason
+    )
+    db.add(sub_record)
 
-    for alloc in allocations:
-        alloc.substitutions = (
-            db.query(Substitution)
-            .filter(Substitution.original_allocation_id == alloc.allocation_id)
-            .all()
-        )
-        alloc.logs = (
-            db.query(AllocationLog)
-            .filter(AllocationLog.allocation_id == alloc.allocation_id)
-            .order_by(AllocationLog.timestamp.desc())
-            .all()
-        )
+    # Create replacement allocation in PROPOSED state
+    new_allocation = Allocation(
+        project_id=orig_allocation.project_id,
+        resource_type=payload.substitute_resource_type,
+        resource_id=payload.substitute_resource_id,
+        role_on_project=orig_allocation.role_on_project,
+        allocated_hours=orig_allocation.allocated_hours,
+        suitability_score=orig_allocation.suitability_score,
+        status=AllocationStatus.PROPOSED,
+        assigned_by=admin_user.email
+    )
+    db.add(new_allocation)
+    db.flush()
 
+    # Log changes
+    log = AllocationLog(
+        allocation_id=orig_allocation.allocation_id,
+        action=f"SUBSTITUTED by {admin_user.email}. Replacement allocation ID: {new_allocation.allocation_id}",
+        changed_by=admin_user.email
+    )
+    db.add(log)
+
+    db.commit()
+    db.refresh(sub_record)
+    return sub_record
+
+
+# -------------------------------------------------------------------
+# 4. QUERY USER ALLOCATIONS ("MY PROPOSALS / MY ALLOCATIONS")
+# -------------------------------------------------------------------
+@router.get("/my-allocations", response_model=List[AllocationResponse])
+def get_my_allocations(
+    db: Session = Depends(get_db),
+    current_user: UserProfile = Depends(get_current_user)
+):
+    user_uuid = uuid.UUID(current_user.id)
+    allocations = db.query(Allocation).filter(Allocation.resource_id == user_uuid).all()
     return allocations
-
-
-@router.post("", response_model=AllocationResponse, status_code=status.HTTP_201_CREATED)
-def create_allocation(alloc_in: AllocationCreate, db: Session = Depends(get_db)):
-    """Create a new resource allocation and automatically write an initial audit log entry."""
-    new_alloc = Allocation(**alloc_in.model_dump())
-    db.add(new_alloc)
-    db.commit()
-    db.refresh(new_alloc)
-
-    _log_allocation_change(
-        db=db,
-        allocation_id=new_alloc.allocation_id,
-        action=f"Allocation created with status '{new_alloc.status}'",
-        changed_by=new_alloc.assigned_by
-    )
-
-    new_alloc.substitutions = []
-    new_alloc.logs = (
-        db.query(AllocationLog)
-        .filter(AllocationLog.allocation_id == new_alloc.allocation_id)
-        .all()
-    )
-    return new_alloc
-
-
-@router.get("/{allocation_id}", response_model=AllocationResponse)
-def get_allocation_by_id(allocation_id: UUID, db: Session = Depends(get_db)):
-    """Fetch a single allocation along with its substitutions and audit history."""
-    alloc = db.query(Allocation).filter(Allocation.allocation_id == allocation_id).first()
-    if not alloc:
-        raise HTTPException(status_code=404, detail="Allocation not found")
-
-    alloc.substitutions = (
-        db.query(Substitution)
-        .filter(Substitution.original_allocation_id == allocation_id)
-        .all()
-    )
-    alloc.logs = (
-        db.query(AllocationLog)
-        .filter(AllocationLog.allocation_id == allocation_id)
-        .order_by(AllocationLog.timestamp.desc())
-        .all()
-    )
-    return alloc
-
-
-@router.patch("/{allocation_id}", response_model=AllocationResponse)
-def update_allocation(
-    allocation_id: UUID,
-    alloc_in: AllocationUpdate,
-    changed_by: str = Query("System", description="Name/ID of user or process making the change"),
-    db: Session = Depends(get_db)
-):
-    """Update allocation details and record what fields changed in allocation_logs."""
-    alloc = db.query(Allocation).filter(Allocation.allocation_id == allocation_id).first()
-    if not alloc:
-        raise HTTPException(status_code=404, detail="Allocation not found")
-
-    update_data = alloc_in.model_dump(exclude_unset=True)
-    if not update_data:
-        raise HTTPException(status_code=400, detail="No fields provided for update")
-
-    changed_fields = []
-    for field, value in update_data.items():
-        old_val = getattr(alloc, field)
-        if old_val != value:
-            changed_fields.append(f"{field}: '{old_val}' -> '{value}'")
-            setattr(alloc, field, value)
-
-    db.commit()
-    db.refresh(alloc)
-
-    if changed_fields:
-        action_summary = f"Updated fields: {', '.join(changed_fields)}"
-        _log_allocation_change(db=db, allocation_id=allocation_id, action=action_summary, changed_by=changed_by)
-
-    alloc.substitutions = (
-        db.query(Substitution)
-        .filter(Substitution.original_allocation_id == allocation_id)
-        .all()
-    )
-    alloc.logs = (
-        db.query(AllocationLog)
-        .filter(AllocationLog.allocation_id == allocation_id)
-        .order_by(AllocationLog.timestamp.desc())
-        .all()
-    )
-    return alloc
-
-
-@router.delete("/{allocation_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_allocation(allocation_id: UUID, db: Session = Depends(get_db)):
-    """Delete an allocation record."""
-    alloc = db.query(Allocation).filter(Allocation.allocation_id == allocation_id).first()
-    if not alloc:
-        raise HTTPException(status_code=404, detail="Allocation not found")
-
-    db.delete(alloc)
-    db.commit()
-    return None

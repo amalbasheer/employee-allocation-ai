@@ -11,6 +11,14 @@ export interface User {
   avatarUrl?: string;
 }
 
+export type ProjectStatus = 
+  | 'proposed' 
+  | 'open' 
+  | 'assigned' 
+  | 'ongoing' 
+  | 'completed' 
+  | 'cancelled';
+
 export interface Skill {
   skill_id?: string;
   name: string;
@@ -33,7 +41,7 @@ export interface Project {
   project_type: 'batch' | 'workshop' | 'webinar' | 'seminar' | 'demo' | 'internal_project';
   category: 'training_engagement' | 'work_engagement';
   required_roles: string[];
-  status: 'draft' | 'OPEN' | 'allocated' | 'completed';
+  status: ProjectStatus;
   created_at: string;
   requirements: ProjectRequirement[];
 }

@@ -3,6 +3,16 @@ from datetime import date
 from typing import List, Optional
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict
+from app.models.enums import ProjectStatus
+
+# ==========================================
+# USER PROFILE SCHEMA
+# ==========================================
+class UserProfile(BaseModel):
+    id: str
+    email: str
+    role: str
+    name: Optional[str] = None
 
 
 # ==========================================
@@ -16,7 +26,7 @@ class ProjectRequirementBase(BaseModel):
 
 class ProjectRequirementCreate(ProjectRequirementBase):
     project_id: Optional[UUID] = None
-    requirement_embedding: Optional[List[float]] = None  # 768-dim float list for Gemini
+    requirement_embedding: Optional[List[float]] = None  # 768-dim vector
 
 
 class ProjectRequirementUpdate(BaseModel):
@@ -26,11 +36,11 @@ class ProjectRequirementUpdate(BaseModel):
 
 
 class ProjectRequirementResponse(ProjectRequirementBase):
-    model_config = ConfigDict(from_attributes=True)
-
     requirement_id: UUID
     project_id: UUID
     requirement_embedding: Optional[List[float]] = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ==========================================
@@ -44,27 +54,26 @@ class ProjectBase(BaseModel):
     end_date: date
     required_hours_per_week: int
     priority_level: str = "Medium"
-    status: str = "open"
 
 
 class ProjectCreate(ProjectBase):
-    # Allows attaching initial skill requirements during project creation
-    requirements: Optional[List[ProjectRequirementBase]] = None
+    requirements: Optional[List[ProjectRequirementCreate]] = None
 
 
 class ProjectUpdate(BaseModel):
     title: Optional[str] = None
-    project_type: Optional[str] = None
     description: Optional[str] = None
-    start_date: Optional[date] = None
-    end_date: Optional[date] = None
-    required_hours_per_week: Optional[int] = None
     priority_level: Optional[str] = None
-    status: Optional[str] = None
+    status: Optional[ProjectStatus] = None
+
+
+class StatusUpdateRequest(BaseModel):
+    status: str
 
 
 class ProjectResponse(ProjectBase):
-    model_config = ConfigDict(from_attributes=True)
-
     project_id: UUID
+    status: ProjectStatus
     requirements: List[ProjectRequirementResponse] = []
+
+    model_config = ConfigDict(from_attributes=True)

@@ -1,93 +1,55 @@
 # app/schemas/allocation.py
+import uuid
 from datetime import datetime
-from typing import List, Optional
-from uuid import UUID
+from typing import Optional, List
 from pydantic import BaseModel, ConfigDict
+from app.models.enums import AllocationStatus
 
-
-# ==========================================
-# SUBSTITUTION SCHEMAS
-# ==========================================
-class SubstitutionBase(BaseModel):
-    original_allocation_id: UUID
-    substitute_resource_type: str
-    substitute_resource_id: UUID
-    reason: str
-
-
-class SubstitutionCreate(BaseModel):
-    substitute_resource_type: str
-    substitute_resource_id: UUID
-    reason: str
-
-class SubstitutionUpdate(BaseModel):
-    """Schema for approving, rejecting, or updating a substitution request."""
-    status: Optional[str] = None
-    substitute_resource_type: Optional[str] = None
-    substitute_resource_id: Optional[UUID] = None
-    reason: Optional[str] = None
-
-class SubstitutionResponse(SubstitutionBase):
-    model_config = ConfigDict(from_attributes=True)
-
-    substitution_id: UUID
-    created_at: datetime
-
-
-# ==========================================
-# ALLOCATION LOG SCHEMAS
-# ==========================================
-class AllocationLogBase(BaseModel):
-    allocation_id: UUID
-    action: str
-    changed_by: str
-
-
-class AllocationLogCreate(BaseModel):
-    action: str
-    changed_by: str
-
-
-class AllocationLogResponse(AllocationLogBase):
-    model_config = ConfigDict(from_attributes=True)
-
-    log_id: UUID
-    timestamp: datetime
-
-
-# ==========================================
-# ALLOCATION SCHEMAS
-# ==========================================
-class AllocationBase(BaseModel):
-    resource_type: str
-    resource_id: UUID
-    project_id: UUID
+class ProposeAllocationRequest(BaseModel):
+    project_id: uuid.UUID
+    resource_type: str  # "employee" or "student"
+    resource_id: uuid.UUID
     role_on_project: str = "lead_mentor"
     allocated_hours: int
-    suitability_score: float
-    status: str = "proposed"
-    assigned_by: str = "AI_Engine"
+    suitability_score: float = 1.0
 
+class AllocationStatusUpdateRequest(BaseModel):
+    status: AllocationStatus
 
-class AllocationCreate(AllocationBase):
-    pass
+class SubstituteRequest(BaseModel):
+    substitute_resource_type: str
+    substitute_resource_id: uuid.UUID
+    reason: str
 
+class AllocationLogResponse(BaseModel):
+    log_id: uuid.UUID
+    allocation_id: uuid.UUID
+    action: str
+    changed_by: str
+    timestamp: datetime
 
-class AllocationUpdate(BaseModel):
-    resource_type: Optional[str] = None
-    resource_id: Optional[UUID] = None
-    project_id: Optional[UUID] = None
-    role_on_project: Optional[str] = None
-    allocated_hours: Optional[int] = None
-    suitability_score: Optional[float] = None
-    status: Optional[str] = None
-    assigned_by: Optional[str] = None
-
-
-class AllocationResponse(AllocationBase):
     model_config = ConfigDict(from_attributes=True)
 
-    allocation_id: UUID
+class SubstitutionResponse(BaseModel):
+    substitution_id: uuid.UUID
+    original_allocation_id: uuid.UUID
+    substitute_resource_type: str
+    substitute_resource_id: uuid.UUID
+    reason: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+class AllocationResponse(BaseModel):
+    allocation_id: uuid.UUID
+    resource_type: str
+    resource_id: uuid.UUID
+    project_id: uuid.UUID
+    role_on_project: str
+    allocated_hours: int
+    suitability_score: float
+    status: AllocationStatus
     assigned_at: datetime
-    substitutions: List[SubstitutionResponse] = []
-    logs: List[AllocationLogResponse] = []
+    assigned_by: str
+
+    model_config = ConfigDict(from_attributes=True)
