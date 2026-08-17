@@ -12,7 +12,7 @@ router = APIRouter()
 
 @router.get("/", response_model=List[ChatQueryResponse])
 def get_chat_history(
-    user_id: Optional[UUID] = None,
+    user_id: Optional[str] = None,
     limit: int = 50,
     db: Session = Depends(get_db)
 ):

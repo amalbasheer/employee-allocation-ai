@@ -1,20 +1,22 @@
 # app/models/allocation.py
 import uuid
+from typing import TYPE_CHECKING
 from datetime import datetime
 from typing import Optional, List
-from sqlalchemy import String, Integer, Float, Text, DateTime, ForeignKey, Enum as SQLEnum
+from sqlalchemy import Column, String, Integer, func, Float, Text, DateTime, ForeignKey, Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 from app.models.enums import AllocationStatus
-from app.models.project import Project
+if TYPE_CHECKING:
+    from app.models.project import Project
 
 class Allocation(Base):
     __tablename__ = "allocations"
 
-    allocation_id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    allocation_id = Column(String(20), primary_key=True)
     resource_type: Mapped[str] = mapped_column(String(20), nullable=False)  # "employee" or "student"
-    resource_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
-    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.project_id"), nullable=False)
+    resource_id = Column(String(20), nullable=False)
+    project_id = Column(String(20), ForeignKey("projects.project_id"), nullable=False)
     role_on_project: Mapped[str] = mapped_column(String(50), default="lead_mentor")
     allocated_hours: Mapped[int] = mapped_column(Integer, nullable=False)
     suitability_score: Mapped[float] = mapped_column(Float, nullable=False)
@@ -25,7 +27,7 @@ class Allocation(Base):
         nullable=False
     )
     
-    assigned_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    assigned_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     assigned_by: Mapped[str] = mapped_column(String(100), default="AI_Engine")
 
     # Relationships
@@ -37,12 +39,12 @@ class Allocation(Base):
 class Substitution(Base):
     __tablename__ = "substitutions"
 
-    substitution_id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    original_allocation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("allocations.allocation_id"), nullable=False)
+    substitution_id = Column(String(20), primary_key=True)
+    original_allocation_id = Column(String(20), ForeignKey("allocations.allocation_id"), nullable=False)
     substitute_resource_type: Mapped[str] = mapped_column(String(20), nullable=False)
-    substitute_resource_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    substitute_resource_id = Column(String(20), nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationship
     original_allocation: Mapped["Allocation"] = relationship("Allocation", back_populates="substitutions")
@@ -51,11 +53,11 @@ class Substitution(Base):
 class AllocationLog(Base):
     __tablename__ = "allocation_logs"
 
-    log_id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    allocation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("allocations.allocation_id"), nullable=False)
+    log_id = Column(String(20), primary_key=True)
+    allocation_id = Column(String(20), ForeignKey("allocations.allocation_id"), nullable=False)
     action: Mapped[str] = mapped_column(String(100), nullable=False)
     changed_by: Mapped[str] = mapped_column(String(100), nullable=False)
-    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationship
     allocation: Mapped["Allocation"] = relationship("Allocation", back_populates="logs")

@@ -9,13 +9,13 @@ from pydantic import BaseModel, ConfigDict, EmailStr
 # INTERN SKILL SCHEMAS
 # ==========================================
 class InternSkillBase(BaseModel):
-    skill_id: UUID
+    skill_id: str
     proficiency_level: float = 1.0
     extraction_confidence: float = 0.85
 
 
 class InternSkillCreate(InternSkillBase):
-    intern_id: Optional[UUID] = None
+    intern_id: Optional[str] = None
 
 
 class InternSkillUpdate(BaseModel):
@@ -26,8 +26,8 @@ class InternSkillUpdate(BaseModel):
 class InternSkillResponse(InternSkillBase):
     model_config = ConfigDict(from_attributes=True)
 
-    id: UUID
-    intern_id: UUID
+    id: str
+    intern_id: str
 
 
 # ==========================================
@@ -67,6 +67,6 @@ class InternUpdate(BaseModel):
 class InternResponse(InternBase):
     model_config = ConfigDict(from_attributes=True)
 
-    intern_id: UUID
+    intern_id: str
     created_at: datetime
     skills: List[InternSkillResponse] = []

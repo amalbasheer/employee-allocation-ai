@@ -24,6 +24,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Define allowed origins (Frontend URLs)
+origins = [
+    "http://localhost:5173",  # Vite default
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",  # React / Next.js default
+    "http://127.0.0.1:3000",
+    "*"                       # Allow all origins for development
+]
+
 # Enable CORS for frontend integration
 app.add_middleware(
     CORSMiddleware,
@@ -40,3 +49,7 @@ app.include_router(api_router, prefix="/api")
 @app.get("/")
 def root():
     return {"message": "Employee Allocation AI API is running!"}
+
+@app.get("/test-json")
+def test_json():
+    return {"status": "success", "message": "Connection working"}

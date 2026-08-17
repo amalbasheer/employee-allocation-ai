@@ -72,8 +72,8 @@ def create_intern(intern_in: InternCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/{intern_id}", response_model=InternResponse)
-def get_intern_by_id(intern_id: UUID, db: Session = Depends(get_db)):
-    """Fetch a single intern by UUID."""
+def get_intern_by_id(intern_id: str, db: Session = Depends(get_db)):
+    """Fetch a single intern by ID."""
     intern = db.query(InternsAndStudents).filter(InternsAndStudents.intern_id == intern_id).first()
     if not intern:
         raise HTTPException(status_code=404, detail="Intern/Student record not found")
@@ -87,7 +87,7 @@ def get_intern_by_id(intern_id: UUID, db: Session = Depends(get_db)):
 
 
 @router.patch("/{intern_id}", response_model=InternResponse)
-def update_intern(intern_id: UUID, intern_in: InternUpdate, db: Session = Depends(get_db)):
+def update_intern(intern_id: str, intern_in: InternUpdate, db: Session = Depends(get_db)):
     """Update intern details, status (AVAILABLE/ASSIGNED), or review status."""
     intern = db.query(InternsAndStudents).filter(InternsAndStudents.intern_id == intern_id).first()
     if not intern:
@@ -109,7 +109,7 @@ def update_intern(intern_id: UUID, intern_in: InternUpdate, db: Session = Depend
 
 
 @router.delete("/{intern_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_intern(intern_id: UUID, db: Session = Depends(get_db)):
+def delete_intern(intern_id: str, db: Session = Depends(get_db)):
     """Delete an intern record."""
     intern = db.query(InternsAndStudents).filter(InternsAndStudents.intern_id == intern_id).first()
     if not intern:
@@ -124,7 +124,7 @@ def delete_intern(intern_id: UUID, db: Session = Depends(get_db)):
 # INTERN SKILLS ENDPOINTS
 # ==========================================
 @router.post("/{intern_id}/skills", response_model=InternSkillResponse, status_code=status.HTTP_201_CREATED)
-def add_intern_skill(intern_id: UUID, skill_in: InternSkillCreate, db: Session = Depends(get_db)):
+def add_intern_skill(intern_id: str, skill_in: InternSkillCreate, db: Session = Depends(get_db)):
     """Add or link a new skill to an existing intern."""
     intern = db.query(InternsAndStudents).filter(InternsAndStudents.intern_id == intern_id).first()
     if not intern:
@@ -140,7 +140,7 @@ def add_intern_skill(intern_id: UUID, skill_in: InternSkillCreate, db: Session =
 
 
 @router.delete("/{intern_id}/skills/{skill_entry_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_intern_skill(intern_id: UUID, skill_entry_id: UUID, db: Session = Depends(get_db)):
+def remove_intern_skill(intern_id: str, skill_entry_id: UUID, db: Session = Depends(get_db)):
     """Remove a skill entry from an intern."""
     skill_entry = db.query(InternSkill).filter(
         InternSkill.id == skill_entry_id,

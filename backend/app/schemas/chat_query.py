@@ -8,13 +8,13 @@ class ChatQueryBase(BaseModel):
     user_query: str
     processed_intent: Optional[str] = None
     response_payload: Optional[dict] = None
-    user_id: Optional[UUID] = None
+    user_id: Optional[str] = None
 
 class ChatQueryCreate(ChatQueryBase):
     pass
 
 class ChatQueryResponse(ChatQueryBase):
-    query_id: UUID
+    query_id: str
     created_at: Optional[datetime] = None
 
     class Config:

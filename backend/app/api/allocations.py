@@ -64,7 +64,7 @@ def propose_allocation(
 # -------------------------------------------------------------------
 @router.patch("/{allocation_id}/status", response_model=AllocationResponse)
 def update_allocation_status(
-    allocation_id: uuid.UUID,
+    allocation_id: str,
     payload: AllocationStatusUpdateRequest,
     db: Session = Depends(get_db),
     current_user: UserProfile = Depends(get_current_user)
@@ -138,7 +138,7 @@ def update_allocation_status(
 # -------------------------------------------------------------------
 @router.post("/{allocation_id}/substitute", response_model=SubstitutionResponse, status_code=status.HTTP_201_CREATED)
 def substitute_allocation(
-    allocation_id: uuid.UUID,
+    allocation_id: str,
     payload: SubstituteRequest,
     db: Session = Depends(get_db),
     admin_user: UserProfile = Depends(require_admin)
@@ -194,6 +194,6 @@ def get_my_allocations(
     db: Session = Depends(get_db),
     current_user: UserProfile = Depends(get_current_user)
 ):
-    user_uuid = uuid.UUID(current_user.id)
+    user_uuid = str(current_user.id)
     allocations = db.query(Allocation).filter(Allocation.resource_id == user_uuid).all()
     return allocations

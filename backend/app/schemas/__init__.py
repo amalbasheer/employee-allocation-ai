@@ -47,6 +47,8 @@ from app.schemas.intern import (
 
 # 4. Project Schemas
 from app.schemas.project import (
+    UserProfile,
+    StatusUpdateRequest,
     ProjectBase,
     ProjectCreate,
     ProjectUpdate,
@@ -59,16 +61,11 @@ from app.schemas.project import (
 
 # 5. Allocation, Substitution & Log Schemas
 from app.schemas.allocation import (
-    AllocationBase,
-    AllocationCreate,
-    AllocationUpdate,
+    ProposeAllocationRequest,
     AllocationResponse,
-    SubstitutionBase,
-    SubstitutionCreate,
-    SubstitutionUpdate,
+    AllocationStatusUpdateRequest,
     SubstitutionResponse,
-    AllocationLogBase,
-    AllocationLogCreate,
+    SubstituteRequest,
     AllocationLogResponse,
 )
 
@@ -120,22 +117,19 @@ __all__ = [
     "ProjectCreate",
     "ProjectUpdate",
     "ProjectResponse",
+    "UserProfile",
+    "StatusUpdateRequest",
     "ProjectRequirementBase",
     "ProjectRequirementCreate",
     "ProjectRequirementUpdate",
     "ProjectRequirementResponse", 
     # Allocation & Substitution
-    "AllocationBase",
-    "AllocationCreate",
-    "AllocationUpdate",
+    "ProposeAllocationRequest",
+    "AllocationStatusUpdateRequest",
     "AllocationResponse",
-    "SubstitutionBase",
-    "SubstitutionCreate",
-    "SubstitutionUpdate",
+    "SubstituteRequest",
     "SubstitutionResponse",
     # Allocation Logs
-    "AllocationLogBase",
-    "AllocationLogCreate",
     "AllocationLogResponse",
     # Chat / AI Queries
     "ChatQueryBase",

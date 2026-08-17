@@ -62,7 +62,7 @@ def create_project(
 
 @router.get("/{project_id}", response_model=ProjectResponse)
 def get_project_by_id(
-    project_id: UUID, 
+    project_id: str, 
     db: Session = Depends(get_db),
     current_user: UserProfile = Depends(get_current_user)
 ):
@@ -75,7 +75,7 @@ def get_project_by_id(
 
 @router.patch("/{project_id}", response_model=ProjectResponse)
 def update_project(
-    project_id: UUID, 
+    project_id: str, 
     project_in: ProjectUpdate, 
     db: Session = Depends(get_db),
     admin_user: UserProfile = Depends(require_admin)
@@ -96,7 +96,7 @@ def update_project(
 
 @router.patch("/{project_id}/status", response_model=ProjectResponse)
 def update_project_status(
-    project_id: UUID,
+    project_id: str,
     status_in: StatusUpdateRequest,
     db: Session = Depends(get_db),
     admin_user: UserProfile = Depends(require_admin)
@@ -122,7 +122,7 @@ def update_project_status(
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_project(
-    project_id: UUID, 
+    project_id: str, 
     db: Session = Depends(get_db),
     admin_user: UserProfile = Depends(require_admin)
 ):
@@ -141,7 +141,7 @@ def delete_project(
 # ==========================================
 @router.post("/{project_id}/requirements", response_model=ProjectRequirementResponse, status_code=status.HTTP_201_CREATED)
 def add_project_requirement(
-    project_id: UUID, 
+    project_id: str, 
     req_in: ProjectRequirementCreate, 
     db: Session = Depends(get_db),
     admin_user: UserProfile = Depends(require_admin)
@@ -162,8 +162,8 @@ def add_project_requirement(
 
 @router.delete("/{project_id}/requirements/{requirement_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_project_requirement(
-    project_id: UUID, 
-    requirement_id: UUID, 
+    project_id: str, 
+    requirement_id: str, 
     db: Session = Depends(get_db),
     admin_user: UserProfile = Depends(require_admin)
 ):

@@ -45,7 +45,7 @@ def create_skill(skill_in: SkillCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/skills/{skill_id}", response_model=SkillResponse)
-def get_skill_by_id(skill_id: UUID, db: Session = Depends(get_db)):
+def get_skill_by_id(skill_id: str, db: Session = Depends(get_db)):
     """Fetch a single skill by UUID."""
     skill = db.query(Skill).filter(Skill.skill_id == skill_id).first()
     if not skill:

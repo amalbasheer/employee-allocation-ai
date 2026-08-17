@@ -51,5 +51,5 @@ class DesignationUpdate(BaseModel):
 class DesignationResponse(DesignationBase):
     model_config = ConfigDict(from_attributes=True)
 
-    designation_id: UUID
+    designation_id: str
 

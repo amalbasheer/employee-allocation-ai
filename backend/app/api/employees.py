@@ -76,7 +76,7 @@ def create_employee(employee_in: CompanyEmployeeCreate, db: Session = Depends(ge
 
 
 @router.get("/{employee_id}", response_model=CompanyEmployeeResponse)
-def get_employee_by_id(employee_id: UUID, db: Session = Depends(get_db)):
+def get_employee_by_id(employee_id: str, db: Session = Depends(get_db)):
     """Fetch a single employee by UUID."""
     employee = db.query(CompanyEmployee).filter(CompanyEmployee.employee_id == employee_id).first()
     if not employee:
@@ -91,7 +91,7 @@ def get_employee_by_id(employee_id: UUID, db: Session = Depends(get_db)):
 
 
 @router.patch("/{employee_id}", response_model=CompanyEmployeeResponse)
-def update_employee(employee_id: UUID, employee_in: CompanyEmployeeUpdate, db: Session = Depends(get_db)):
+def update_employee(employee_id: str, employee_in: CompanyEmployeeUpdate, db: Session = Depends(get_db)):
     """Update employee profile details."""
     employee = db.query(CompanyEmployee).filter(CompanyEmployee.employee_id == employee_id).first()
     if not employee:
@@ -113,7 +113,7 @@ def update_employee(employee_id: UUID, employee_in: CompanyEmployeeUpdate, db: S
 
 
 @router.delete("/{employee_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_employee(employee_id: UUID, db: Session = Depends(get_db)):
+def delete_employee(employee_id: str, db: Session = Depends(get_db)):
     """Delete an employee (Cascade drops associated skills)."""
     employee = db.query(CompanyEmployee).filter(CompanyEmployee.employee_id == employee_id).first()
     if not employee:
@@ -128,7 +128,7 @@ def delete_employee(employee_id: UUID, db: Session = Depends(get_db)):
 # EMPLOYEE SKILLS ENDPOINTS (Composite PK)
 # ==========================================
 @router.post("/{employee_id}/skills", response_model=EmployeeSkillResponse, status_code=status.HTTP_201_CREATED)
-def add_employee_skill(employee_id: UUID, skill_in: EmployeeSkillCreate, db: Session = Depends(get_db)):
+def add_employee_skill(employee_id: str, skill_in: EmployeeSkillCreate, db: Session = Depends(get_db)):
     """Add or update a skill link for an employee."""
     employee = db.query(CompanyEmployee).filter(CompanyEmployee.employee_id == employee_id).first()
     if not employee:
@@ -156,7 +156,7 @@ def add_employee_skill(employee_id: UUID, skill_in: EmployeeSkillCreate, db: Ses
 
 
 @router.delete("/{employee_id}/skills/{skill_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_employee_skill(employee_id: UUID, skill_id: UUID, db: Session = Depends(get_db)):
+def remove_employee_skill(employee_id: str, skill_id: str, db: Session = Depends(get_db)):
     """Remove a skill link from an employee using composite primary keys."""
     skill_entry = db.query(EmployeeSkill).filter(
         EmployeeSkill.employee_id == employee_id,
@@ -175,7 +175,7 @@ def remove_employee_skill(employee_id: UUID, skill_id: UUID, db: Session = Depen
 # AVAILABILITY ENDPOINTS
 # ==========================================
 @router.get("/{employee_id}/availability", response_model=List[AvailabilityResponse])
-def get_employee_availability(employee_id: UUID, db: Session = Depends(get_db)):
+def get_employee_availability(employee_id: str, db: Session = Depends(get_db)):
     """Fetch availability entries for a specific employee."""
     return (
         db.query(Availability)
@@ -188,7 +188,7 @@ def get_employee_availability(employee_id: UUID, db: Session = Depends(get_db)):
 
 
 @router.post("/{employee_id}/availability", response_model=AvailabilityResponse, status_code=status.HTTP_201_CREATED)
-def add_or_update_availability(employee_id: UUID, avail_in: AvailabilityCreate, db: Session = Depends(get_db)):
+def add_or_update_availability(employee_id: str, avail_in: AvailabilityCreate, db: Session = Depends(get_db)):
     """Add or update availability hours for a given week."""
     employee = db.query(CompanyEmployee).filter(CompanyEmployee.employee_id == employee_id).first()
     if not employee:

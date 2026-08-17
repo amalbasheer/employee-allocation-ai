@@ -18,7 +18,7 @@ def get_db() -> Generator[Session, None, None]:
     finally:
         db.close()
 
-async def get_current_user(
+def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ) -> UserProfile:
     """Verifies Bearer token with Supabase and builds current UserProfile."""

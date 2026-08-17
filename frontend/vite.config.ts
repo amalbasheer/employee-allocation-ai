@@ -19,7 +19,7 @@ export default defineConfig(({ mode }) => {
       // API Reverse Proxy to resolve CORS in development
       proxy: {
         '/api': {
-          target: env.VITE_BACKEND_URL || 'http://localhost:8000',
+          target: env.VITE_BACKEND_URL || 'http://127.0.0.1:8000',
           changeOrigin: true,
           secure: false,
         },

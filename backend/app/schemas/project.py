@@ -19,13 +19,13 @@ class UserProfile(BaseModel):
 # PROJECT REQUIREMENT SCHEMAS
 # ==========================================
 class ProjectRequirementBase(BaseModel):
-    skill_id: UUID
+    skill_id: str
     min_proficiency: int = 1
     is_mandatory: bool = True
 
 
 class ProjectRequirementCreate(ProjectRequirementBase):
-    project_id: Optional[UUID] = None
+    project_id: Optional[str] = None
     requirement_embedding: Optional[List[float]] = None  # 768-dim vector
 
 
@@ -36,8 +36,8 @@ class ProjectRequirementUpdate(BaseModel):
 
 
 class ProjectRequirementResponse(ProjectRequirementBase):
-    requirement_id: UUID
-    project_id: UUID
+    requirement_id: str
+    project_id: str
     requirement_embedding: Optional[List[float]] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -72,7 +72,7 @@ class StatusUpdateRequest(BaseModel):
 
 
 class ProjectResponse(ProjectBase):
-    project_id: UUID
+    project_id: str
     status: ProjectStatus
     requirements: List[ProjectRequirementResponse] = []
 

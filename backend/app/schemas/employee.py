@@ -9,13 +9,13 @@ from pydantic import BaseModel, ConfigDict, EmailStr
 # EMPLOYEE SKILL SCHEMAS (Composite Key)
 # ==========================================
 class EmployeeSkillBase(BaseModel):
-    skill_id: UUID
+    skill_id: str
     proficiency_level: int = 1
    
 
 
 class EmployeeSkillCreate(EmployeeSkillBase):
-    employee_id: Optional[UUID] = None
+    employee_id: Optional[str] = None
 
 
 class EmployeeSkillUpdate(BaseModel):
@@ -26,7 +26,7 @@ class EmployeeSkillUpdate(BaseModel):
 class EmployeeSkillResponse(EmployeeSkillBase):
     model_config = ConfigDict(from_attributes=True)
 
-    employee_id: UUID
+    employee_id: str
     
 
 
@@ -35,7 +35,7 @@ class EmployeeSkillResponse(EmployeeSkillBase):
 # ==========================================
 class AvailabilityBase(BaseModel):
     resource_type: str = "employee"  # 'employee' or 'intern'
-    resource_id: UUID
+    resource_id: str
     week_start_date: date
     available_hours: int
     is_on_leave: bool = False
@@ -53,7 +53,7 @@ class AvailabilityUpdate(BaseModel):
 class AvailabilityResponse(AvailabilityBase):
     model_config = ConfigDict(from_attributes=True)
 
-    availability_id: UUID
+    availability_id: str
 
 
 # ==========================================
@@ -63,7 +63,7 @@ class CompanyEmployeeBase(BaseModel):
     name: str
     email: EmailStr
     department: str
-    designation_id: Optional[UUID] = None
+    designation_id: Optional[str] = None
     experience_years: float = 0.0
     weekly_capacity_hours: int = 40
     is_team_lead: bool = False
@@ -78,7 +78,7 @@ class CompanyEmployeeUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
     department: Optional[str] = None
-    designation_id: Optional[UUID] = None
+    designation_id: Optional[str] = None
     experience_years: Optional[float] = None
     weekly_capacity_hours: Optional[int] = None
     is_team_lead: Optional[bool] = None
@@ -87,6 +87,6 @@ class CompanyEmployeeUpdate(BaseModel):
 class CompanyEmployeeResponse(CompanyEmployeeBase):
     model_config = ConfigDict(from_attributes=True)
 
-    employee_id: UUID
+    employee_id: str
     created_at: datetime
     skills: List[EmployeeSkillResponse] = []

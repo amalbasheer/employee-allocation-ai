@@ -82,46 +82,37 @@ def seed_database():
                 "user_metadata": {"name": user_data["name"], "role": role}
             })
             user_id = auth_res.user.id
-            print(f"  ✓ Auth Account Created: {user_id}")
+            print(f"   ✓ Auth Account Created: {user_id}")
         except Exception:
-            print("  ! Auth User exists, fetching existing user ID...")
+            print("   ! Auth User exists, fetching existing user ID...")
             try:
                 users_resp = supabase.auth.admin.list_users()
-                # Handle both list and object response shapes
                 users_list = users_resp.users if hasattr(users_resp, 'users') else users_resp
                 for u in users_list:
                     if u.email == email:
                         user_id = u.id
                         break
             except Exception as fetch_err:
-                print(f"  ✖ Failed to list users: {fetch_err}")
+                print(f"   ✖ Failed to list users: {fetch_err}")
 
         if not user_id:
-            print(f"  ✖ Failed to resolve User ID for {email}\n")
+            print(f"   ✖ Failed to resolve User ID for {email}\n")
             continue
 
-        # 2. Map payload to correct Primary Keys
-        if table_name == "company_employees":
-            db_record = {
-                "employee_id": user_id,
-                "name": user_data["name"],
-                "email": email,
-                **user_data["payload"]
-            }
-        else:
-            db_record = {
-                "intern_id": user_id,
-                "name": user_data["name"],
-                "email": email,
-                **user_data["payload"]
-            }
+        # 2. Build record payload (omitting employee_id / intern_id to let Postgres generate patterned IDs)
+        db_record = {
+            "name": user_data["name"],
+            "email": email,
+            **user_data["payload"]
+        }
 
-        # 3. Upsert into target table
+        # 3. Upsert into target table matching on 'email'
         try:
-            supabase.table(table_name).upsert(db_record).execute()
-            print(f"  ✓ Linked record in '{table_name}' table\n")
+            res = supabase.table(table_name).upsert(db_record, on_conflict="email").execute()
+            assigned_id = res.data[0].get("employee_id") or res.data[0].get("intern_id")
+            print(f"   ✓ Linked record in '{table_name}' table (Assigned ID: {assigned_id})\n")
         except Exception as e:
-            print(f"  ✖ Database upsert failed: {e}\n")
+            print(f"   ✖ Database upsert failed: {e}\n")
 
     print("Seeding complete.")
 
