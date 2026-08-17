@@ -5,7 +5,7 @@ from typing import List
 from uuid import UUID
 
 from app.database import get_db
-from app.models.taxonomy import Skill, Designation, DesignationSkill
+from app.models.taxonomy import Skill, Designation
 from app.schemas.taxonomy import (
     SkillCreate,
     SkillResponse,
@@ -13,8 +13,6 @@ from app.schemas.taxonomy import (
     DesignationCreate,
     DesignationResponse,
     DesignationUpdate,
-    DesignationSkillCreate,
-    DesignationSkillResponse,
 )
 
 router = APIRouter()

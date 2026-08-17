@@ -10,9 +10,6 @@ from app.schemas.taxonomy import (
     DesignationCreate,
     DesignationUpdate,
     DesignationResponse,
-    DesignationSkillBase,
-    DesignationSkillCreate,
-    DesignationSkillResponse,
 )
 
 # 2. Employee & Availability Schemas
@@ -92,9 +89,6 @@ __all__ = [
     "DesignationCreate",
     "DesignationUpdate",
     "DesignationResponse",
-    "DesignationSkillBase",
-    "DesignationSkillCreate",
-    "DesignationSkillResponse",
     # Employee
     "CompanyEmployeeBase",
     "CompanyEmployeeCreate",
