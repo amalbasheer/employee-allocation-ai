@@ -23,11 +23,17 @@ import api from '../../services/api';
 
 // --- Types Aligned with Database Schemas ---
 
+export interface Designation {
+  designation_id: string;
+  title: string;
+}
+
 export interface CompanyEmployee {
   employee_id: string;
   name: string;
   email: string;
   department: string;
+  designation_id: string;
   experience_years: number;
   weekly_capacity_hours: number;
   is_team_lead: boolean;
@@ -42,6 +48,8 @@ export interface StudentIntern {
   degree_program?: string;
   resume_document_url: string;
   review_status?: string;
+  reviewed_by?: string;
+  extracted_skills_raw?: string;
   role: string; // 'intern' | 'student'
   current_status: string; // 'AVAILABLE' | 'ALLOCATED' | 'ON_LEAVE'
   created_at?: string;
@@ -55,7 +63,8 @@ export const UserManagement: React.FC = () => {
   // Data States
   const [employees, setEmployees] = useState<CompanyEmployee[]>([]);
   const [students, setStudents] = useState<StudentIntern[]>([]);
-
+  //const [designations, setDesignations] = useState<Designation[]>([]);
+  const [designations, setDesignations] = useState<any[]>([]);
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -64,11 +73,13 @@ export const UserManagement: React.FC = () => {
   const [resumeMode, setResumeMode] = useState<'URL' | 'FILE'>('URL');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
+
   // Employee Form State
   const [employeeForm, setEmployeeForm] = useState({
     name: '',
     email: '',
     department: '',
+    designation_id: '',
     experience_years: 0,
     weekly_capacity_hours: 40,
     is_team_lead: false,
@@ -83,7 +94,29 @@ export const UserManagement: React.FC = () => {
     resume_document_url: '',
     role: 'intern',
     current_status: 'AVAILABLE',
+    review_status: 'UNVERIFIED',
+    reviewed_by: '',
+    extracted_skills_raw: '',
   });
+
+  
+
+// Fetch designations on component load
+  useEffect(() => {
+    const fetchDesignations = async () => {
+      try {
+        const res = await api.get('/api/taxonomy/designations');
+      // If API returns { designations: [...] } use res.data.designations, else res.data
+        setDesignations(Array.isArray(res.data) ? res.data : res.data.designations || []);
+      } catch (err) {
+        console.error('Failed to load designations:', err);
+      }
+    };
+
+    fetchDesignations();
+  }, []);
+
+    
 
   // Fetch users on component mount or tab change
   useEffect(() => {
@@ -97,7 +130,7 @@ export const UserManagement: React.FC = () => {
         const res = await api.get('/api/employees');
         setEmployees(res.data);
       } else {
-        const res = await api.get('/api/interns-students');
+        const res = await api.get('/api/interns');
         setStudents(res.data);
       }
     } catch (err) {
@@ -110,6 +143,7 @@ export const UserManagement: React.FC = () => {
             name: 'Dr. Sarah Jenkins',
             email: 'sarah.jenkins@company.com',
             department: 'AI Research',
+            designation_id: 'rp2-des-01',
             experience_years: 6.5,
             weekly_capacity_hours: 40,
             is_team_lead: true,
@@ -119,6 +153,7 @@ export const UserManagement: React.FC = () => {
             name: 'Marcus Vance',
             email: 'marcus.vance@company.com',
             department: 'Software Engineering',
+            designation_id: 'rp2-des-02',
             experience_years: 3.0,
             weekly_capacity_hours: 35,
             is_team_lead: false,
@@ -153,6 +188,13 @@ export const UserManagement: React.FC = () => {
     }
   };
 
+  // Resolve Designation Title from ID
+  const getDesignationTitle = (designationId?: string): string => {
+    if (!designationId) return 'N/A';
+    const match = designations.find((d) => d.designation_id === designationId);
+    return match ? match.title : 'N/A';
+  };
+  
   // Open Modal for Create
   const handleOpenCreateModal = () => {
     setEditingId(null);
@@ -163,6 +205,7 @@ export const UserManagement: React.FC = () => {
       name: '',
       email: '',
       department: '',
+      designation_id: designations[0]?.designation_id || '',
       experience_years: 0,
       weekly_capacity_hours: 40,
       is_team_lead: false,
@@ -176,6 +219,9 @@ export const UserManagement: React.FC = () => {
       resume_document_url: '',
       role: 'intern',
       current_status: 'AVAILABLE',
+      review_status: 'UNVERIFIED',
+      reviewed_by: '',
+      extracted_skills_raw: '',
     });
 
     setIsModalOpen(true);
@@ -193,6 +239,7 @@ export const UserManagement: React.FC = () => {
         name: emp.name,
         email: emp.email,
         department: emp.department,
+        designation_id: emp.designation_id || '',
         experience_years: emp.experience_years,
         weekly_capacity_hours: emp.weekly_capacity_hours,
         is_team_lead: emp.is_team_lead,
@@ -208,11 +255,35 @@ export const UserManagement: React.FC = () => {
         resume_document_url: std.resume_document_url,
         role: std.role,
         current_status: std.current_status,
+        review_status: std.review_status || 'UNVERIFIED',
+        reviewed_by: std.reviewed_by || '',
+        extracted_skills_raw: std.extracted_skills_raw || '',
       });
     }
 
     setIsModalOpen(true);
   };
+    
+  
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
+
+  const handleVerifyStudent = async (internId: string) => {
+    try {
+      setVerifyingId(internId); // Disable button / show loading
+      const res = await api.patch<StudentIntern>(`/api/interns/${internId}/verify`);
+    
+      setStudents((prev) =>
+        prev.map((std) => (std.intern_id === internId ? res.data : std))
+      );
+    } catch (err) {
+      console.error('Failed to verify student:', err);
+      alert('Verification failed. Ensure you have admin privileges.');
+    } finally {
+      setVerifyingId(null); // Re-enable
+    }
+  };
+  
+
 
   // Helper to upload file to backend bucket and receive storage URL
   const uploadResumeFile = async (file: File): Promise<string> => {
@@ -220,7 +291,7 @@ export const UserManagement: React.FC = () => {
     formData.append('file', file);
     
     try {
-      const res = await api.post('/api/upload-resume', formData, {
+      const res = await api.post('/api/interns/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       return res.data.file_url; // Returns generated bucket URL
@@ -261,12 +332,12 @@ export const UserManagement: React.FC = () => {
         };
 
         if (editingId) {
-          await api.put(`/api/interns-students/${editingId}`, payload);
+          await api.put(`/api/interns/${editingId}`, payload);
           setStudents((prev) =>
             prev.map((std) => (std.intern_id === editingId ? { ...std, ...payload } : std))
           );
         } else {
-          const res = await api.post('/api/interns-students', payload);
+          const res = await api.post('/api/interns', payload);
           const newStd = res.data || { ...payload, intern_id: `std_${Date.now()}` };
           setStudents((prev) => [...prev, newStd]);
         }
@@ -287,7 +358,7 @@ export const UserManagement: React.FC = () => {
           await api.delete(`/api/employees/${id}`);
           setEmployees((prev) => prev.filter((e) => e.employee_id !== id));
         } else {
-          await api.delete(`/api/interns-students/${id}`);
+          await api.delete(`/api/interns/${id}`);
           setStudents((prev) => prev.filter((s) => s.intern_id !== id));
         }
       } catch (err) {
@@ -432,6 +503,7 @@ export const UserManagement: React.FC = () => {
                           {emp.department}
                         </div>
                       </td>
+                      
                       <td className="p-3">
                         <div className="flex items-center gap-1 text-slate-300">
                           <Award className="w-3.5 h-3.5 text-slate-500" />
@@ -490,6 +562,7 @@ export const UserManagement: React.FC = () => {
                   <th className="p-3">Degree Program</th>
                   <th className="p-3">Resume Document</th>
                   <th className="p-3">Status</th>
+                  <th className="p-3">Review</th>
                   <th className="p-3 text-right">Actions</th>
                 </tr>
               </thead>
@@ -538,6 +611,38 @@ export const UserManagement: React.FC = () => {
                           {std.current_status}
                         </span>
                       </td>
+                      {/* Review Status Column (DB Driven) */}
+                      <td className="p-3">
+                        <div className="flex flex-col gap-1 items-start">
+                          {std.review_status?.toUpperCase() === 'VERIFIED' ? (
+                            /* Verified State in DB */
+                            <div className="flex flex-col gap-0.5">
+                              <span className="font-semibold text-[10px] px-2 py-0.5 rounded-full inline-block w-fit bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">
+                                VERIFIED
+                              </span>
+                              <span className="text-[9px] text-slate-400 pl-0.5">
+                                Verified by {std.reviewed_by || 'Admin'}
+                              </span>
+                            </div>
+                          ) : (
+                            /* Unverified / Newly Added Intern from DB */
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-[10px] px-2 py-0.5 rounded-full inline-block bg-rose-950/60 text-rose-400 border border-rose-800/50 uppercase">
+                                {std.review_status || 'UNVERIFIED'}
+                              </span>
+                              <button
+                                type="button"
+                                disabled={verifyingId === std.intern_id}
+                                onClick={() => handleVerifyStudent(std.intern_id)}
+                                className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-md shadow-sm transition-all flex items-center gap-1 active:scale-95 cursor-pointer"
+                              >
+                                <Check className="w-3 h-3" />
+                                {verifyingId === std.intern_id ? 'Verifying...' : 'Verify'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </td>  
                       <td className="p-3 text-right">
                         <div className="flex items-center justify-end gap-2">
                           <button
@@ -620,7 +725,7 @@ export const UserManagement: React.FC = () => {
                         ? setEmployeeForm({ ...employeeForm, email: e.target.value })
                         : setStudentForm({ ...studentForm, email: e.target.value })
                     }
-                    placeholder="e.g. sarah@company.com"
+                    placeholder="e.g. sarah.da@rp2.com"
                     className="w-full bg-slate-950 border border-slate-800 text-xs text-white px-3 py-2.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   />
                 </div>
@@ -637,9 +742,29 @@ export const UserManagement: React.FC = () => {
                         required
                         value={employeeForm.department}
                         onChange={(e) => setEmployeeForm({ ...employeeForm, department: e.target.value })}
-                        placeholder="e.g. AI Research, Engineering"
+                        placeholder="e.g. Data Analytics"
                         className="w-full bg-slate-950 border border-slate-800 text-xs text-white px-3 py-2.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       />
+                    </div>
+                    
+                    {/* Designation Dropdown (Stores designation_id) */}
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">Designation *</label>
+                      <select
+                        required
+                        value={employeeForm.designation_id || ''}
+                        onChange={(e) => setEmployeeForm({ ...employeeForm, designation_id: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-800 text-xs text-white px-3 py-2.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                      >
+                        <option value="" disabled className="bg-slate-900 text-slate-500">
+                          Select Designation
+                        </option>
+                        {designations.map((desig) => (
+                          <option key={desig.designation_id} value={desig.designation_id} className="bg-slate-900 text-white">
+                            {desig.title}
+                          </option>
+                        ))}
+                      </select>
                     </div>
 
                     <div>
@@ -709,7 +834,7 @@ export const UserManagement: React.FC = () => {
                         type="text"
                         value={studentForm.degree_program}
                         onChange={(e) => setStudentForm({ ...studentForm, degree_program: e.target.value })}
-                        placeholder="e.g. M.S. Data Science"
+                        placeholder="e.g. BBA"
                         className="w-full bg-slate-950 border border-slate-800 text-xs text-white px-3 py-2.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       />
                     </div>

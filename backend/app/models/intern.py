@@ -36,9 +36,8 @@ class InternsAndStudents(Base):
 class InternSkill(Base):
     __tablename__ = "intern_skills"
 
-    id = Column(String(20), primary_key=True)
-    intern_id = Column(String(20), ForeignKey("interns_and_students.intern_id"), nullable=False)
-    skill_id = Column(String(20), ForeignKey("skills.skill_id"), nullable=False)
+    intern_id = Column(String(20), ForeignKey("interns_and_students.intern_id"), primary_key=True)
+    skill_id = Column(String(20), ForeignKey("skills.skill_id"), primary_key=True)
     proficiency_level: Mapped[float] = mapped_column(Float, default=1.0)
     extraction_confidence: Mapped[float] = mapped_column(Float, default=0.85)
 

@@ -17,5 +17,5 @@ def upload_file_to_supabase(file, bucket_name: str, destination_path: str):
         raise ValueError("Supabase client is not configured. Please set SUPABASE_URL and SUPABASE_KEY in .env.")
     
     # Existing file upload logic here...
-    response = supabase_client.storage.from_(bucket_name).upload(destination_path, file)
+    response = supabase_client.storage.from_(bucket_name).upload(destination_path, file, file_options={"content-type": "application/pdf"})
     return response

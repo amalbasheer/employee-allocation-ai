@@ -3,6 +3,8 @@ from typing import List
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+from datetime import datetime, timezone
 
 from app.database import get_db
 from app.models.employee import CompanyEmployee, EmployeeSkill, Availability
@@ -37,11 +39,11 @@ def get_employees(db: Session = Depends(get_db)):
         )
     return employees
 
-
 @router.post("", response_model=CompanyEmployeeResponse, status_code=status.HTTP_201_CREATED)
 def create_employee(employee_in: CompanyEmployeeCreate, db: Session = Depends(get_db)):
     """Create a new employee record (optionally with initial skills)."""
-    # Unique email check
+    
+    # 1. Unique email check
     existing = db.query(CompanyEmployee).filter(CompanyEmployee.email == employee_in.email).first()
     if existing:
         raise HTTPException(
@@ -49,30 +51,59 @@ def create_employee(employee_in: CompanyEmployeeCreate, db: Session = Depends(ge
             detail=f"An employee with email '{employee_in.email}' already exists."
         )
 
+    # 2. Extract payload and convert empty string designation_id to None
     emp_data = employee_in.model_dump(exclude={"skills"})
-    new_employee = CompanyEmployee(**emp_data)
     
-    db.add(new_employee)
-    db.commit()
-    db.refresh(new_employee)
+    if emp_data.get("designation_id") == "":
+        emp_data["designation_id"] = None
 
-    # Process nested skills if provided during creation
-    created_skills = []
-    if employee_in.skills:
-        for skill in employee_in.skills:
-            db_skill = EmployeeSkill(
-                employee_id=new_employee.employee_id,
-                **skill.model_dump()
-            )
-            db.add(db_skill)
-            created_skills.append(db_skill)
-        
+    # Automatically add created_at timestamp if missing
+    if "created_at" not in emp_data or emp_data["created_at"] is None:
+        emp_data["created_at"] = datetime.now(timezone.utc)
+    
+    try:
+        new_employee = CompanyEmployee(**emp_data)
+        db.add(new_employee)
         db.commit()
-        for skill in created_skills:
-            db.refresh(skill)
+        db.refresh(new_employee)
 
-    new_employee.skills = created_skills
-    return new_employee
+        # 3. Process nested skills if provided
+        created_skills = []
+        if employee_in.skills:
+            for skill in employee_in.skills:
+                db_skill = EmployeeSkill(
+                    employee_id=new_employee.employee_id,
+                    **skill.model_dump()
+                )
+                db.add(db_skill)
+                created_skills.append(db_skill)
+            
+            db.commit()
+            for skill in created_skills:
+                db.refresh(skill)
+
+        new_employee.skills = created_skills
+        return new_employee
+
+    except IntegrityError as e:
+        db.rollback()
+        # Catches foreign key failure (e.g. designation_id doesn't exist) or missing required columns
+        error_msg = str(e.orig)
+        if "designation" in error_msg.lower() or "foreign key" in error_msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Selected designation_id does not exist in the database."
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Database integrity error: {error_msg}"
+        )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create employee: {str(e)}"
+        )
 
 
 @router.get("/{employee_id}", response_model=CompanyEmployeeResponse)

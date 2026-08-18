@@ -26,7 +26,6 @@ class InternSkillUpdate(BaseModel):
 class InternSkillResponse(InternSkillBase):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
     intern_id: str
 
 
