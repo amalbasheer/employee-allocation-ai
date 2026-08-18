@@ -5,14 +5,16 @@ Creates test accounts with REAL Supabase Auth logins:
 - 18 employees (9 per domain: 3 team leads + 6 regular mentors, DA + DS)
 - 8 interns (4 DA + 4 DS)
 
-Safe to re-run — reuses existing accounts/rows instead of duplicating.
+Resets employee/intern data and sequences on every run, so IDs always
+start fresh from 0001. Skills and designations are NOT reset — those
+stay as a stable master dictionary (run seed_skills.py separately for those).
+
 Password for all accounts: Password123!
 """
 
 import sys
 import os
 import random
-from uuid import uuid4
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from sqlalchemy import text
@@ -44,6 +46,38 @@ DS_EMP_NAMES = ["Rajesh", "Anitha", "Suresh", "Meenakshi", "Manoj", "Latha", "Pr
 DA_INTERN_NAMES = ["Amal", "Priya", "Rahul", "Sneha"]
 DS_INTERN_NAMES = ["Athira", "Sandeep", "Nisha", "Gokul"]
 
+DA_COLLEGE_PROGRAMS = [
+    ("Rajagiri College of Social Sciences", "B.Com Finance"),
+    ("St. Teresa's College", "B.Sc Statistics"),
+    ("Rajagiri School of Engineering & Technology", "B.Tech CSE"),
+    ("Loyola College of Social Sciences", "BBA"),
+    ("St. Teresa's College", "B.Sc Economics"),
+]
+
+DS_COLLEGE_PROGRAMS = [
+    ("Rajagiri School of Engineering & Technology", "B.Tech CSE"),
+    ("Cochin University of Science and Technology", "MCA"),
+    ("St. Joseph's College", "BCA"),
+    ("Model Engineering College", "B.Tech AI & Data Science"),
+    ("Rajagiri College of Social Sciences", "B.Sc Mathematics"),
+]
+
+
+def reset_for_fresh_run():
+    """Wipes people-related data and resets ID sequences so this
+    script always produces a clean, predictable dataset starting
+    from 0001 — regardless of what existed before."""
+    print("Resetting for a fresh run...\n")
+    with engine.begin() as conn:
+        conn.execute(text("TRUNCATE TABLE employee_skills CASCADE"))
+        conn.execute(text("TRUNCATE TABLE intern_skills CASCADE"))
+        conn.execute(text("TRUNCATE TABLE availability CASCADE"))
+        conn.execute(text("TRUNCATE TABLE company_employees CASCADE"))
+        conn.execute(text("TRUNCATE TABLE interns_and_students CASCADE"))
+        conn.execute(text("ALTER SEQUENCE employee_id_seq RESTART WITH 1"))
+        conn.execute(text("ALTER SEQUENCE intern_id_seq RESTART WITH 1"))
+    print("✅ Tables cleared, sequences reset to 1.\n")
+
 
 def create_auth_user(email: str, name: str, role: str) -> str:
     try:
@@ -67,13 +101,29 @@ def get_designation_id(title: str) -> str:
             {"title": title},
         ).fetchone()
     if not row:
-        raise ValueError(f"Designation '{title}' not found — run backend/seed.py first")
+        raise ValueError(f"Designation '{title}' not found — run backend/seed_skills.py first")
     return row[0]
 
 
+def get_employee_id_by_email(email: str) -> str | None:
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT employee_id FROM company_employees WHERE email = :email"),
+            {"email": email},
+        ).fetchone()
+    return row[0] if row else None
+
+
+def get_intern_id_by_email(email: str) -> str | None:
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT intern_id FROM interns_and_students WHERE email = :email"),
+            {"email": email},
+        ).fetchone()
+    return row[0] if row else None
+
+
 def person_already_has_skills(person_id: str, person_type: str) -> bool:
-    """Checks if this person already has skills recorded — avoids
-    re-inserting duplicate skill rows on re-runs."""
     table = "employee_skills" if person_type == "employee" else "intern_skills"
     id_col = "employee_id" if person_type == "employee" else "intern_id"
     with engine.connect() as conn:
@@ -86,7 +136,6 @@ def person_already_has_skills(person_id: str, person_type: str) -> bool:
 
 def assign_skills(person_id: str, skill_pool: list[str], person_type: str, gap_test: bool = False):
     if person_already_has_skills(person_id, person_type):
-        print(f"    (skills already recorded, skipping)")
         return
 
     table = "employee_skills" if person_type == "employee" else "intern_skills"
@@ -121,97 +170,98 @@ def assign_skills(person_id: str, skill_pool: list[str], person_type: str, gap_t
 
 
 def seed_admin():
-    print("\nCreating admin account...")
-    admin_id = create_auth_user("admin@rp2.test", "System Admin", "ADMIN")
-    print("✅ Admin ready: admin@rp2.test / Password123! (auth-only, not a workforce record)")
+    print("Creating admin account...")
+    create_auth_user("admin@rp2.com", "System Admin", "ADMIN")
+    print("✅ Admin ready: admin@rp2.com / Password123! (auth-only, not a workforce record)")
 
 
 def seed_employees():
     domain_configs = [
-        ("Data Analytics", DA_SKILLS, DA_EMP_NAMES, "Fullstack Developer"),
-        ("Data Science", DS_SKILLS, DS_EMP_NAMES, "Senior AI Engineer"),
+        ("Data Analytics", DA_SKILLS, DA_EMP_NAMES, "Senior Data Analytics Mentor", "Data Analytics Mentor"),
+        ("Data Science", DS_SKILLS, DS_EMP_NAMES, "Senior Data Science Mentor", "Data Science Mentor"),
     ]
-    for domain, skills, names, designation_title in domain_configs:
+    for domain, skills, names, lead_title, mentor_title in domain_configs:
         dept_code = DEPT_CODES[domain]
-        designation_id = get_designation_id(designation_title)
+        lead_designation_id = get_designation_id(lead_title)
+        mentor_designation_id = get_designation_id(mentor_title)
+        gap = None  # decided per person below
         print(f"\nCreating 9 {domain} employees (3 team leads)...")
         for i, name in enumerate(names):
-            email = f"{name.lower()}.{dept_code}@rp2.test"
-            is_lead = i < 3          # first 3 per domain are team leads
-            near_cap = (i == 3)      # one deliberately near capacity
-            gap = (i == 4)           # one deliberately skill-weak
+            email = f"{name.lower()}.{dept_code}@rp2.com"
+            is_lead = i < 3
+            skill_gap = (i == 4)  # one person per domain with fewer skills, for ranking tests
+            designation_id = lead_designation_id if is_lead else mentor_designation_id
 
             print(f"  {email} [{'TEAM LEAD' if is_lead else 'mentor'}]")
-            user_id = create_auth_user(email, f"{name} ({domain})", "EMPLOYEE")
+            create_auth_user(email, name, "EMPLOYEE")
 
-            with engine.begin() as conn:
-                conn.execute(
-                    text("""
-                        INSERT INTO company_employees
-                        (employee_id, name, email, department, experience_years,
-                         weekly_capacity_hours, is_team_lead, designation_id, created_at)
-                        VALUES (:id, :name, :email, :dept, :exp, 40, :lead, :desig_id, NOW())
-                        ON CONFLICT (employee_id) DO NOTHING
-                    """),
-                    {
-                        "id": user_id, "name": f"{name} ({domain})", "email": email,
-                        "dept": domain, "exp": round(random.uniform(1.0, 8.0), 1),
-                        "lead": is_lead, "desig_id": designation_id,
-                    },
-                )
-                if near_cap:
-                    conn.execute(
+            employee_id = get_employee_id_by_email(email)
+            if not employee_id:
+                with engine.begin() as conn:
+                    result = conn.execute(
                         text("""
-                            INSERT INTO availability
-                            (availability_id, resource_type, resource_id, week_start_date, available_hours, is_on_leave)
-                            VALUES (:id, 'employee', :emp_id, CURRENT_DATE, 5, FALSE)
-                            ON CONFLICT (resource_id, week_start_date) DO NOTHING
+                            INSERT INTO company_employees
+                            (name, email, department, experience_years,
+                             weekly_capacity_hours, is_team_lead, designation_id, created_at)
+                            VALUES (:name, :email, :dept, :exp, 40, :lead, :desig_id, NOW())
+                            RETURNING employee_id
                         """),
-                        {"id": str(uuid4()), "emp_id": user_id},
+                        {
+                            "name": name, "email": email, "dept": domain,
+                            "exp": round(random.uniform(1.0, 8.0), 1),
+                            "lead": is_lead, "desig_id": designation_id,
+                        },
                     )
+                    employee_id = result.fetchone()[0]
+                print(f"    -> {employee_id}")
 
-            assign_skills(user_id, skills, "employee", gap_test=gap)
+            assign_skills(employee_id, skills, "employee", gap_test=skill_gap)
 
-    print("\n✅ 18 employees ready (9 per domain, 3 team leads each).")
+    print("\n✅ 18 employees ready (9 per domain, 3 team leads each). All fully available.")
 
 
 def seed_interns():
     domain_configs = [
-        ("DA", DA_SKILLS, DA_INTERN_NAMES),
-        ("DS", DS_SKILLS, DS_INTERN_NAMES),
+        ("DA", DA_SKILLS, DA_INTERN_NAMES, DA_COLLEGE_PROGRAMS),
+        ("DS", DS_SKILLS, DS_INTERN_NAMES, DS_COLLEGE_PROGRAMS),
     ]
-    for domain, skills, names in domain_configs:
+    for domain, skills, names, college_programs in domain_configs:
         print(f"\nCreating 4 {domain} interns...")
         for i, name in enumerate(names):
-            email = f"{name.lower()}.{domain.lower()}intern@rp2.test"
-            status = "ASSIGNED" if i == 0 else "AVAILABLE"
-            gap = (i == 1)
+            email = f"{name.lower()}.{domain.lower()}intern@rp2.com"
+            skill_gap = (i == 1)  # one intern per domain with fewer skills, for ranking tests
+            college, degree = random.choice(college_programs)
 
-            print(f"  {email} [{status}]")
-            user_id = create_auth_user(email, f"{name} ({domain} intern)", "STUDENT")
+            print(f"  {email} [AVAILABLE] — {college}, {degree}")
+            create_auth_user(email, name, "STUDENT")
 
-            with engine.begin() as conn:
-                conn.execute(
-                    text("""
-                        INSERT INTO interns_and_students
-                        (intern_id, name, email, college_institution, degree_program,
-                         resume_document_url, review_status, role, current_status, created_at)
-                        VALUES (:id, :name, :email, :college, :degree, :resume, 'verified', 'intern', :status, NOW())
-                        ON CONFLICT (intern_id) DO NOTHING
-                    """),
-                    {
-                        "id": user_id, "name": f"{name} ({domain} intern)", "email": email,
-                        "college": "Rajagiri College of Social Sciences", "degree": "B.Tech CS",
-                        "resume": f"https://fake-storage.test/{user_id}.pdf", "status": status,
-                    },
-                )
+            intern_id = get_intern_id_by_email(email)
+            if not intern_id:
+                with engine.begin() as conn:
+                    result = conn.execute(
+                        text("""
+                            INSERT INTO interns_and_students
+                            (name, email, college_institution, degree_program,
+                             resume_document_url, review_status, role, current_status, created_at)
+                            VALUES (:name, :email, :college, :degree, :resume, 'verified', 'intern', 'AVAILABLE', NOW())
+                            RETURNING intern_id
+                        """),
+                        {
+                            "name": name, "email": email,
+                            "college": college, "degree": degree,
+                            "resume": f"https://fake-storage.test/{email}.pdf",
+                        },
+                    )
+                    intern_id = result.fetchone()[0]
+                print(f"    -> {intern_id}")
 
-            assign_skills(user_id, skills, "intern", gap_test=gap)
+            assign_skills(intern_id, skills, "intern", gap_test=skill_gap)
 
-    print("\n✅ 8 interns ready (4 per domain).")
+    print("\n✅ 8 interns ready (4 per domain). All fully available.")
 
 
 if __name__ == "__main__":
+    reset_for_fresh_run()
     seed_admin()
     seed_employees()
     seed_interns()
