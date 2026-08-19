@@ -6,7 +6,9 @@ import {
   Users, 
   Video, 
   CheckSquare, 
-  GraduationCap 
+  GraduationCap, 
+  DockIcon,
+  Clock
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -21,7 +23,9 @@ export const Sidebar: React.FC = () => {
   ];
 
   const employeeNav = [
-    { label: 'My Proposals & Projects', path: '/employee/dashboard', icon: CheckSquare },
+    { label: 'My Proposals & Projects', path: '/employee/dashboard', icon: DockIcon },
+    { label: 'Availability Check', path: '/employee/availability', icon: Clock },
+  
   ];
 
   const studentNav = [

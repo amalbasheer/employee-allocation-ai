@@ -1,13 +1,16 @@
 # app/api/employees.py
-from typing import List
+from typing import List, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta, date
 
 from app.database import get_db
 from app.models.employee import CompanyEmployee, EmployeeSkill, Availability
+from app.models.allocation import Allocation
+from app.models.project import Project
 from app.schemas.employee import (
     CompanyEmployeeCreate,
     CompanyEmployeeResponse,
@@ -18,6 +21,9 @@ from app.schemas.employee import (
     AvailabilityCreate,
     AvailabilityResponse,
     AvailabilityUpdate,
+    DateRangeLeaveRequest,
+    WeeklyBandwidthSummary,
+    BatchAvailabilityUpdate,
 )
 
 router = APIRouter()
@@ -205,47 +211,228 @@ def remove_employee_skill(employee_id: str, skill_id: str, db: Session = Depends
 # ==========================================
 # AVAILABILITY ENDPOINTS
 # ==========================================
-@router.get("/{employee_id}/availability", response_model=List[AvailabilityResponse])
-def get_employee_availability(employee_id: str, db: Session = Depends(get_db)):
-    """Fetch availability entries for a specific employee."""
-    return (
-        db.query(Availability)
-        .filter(
-            Availability.resource_id == employee_id,
-            Availability.resource_type == "employee"
-        )
-        .all()
+def normalize_to_monday(d: date) -> date:
+    return d - timedelta(days=d.weekday())
+
+def generate_availability_id(db: Session) -> str:
+    """
+    Generates sequential availability IDs in the format: rp2-avail-0001
+    """
+    # Get the total count of availability records to determine the next index
+    count = db.query(func.count(Availability.availability_id)).scalar() or 0
+    next_num = count + 1
+    return f"rp2-avail-{next_num:04d}"
+
+@router.get(
+    "/{employee_id}/availability", response_model=List[AvailabilityResponse]
+)
+def get_employee_availability(
+    employee_id: str,
+    start_date: Optional[date] = Query(
+        None, description="Filter records starting from this date"
+    ),
+    end_date: Optional[date] = Query(
+        None, description="Filter records up to this date"
+    ),
+    db: Session = Depends(get_db),
+):
+    """Fetch availability entries with optional date range filtering."""
+    query = db.query(Availability).filter(
+        Availability.resource_id == employee_id,
+        Availability.resource_type == "employee",
     )
 
+    if start_date:
+        query = query.filter(
+            Availability.week_start_date >= normalize_to_monday(start_date)
+        )
+    if end_date:
+        query = query.filter(
+            Availability.week_start_date <= normalize_to_monday(end_date)
+        )
 
-@router.post("/{employee_id}/availability", response_model=AvailabilityResponse, status_code=status.HTTP_201_CREATED)
-def add_or_update_availability(employee_id: str, avail_in: AvailabilityCreate, db: Session = Depends(get_db)):
-    """Add or update availability hours for a given week."""
-    employee = db.query(CompanyEmployee).filter(CompanyEmployee.employee_id == employee_id).first()
+    return query.order_by(Availability.week_start_date.asc()).all()
+
+
+@router.post(
+    "/{employee_id}/availability",
+    response_model=AvailabilityResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_or_update_availability(
+    employee_id: str,
+    avail_in: AvailabilityCreate,
+    db: Session = Depends(get_db),
+):
+    """Add or update availability hours for a given week (Fixed ID generation & Monday alignment)."""
+    employee = (
+        db.query(CompanyEmployee)
+        .filter(CompanyEmployee.employee_id == employee_id)
+        .first()
+    )
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
 
-    # Upsert logic handling unique constraint on (resource_id, week_start_date)
-    existing = db.query(Availability).filter(
-        Availability.resource_id == employee_id,
-        Availability.week_start_date == avail_in.week_start_date
-    ).first()
+    monday = normalize_to_monday(avail_in.week_start_date)
+
+    existing = (
+        db.query(Availability)
+        .filter(
+            Availability.resource_id == employee_id,
+            Availability.week_start_date == monday,
+        )
+        .first()
+    )
 
     if existing:
-        existing.available_hours = avail_in.available_hours
+        existing.available_hours = (
+            0 if avail_in.is_on_leave else avail_in.available_hours
+        )
         existing.is_on_leave = avail_in.is_on_leave
         db.commit()
         db.refresh(existing)
         return existing
 
+    # FIX: Generating formatted primary key (e.g. rp2-avail-0001)
+    new_avail_id = generate_availability_id(db)
+
     new_avail = Availability(
+        availability_id=new_avail_id,
         resource_id=employee_id,
         resource_type="employee",
-        week_start_date=avail_in.week_start_date,
-        available_hours=avail_in.available_hours,
-        is_on_leave=avail_in.is_on_leave
+        week_start_date=monday,
+        available_hours=0 if avail_in.is_on_leave else avail_in.available_hours,
+        is_on_leave=avail_in.is_on_leave,
     )
     db.add(new_avail)
     db.commit()
     db.refresh(new_avail)
     return new_avail
+
+
+# --- NEW API 1: Date Range PTO Leave Submission ---
+@router.post("/{employee_id}/leave", status_code=status.HTTP_200_OK)
+def submit_date_range_leave(
+    employee_id: str,
+    payload: DateRangeLeaveRequest,
+    db: Session = Depends(get_db),
+):
+    """Submits multi-week leave, setting matching weeks to 0 available hours and on_leave = True."""
+    if payload.end_date < payload.start_date:
+        raise HTTPException(
+            status_code=400, detail="End date cannot be before start date"
+        )
+
+    current_date = payload.start_date
+    updated_weeks = []
+
+    while current_date <= payload.end_date:
+        monday = normalize_to_monday(current_date)
+
+        existing = (
+            db.query(Availability)
+            .filter(
+                Availability.resource_id == employee_id,
+                Availability.week_start_date == monday,
+            )
+            .first()
+        )
+
+        new_avail_id = generate_availability_id(db)
+        
+        if existing:
+            existing.available_hours = 0
+            existing.is_on_leave = True
+        else:
+            new_avail = Availability(
+                availability_id=new_avail_id,
+                resource_id=employee_id,
+                resource_type="employee",
+                week_start_date=monday,
+                available_hours=0,
+                is_on_leave=True,
+            )
+            db.add(new_avail)
+
+        updated_weeks.append(monday)
+        current_date = monday + timedelta(days=7)
+
+    db.commit()
+    return {
+        "status": "success",
+        "message": f"Leave applied across {len(set(updated_weeks))} week(s).",
+    }
+
+
+
+
+
+
+@router.get("/{employee_id}/daily-bandwidth")
+def get_employee_daily_bandwidth(
+    employee_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Calculates today's exact remaining working hours for the current week, 
+    accounting for elapsed workdays and active project allocations.
+    """
+    today = date.today()
+    current_monday = normalize_to_monday(today)
+    
+    # Python weekday: Mon=0, Tue=1, Wed=2, Thu=3, Fri=4, Sat=5, Sun=6
+    day_of_week = today.weekday()
+    
+    # 1. Fetch Gross Weekly Capacity from Availability table (defaults to 40)
+    avail = db.query(Availability).filter(
+        Availability.resource_id == employee_id,
+        Availability.week_start_date == current_monday
+    ).first()
+
+    gross_weekly_hours = avail.available_hours if avail else 40
+    is_on_leave = avail.is_on_leave if avail else False
+
+    if is_on_leave:
+        return {
+            "today": today,
+            "status": "On Leave",
+            "gross_weekly_hours": 0,
+            "elapsed_hours": 0,
+            "allocated_hours": 0,
+            "remaining_unallocated_hours": 0
+        }
+
+    # Standard daily hours (assumes 5 working days per week)
+    daily_standard_hours = gross_weekly_hours / 5.0  # e.g., 40 / 5 = 8 hrs/day
+
+    # 2. Calculate Elapsed Hours for past days in current week
+    # If it's Monday (0), 0 days elapsed. If Wednesday (2), 2 days elapsed (Mon & Tue = 16 hrs).
+    past_workdays = min(day_of_week, 5)  # Cap at 5 for weekends
+    elapsed_hours = past_workdays * daily_standard_hours
+
+    # 3. Sum current active allocations for this week
+    w_end = current_monday + timedelta(days=6)
+    allocated_hours = (
+        db.query(func.coalesce(func.sum(Allocation.allocated_hours), 0))
+        .join(Project, Allocation.project_id == Project.project_id)
+        .filter(
+            Allocation.resource_id == employee_id,
+            Allocation.status.in_(["assigned", "accepted"]),
+            Project.start_date <= w_end,
+            Project.end_date >= current_monday
+        )
+        .scalar()
+    )
+
+    # 4. Net Remaining Unallocated Hours for the rest of this week
+    # Formula: Gross Capacity - Elapsed Unused Time - Allocated Hours
+    remaining_hours = max(0, gross_weekly_hours - elapsed_hours - allocated_hours)
+
+    return {
+        "today": today.strftime("%Y-%m-%d"),
+        "day_of_week": today.strftime("%A"),
+        "gross_weekly_hours": gross_weekly_hours,
+        "elapsed_hours_this_week": elapsed_hours,
+        "assigned_project_hours": allocated_hours,
+        "remaining_unallocated_hours": remaining_hours
+    }

@@ -2,7 +2,7 @@
 from datetime import date, datetime
 from typing import List, Optional
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 # ==========================================
@@ -41,20 +41,46 @@ class AvailabilityBase(BaseModel):
     is_on_leave: bool = False
 
 
-class AvailabilityCreate(AvailabilityBase):
-    pass
-
-
 class AvailabilityUpdate(BaseModel):
     available_hours: Optional[int] = None
     is_on_leave: Optional[bool] = None
 
 
-class AvailabilityResponse(AvailabilityBase):
-    model_config = ConfigDict(from_attributes=True)
 
+class AvailabilityCreate(BaseModel):
+    week_start_date: date
+    available_hours: int = Field(default=40, ge=0, le=80)
+    is_on_leave: bool = False
+
+
+class AvailabilityResponse(BaseModel):
     availability_id: str
+    resource_id: str
+    resource_type: str
+    week_start_date: date
+    available_hours: int
+    is_on_leave: bool
 
+    class Config:
+        from_attributes = True
+
+
+class DateRangeLeaveRequest(BaseModel):
+    start_date: date
+    end_date: date
+    reason: Optional[str] = None
+
+
+class BatchAvailabilityUpdate(BaseModel):
+    weeks: List[AvailabilityCreate]
+
+
+class WeeklyBandwidthSummary(BaseModel):
+    week_start_date: date
+    gross_available_hours: int
+    allocated_hours: int
+    net_free_hours: int
+    is_on_leave: bool
 
 # ==========================================
 # COMPANY EMPLOYEE SCHEMAS

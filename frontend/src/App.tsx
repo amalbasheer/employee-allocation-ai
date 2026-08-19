@@ -11,6 +11,7 @@ import { EmployeeDashboard } from './pages/employee/EmployeeDashboard';
 import   StudentDashboard  from './pages/student/StudentDashboard';
 import { Role } from './types';
 import { ProjectAllocation } from './pages/admin/ProjectAllocations';
+import { EmployeeAvailabilityPage } from './pages/employee/EmployeeAvailability';
 
 interface ProtectedRouteProps {
   children?: React.ReactNode;
@@ -86,6 +87,14 @@ export default function App() {
                 element={
                   <ProtectedRoute allowedRoles={['EMPLOYEE']}>
                     <EmployeeDashboard />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/employee/availability"
+                element={
+                  <ProtectedRoute allowedRoles={['EMPLOYEE']}>
+                    <EmployeeAvailabilityPage/>
                   </ProtectedRoute>
                 }
               />
