@@ -2,7 +2,7 @@
 from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timezone, timedelta, date
@@ -417,9 +417,9 @@ def get_employee_daily_bandwidth(
         .join(Project, Allocation.project_id == Project.project_id)
         .filter(
             Allocation.resource_id == employee_id,
-            Allocation.status.in_(["assigned", "accepted"]),
+            func.lower(Allocation.status).in_(["assigned", "accepted", "proposed", "rejected", "substituted"]),
             Project.start_date <= w_end,
-            Project.end_date >= current_monday
+            or_(Project.end_date >= current_monday, Project.end_date.is_(None))
         )
         .scalar()
     )
