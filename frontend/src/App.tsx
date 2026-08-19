@@ -8,7 +8,7 @@ import { OverviewDashboard } from './pages/admin/OverviewDashboard';
 import { UserManagement } from './pages/admin/UserManagement';
 import { WebinarManagement } from './pages/admin/WebinarManagement';
 import { EmployeeDashboard } from './pages/employee/EmployeeDashboard';
-import   StudentDashboard  from './pages/student/StudentDashboard';
+import  StudentDashboard  from './pages/student/StudentDashboard';
 import { Role } from './types';
 import { ProjectAllocation } from './pages/admin/ProjectAllocations';
 import { EmployeeAvailabilityPage } from './pages/employee/EmployeeAvailability';

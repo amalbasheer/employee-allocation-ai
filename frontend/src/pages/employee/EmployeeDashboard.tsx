@@ -3,7 +3,7 @@ import { Card } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
 
 import { 
-  Check, X, Clock, Briefcase, Video, Calendar, 
+  Check, X, Clock, Briefcase, Video, Calendar, Hourglass,
   ExternalLink, ChevronRight, Loader2, AlertCircle
 } from 'lucide-react';
 
@@ -13,7 +13,7 @@ export interface Proposal {
   projectTitle: string;
   role: string;
   score: number;
-  status: 'proposed' | 'accepted_by_employee' | 'rejected_by_employee';
+  status: string;
   description: string;
   assignedInterns: string[];
   requiredSkills: string[];
@@ -81,112 +81,143 @@ const initialWebinars: Webinar[] = [
 interface EmployeeDashboardProps {
   employeeId?: string;
 }
-
 export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ 
-  employeeId = 'rp2-emp-0001' 
+  employeeId: propEmployeeId 
 }) => {
   const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [waitingConfirmations, setWaitingConfirmations] = useState<Proposal[]>([]);
   const [activeProjects, setActiveProjects] = useState<ActiveProject[]>([]);
   const [webinars, setWebinars] = useState<Webinar[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [usingFallback, setUsingFallback] = useState<boolean>(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
-  // Fetch Dashboard Data from API for Allocations, use Mock ONLY for Webinars
-const fetchDashboardData = useCallback(async () => {
-  setLoading(true);
+  // 1. Resolve Active Employee ID Dynamically (Props -> localStorage -> Fallback)
+  const getActiveEmployeeId = useCallback((): string => {
+    if (propEmployeeId) return propEmployeeId;
 
-  // 1. Get Auth Token stored in localStorage under 'auth_token'
-  const rawToken = localStorage.getItem('auth_token');
-  let token = rawToken;
-  if (rawToken) {
-    try {
-      const parsed = JSON.parse(rawToken);
-      token = parsed.token || parsed.access_token || rawToken;
-    } catch {
-      token = rawToken;
-    }
-  }
-
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-
-  try {
-    // 2. Fetch Allocations from DB
-    const allocRes = await fetch(
-      `/api/allocations/my-allocations${employeeId ? `?employee_id=${employeeId}` : ''}`,
-      { headers }
-    );
-
-    if (allocRes.ok) {
-      const data = await allocRes.json();
-      console.log('Real DB Response for Allocations:', data); // Inspect exact output in DevTools Console
-
-      // Normalize if backend wraps array inside { data: [...] } or { allocations: [...] }
-      const rawAllocations = Array.isArray(data)
-        ? data
-        : (data.allocations || data.data || []);
-
-      if (Array.isArray(rawAllocations)) {
-        // Map DB allocations to Proposal interface
-        const fetchedProposals: Proposal[] = rawAllocations
-          .filter((a: any) => {
-            const s = String(a.status || '').toLowerCase();
-            return s === 'proposed' || s === 'pending';
-          })
-          .map((a: any) => ({
-            id: a.allocation_id || a.id,
-            projectId: a.project_id || a.projectId,
-            projectTitle: a.project_title || a.projectTitle || 'Project ' + (a.project_id || a.id),
-            role: a.role || 'Project Mentor',
-            score: a.match_score ? Math.round(a.match_score * 100) / 100 : 92.0,
-            status: 'proposed',
-            description: a.project_description || a.description || 'Assigned allocation request.',
-            assignedInterns: a.interns || ['Assigned Interns'],
-            requiredSkills: a.required_skills || ['Python', 'SQL'],
-            dueDate: a.due_date || '48 hours remaining',
-          }));
-
-        // Map DB active allocations to ActiveProject interface
-        const fetchedActive: ActiveProject[] = rawAllocations
-          .filter((a: any) => {
-            const s = String(a.status || '').toLowerCase();
-            return ['assigned', 'accepted', 'active', 'approved', 'in_progress'].includes(s);
-          })
-          .map((a: any) => ({
-            id: a.project_id || a.allocation_id || a.id,
-            title: a.project_title || a.title || 'Active Project',
-            role: a.role || 'Lead Mentor',
-            interns: a.interns || ['Elena R.', 'Marcus K.'],
-            currentMilestone: a.current_milestone || 'Milestone 1: Project Kickoff',
-            progressPercentage: a.progress_percentage ?? 25,
-            nextSyncDate: a.next_sync_date || 'Next Week',
-          }));
-
-        // Set real DB state (even if 0 records exist)
-        setProposals(fetchedProposals);
-        setActiveProjects(fetchedActive);
-        setUsingFallback(false);
+    const authUserRaw = localStorage.getItem('auth_user');
+    if (authUserRaw) {
+      try {
+        const user = JSON.parse(authUserRaw);
+        return user.employee_id || user.id || user.resource_id || '';
+      } catch (e) {
+        console.error('Error parsing auth_user from localStorage', e);
       }
-    } else {
-      console.error(`API Error ${allocRes.status}: Using demo fallback for projects.`);
+    }
+    return '';
+  }, [propEmployeeId]);
+
+  // 2. Fetch Dashboard Data from API for Allocations
+  const fetchDashboardData = useCallback(async () => {
+    setLoading(true);
+
+    const targetEmployeeId = getActiveEmployeeId();
+
+    const rawToken = localStorage.getItem('auth_token');
+    let token = rawToken;
+    if (rawToken) {
+      try {
+        const parsed = JSON.parse(rawToken);
+        token = parsed.token || parsed.access_token || rawToken;
+      } catch {
+        token = rawToken;
+      }
+    }
+
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+
+    try {
+      const endpoint = `/api/allocations/my-allocations${targetEmployeeId ? `?resource_id=${targetEmployeeId}` : ''}`;
+      const allocRes = await fetch(endpoint, { headers });
+
+      if (allocRes.ok) {
+        const data = await allocRes.json();
+        console.log('Real DB Response for Allocations:', data);
+
+        const rawAllocations = Array.isArray(data)
+          ? data
+          : (data.allocations || data.data || []);
+
+        if (Array.isArray(rawAllocations)) {
+          // A. Map Proposed Allocations (Pending Employee Response)
+          const fetchedProposals: Proposal[] = rawAllocations
+            .filter((a: any) => {
+              const s = String(a.status || '').toLowerCase();
+              return s === 'proposed' || s === 'pending';
+            })
+            .map((a: any) => ({
+              id: String(a.allocation_id || a.id),
+              projectId: String(a.project_id || ''),
+              projectTitle: a.title || 'Assigned Project',
+              role: a.role || 'Project Mentor',
+              score: typeof a.match_score === 'number' ? Math.round(a.match_score * 100) / 100 : 90.0,
+              status: 'proposed',
+              description: a.description || 'Assigned allocation request.',
+              assignedInterns: a.interns || (a.mentor ? [a.mentor] : ['Assigned Interns']),
+              requiredSkills: Array.isArray(a.tech_stack) ? a.tech_stack : ['Python', 'SQL'],
+              dueDate: a.due_date || 'N/A',
+            }));
+
+          // B. Map Waiting Confirmations (Employee Accepted -> Awaiting Admin Action)
+          const fetchedWaiting: Proposal[] = rawAllocations
+            .filter((a: any) => {
+              const s = String(a.status || '').toLowerCase();
+              return ['accepted', 'accepted_by_employee'].includes(s);
+            })
+            .map((a: any) => ({
+              id: String(a.allocation_id || a.id),
+              projectId: String(a.project_id || ''),
+              projectTitle: a.title || 'Assigned Project',
+              role: a.role || 'Project Mentor',
+              score: typeof a.match_score === 'number' ? Math.round(a.match_score * 100) / 100 : 90.0,
+              status: 'accepted',
+              description: a.description || 'Assigned allocation request.',
+              assignedInterns: a.interns || (a.mentor ? [a.mentor] : ['Assigned Interns']),
+              requiredSkills: Array.isArray(a.tech_stack) ? a.tech_stack : ['Python', 'SQL'],
+              dueDate: a.due_date || 'N/A',
+            }));
+
+          // C. Map Active Projects (Admin Confirmed)
+          const fetchedActive: ActiveProject[] = rawAllocations
+            .filter((a: any) => {
+              const s = String(a.status || '').toLowerCase();
+              return ['assigned', 'confirmed', 'active', 'approved', 'in_progress'].includes(s);
+            })
+            .map((a: any) => ({
+              id: String(a.project_id || a.allocation_id || a.id),
+              title: a.title || 'Active Project',
+              role: a.role || 'Lead Mentor',
+              interns: a.interns || (a.mentor ? [a.mentor] : ['Assigned Team']),
+              currentMilestone: a.current_milestone || 'Project Execution',
+              progressPercentage: typeof a.progress_percentage === 'number' ? a.progress_percentage : 25,
+              nextSyncDate: a.due_date || 'Next Week',
+            }));
+
+          setProposals(fetchedProposals);
+          setWaitingConfirmations(fetchedWaiting);
+          setActiveProjects(fetchedActive);
+          setUsingFallback(false);
+        }
+      } else {
+        console.error(`API Error ${allocRes.status}: Using demo fallback for projects.`);
+        setProposals(initialProposals);
+        setActiveProjects(initialActiveProjects);
+        setUsingFallback(true);
+      }
+    } catch (err) {
+      console.error('Network Error: Using demo fallback for projects.', err);
       setProposals(initialProposals);
       setActiveProjects(initialActiveProjects);
       setUsingFallback(true);
+    } finally {
+      setWebinars(initialWebinars);
+      setLoading(false);
     }
-  } catch (err) {
-    console.error('Network Error: Using demo fallback for projects.', err);
-    setProposals(initialProposals);
-    setActiveProjects(initialActiveProjects);
-    setUsingFallback(true);
-  } finally {
-    // 3. Webinars ALWAYS use mock data directly
-    setWebinars(initialWebinars);
-    setLoading(false);
-  }
-}, [employeeId]);
+  }, [getActiveEmployeeId]);
 
   useEffect(() => {
     fetchDashboardData();
@@ -198,25 +229,24 @@ const fetchDashboardData = useCallback(async () => {
     const proposal = proposals.find((p) => p.id === id);
     if (!proposal) return;
 
-    const newStatus = action === 'accept' ? 'accepted_by_employee' : 'rejected_by_employee';
+    const targetEmployeeId = getActiveEmployeeId();
+    const allocationStatus = action === 'accept' ? 'accepted' : 'rejected_by_employee';
 
     try {
-      // 1. Try Backend Update Endpoint
       const response = await fetch(`/api/allocations/${id}/respond`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          status: action === 'accept' ? 'accepted' : 'rejected',
-          employee_id: employeeId,
+          status: allocationStatus,
+          employee_id: targetEmployeeId,
         }),
       });
 
       if (!response.ok) {
-        // Fallback endpoint if custom response endpoint isn't present
         await fetch(`/api/allocations/${id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: action === 'accept' ? 'accepted' : 'rejected' }),
+          body: JSON.stringify({ status: allocationStatus }),
         });
       }
     } catch (err) {
@@ -225,34 +255,17 @@ const fetchDashboardData = useCallback(async () => {
       setActionLoadingId(null);
     }
 
-    // 2. Local State UI Transition
+    // Update Local UI States
+    setProposals((prev) => prev.filter((p) => p.id !== id));
+
     if (action === 'accept') {
-      const newActiveProject: ActiveProject = {
-        id: `act-${Date.now()}`,
-        title: proposal.projectTitle,
-        role: proposal.role,
-        interns: proposal.assignedInterns,
-        currentMilestone: 'Milestone 1: Project Onboarding',
-        progressPercentage: 10,
-        nextSyncDate: 'Sep 02, 2026',
+      // Move to Waiting for Confirmation list instead of Active Projects
+      const acceptedProposal: Proposal = {
+        ...proposal,
+        status: 'accepted',
       };
-
-      const newWebinar: Webinar = {
-        id: `web-${Date.now()}`,
-        title: `${proposal.projectTitle}: Onboarding Workshop`,
-        date: 'Sep 04, 2026',
-        time: '11:00 AM EST',
-        attendeesCount: proposal.assignedInterns.length + 1,
-        meetingUrl: 'https://meet.company.com/onboarding',
-      };
-
-      setActiveProjects((prev) => [newActiveProject, ...prev]);
-      setWebinars((prev) => [newWebinar, ...prev]);
+      setWaitingConfirmations((prev) => [acceptedProposal, ...prev]);
     }
-
-    setProposals((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, status: newStatus } : p))
-    );
   };
 
   const pendingCount = proposals.filter((p) => p.status === 'proposed').length;
@@ -364,12 +377,64 @@ const fetchDashboardData = useCallback(async () => {
           )}
         </div>
       </Card>
+      {/* SECTION 2: WAITING FOR ADMIN CONFIRMATION */}
+      <Card 
+        title={`Waiting for Confirmation (${waitingConfirmations.length})`} 
+        subtitle="Proposals accepted by you awaiting final admin approval"
+      >
+        <div className="space-y-4">
+          {waitingConfirmations.length === 0 ? (
+            <div className="text-center py-8 border border-dashed border-slate-800 rounded-xl">
+              <Clock className="w-6 h-6 text-slate-600 mx-auto mb-2" />
+              <p className="text-xs text-slate-500">No allocations currently awaiting confirmation.</p>
+            </div>
+          ) : (
+            waitingConfirmations.map((project) => (
+              <div 
+                key={project.id} 
+                className="p-4 bg-slate-950 rounded-xl border border-amber-500/30 space-y-3 transition-all hover:border-amber-500/50"
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h5 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Hourglass className="w-4 h-4 text-amber-400 animate-pulse" /> {project.projectTitle}
+                    </h5>
+                    <p className="text-xs text-slate-400 mt-0.5">{project.role}</p>
+                  </div>
+                  <span className="text-[10px] bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded border border-amber-500/20 font-medium">
+                    Pending Approval
+                  </span>
+                </div>
 
-      {/* ACTIVE PROJECTS & WEBINARS GRID */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card title="Active Projects" subtitle="Projects currently active and underway">
-          <div className="space-y-4">
-            {activeProjects.map((project) => (
+                <p className="text-xs text-slate-400 line-clamp-2">{project.description}</p>
+
+                <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-900 text-slate-400">
+                  <span className="flex items-center gap-1 text-[11px]">
+                    <Calendar className="w-3.5 h-3.5 text-slate-500" /> Target Start: {project.dueDate}
+                  </span>
+                  <span className="text-[11px] text-amber-400 font-medium">
+                    Awaiting Admin Action
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </Card>
+
+  {/* CARD 2: ACTIVE PROJECTS */}
+      <Card 
+        title={`Active Projects (${activeProjects.length})`} 
+        subtitle="Projects currently active and underway"
+      >
+        <div className="space-y-4">
+          {activeProjects.length === 0 ? (
+            <div className="text-center py-8 border border-dashed border-slate-800 rounded-xl">
+              <Briefcase className="w-6 h-6 text-slate-600 mx-auto mb-2" />
+              <p className="text-xs text-slate-500">No confirmed active projects yet.</p>
+            </div>
+          ) : (
+            activeProjects.map((project) => (
               <div key={project.id} className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
                 <div className="flex justify-between items-start">
                   <div>
@@ -379,7 +444,7 @@ const fetchDashboardData = useCallback(async () => {
                     <p className="text-xs text-slate-400 mt-0.5">{project.role}</p>
                   </div>
                   <span className="text-[10px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded border border-slate-800">
-                    {project.interns.length} Mentees
+                    {project.interns ? project.interns.length : 0} Mentees
                   </span>
                 </div>
 
@@ -398,47 +463,48 @@ const fetchDashboardData = useCallback(async () => {
 
                 <div className="flex items-center justify-between text-xs pt-1 text-slate-400">
                   <span className="flex items-center gap-1">
-                    <Calendar className="w-3.5 h-3.5" /> Sync: {project.nextSyncDate}
+                   <Calendar className="w-3.5 h-3.5" /> Sync: {project.nextSyncDate}
                   </span>
                   <button className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-semibold text-[11px]">
                     View Details <ChevronRight className="w-3 h-3" />
                   </button>
                 </div>
               </div>
-            ))}
-          </div>
-        </Card>
+            ))
+          )}
+        </div>
+      </Card>
 
-        <Card title="Webinars & Sessions" subtitle="Workshops and technical sessions">
-          <div className="space-y-4">
-            {webinars.map((webinar) => (
-              <div key={webinar.id} className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h5 className="text-sm font-bold text-white flex items-center gap-2">
-                      <Video className="w-4 h-4 text-amber-400" /> {webinar.title}
-                    </h5>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      {webinar.date} • {webinar.time}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between pt-2 border-t border-slate-900 text-xs">
-                  <a
-                    href={webinar.meetingUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="bg-indigo-600/10 text-indigo-400 hover:bg-indigo-600/20 text-xs font-semibold px-3 py-1.5 rounded-lg border border-indigo-500/20 flex items-center gap-1.5 transition-all"
-                  >
-                    Launch Session <ExternalLink className="w-3 h-3 text-indigo-400" />
-                  </a>
+      <Card title="Webinars & Sessions" subtitle="Workshops and technical sessions">
+        <div className="space-y-4">
+          {webinars.map((webinar) => (
+            <div key={webinar.id} className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h5 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Video className="w-4 h-4 text-amber-400" /> {webinar.title}
+                  </h5>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {webinar.date} • {webinar.time}
+                  </p>
                 </div>
               </div>
-            ))}
-          </div>
-        </Card>
-      </div>
+
+              <div className="flex items-center justify-between pt-2 border-t border-slate-900 text-xs">
+                <a
+                  href={webinar.meetingUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="bg-indigo-600/10 text-indigo-400 hover:bg-indigo-600/20 text-xs font-semibold px-3 py-1.5 rounded-lg border border-indigo-500/20 flex items-center gap-1.5 transition-all"
+                >
+                  Launch Session <ExternalLink className="w-3 h-3 text-indigo-400" />
+                </a>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
     </div>
+  
   );
 };

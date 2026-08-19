@@ -23,11 +23,7 @@ class Project(Base):
     required_hours_per_week: Mapped[int] = mapped_column(Integer, nullable=False)
     priority_level: Mapped[str] = mapped_column(String(20), default="Medium")
     
-    status: Mapped[ProjectStatus] = mapped_column(
-        SQLEnum(ProjectStatus, name="project_status_enum", native_enum=False),
-        default=ProjectStatus.OPEN,
-        nullable=False
-    )
+    status = Column(String(10), nullable=False)
 
     # Relationships
     allocations: Mapped["Allocation"] = relationship("Allocation", back_populates="project")

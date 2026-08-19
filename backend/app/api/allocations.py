@@ -1,13 +1,17 @@
 # app/api/allocations.py
 import uuid
+import traceback
 from datetime import datetime
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from app.api.deps import get_db, get_current_user, require_admin
 from app.models.allocation import Allocation, AllocationLog, Substitution
-from app.models.project import Project
+from app.models.project import Project, ProjectRequirement
+from app.models.taxonomy import Skill
+from app.models.employee import CompanyEmployee
 from app.models.enums import AllocationStatus, ProjectStatus
 from app.schemas.project import UserProfile
 from app.schemas.allocation import (
@@ -187,13 +191,168 @@ def substitute_allocation(
 
 
 # -------------------------------------------------------------------
-# 4. QUERY USER ALLOCATIONS ("MY PROPOSALS / MY ALLOCATIONS")
+# QUERY USER ALLOCATIONS ("MY PROPOSALS / MY ALLOCATIONS")
 # -------------------------------------------------------------------
-@router.get("/my-allocations", response_model=List[AllocationResponse])
+def safe_get(obj, key, default=None):
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
+def calculate_progress(status: str) -> int:
+    """Calculates progress dynamically since it is not stored in any table."""
+    status_lower = str(status).lower()
+    if status_lower in ["completed", "done", "finished"]:
+        return 100
+    elif status_lower in ["in_progress", "active", "started"]:
+        return 50
+    elif status_lower in ["assigned", "pending"]:
+        return 10
+    return 0
+
+
+@router.get("/my-allocations")
 def get_my_allocations(
+    resource_id: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    current_user: UserProfile = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user)
 ):
-    user_uuid = str(current_user.id)
-    allocations = db.query(Allocation).filter(Allocation.resource_id == user_uuid).all()
-    return allocations
+    try:
+        # 1. Identify logged-in intern ID
+        user_ids = set()
+        for field in ["id", "intern_id", "employee_id", "user_id", "student_id"]:
+            val = safe_get(current_user, field)
+            if val:
+                user_ids.add(str(val))
+
+        if resource_id:
+            user_ids.add(str(resource_id))
+
+        valid_ids = [uid for uid in user_ids if uid]
+        if not valid_ids:
+            return []
+
+        # 2. Query allocations for the logged-in intern
+        intern_allocations = db.query(Allocation).filter(
+            Allocation.resource_id.in_(valid_ids)
+        ).all()
+
+        if not intern_allocations:
+            return []
+
+        results = []
+
+        # 3. Join and map project, employee, and skills data
+        for alloc in intern_allocations:
+            proj_id = alloc.project_id
+
+            # Query Project table
+            project_obj = db.query(Project).filter(Project.project_id == proj_id).first()
+            if not project_obj:
+                continue
+
+            # Project Fields
+            project_title = safe_get(project_obj, "title") or safe_get(project_obj, "name") or "Assigned Project"
+            category = safe_get(project_obj, "project_type") or "Software Engineering"
+            project_status = safe_get(project_obj, "status") or "open"
+            description = safe_get(project_obj, "description") or ""
+            start_date = safe_get(project_obj, "start_date")
+            end_date = safe_get(project_obj, "end_date")
+
+            # Allocation Fields
+            suitability_score = safe_get(alloc, "suitability_score") or 0.0
+            status = safe_get(alloc, "status") or "assigned"
+
+            # Tech Stack Lookup: project_requirement -> skill
+            req_skill_ids = db.query(ProjectRequirement.skill_id).filter(
+                ProjectRequirement.project_id == proj_id
+            ).all()
+            
+            skill_ids = [s[0] for s in req_skill_ids if s[0]]
+
+            tech_stack = []
+            if skill_ids:
+                skills_objs = db.query(Skill).filter(Skill.skill_id.in_(skill_ids)).all()
+                tech_stack = [
+                    safe_get(sk, "name") or safe_get(sk, "skill_name") or str(sk.id) 
+                    for sk in skills_objs
+                ]
+
+            # Mentor Lookup from CompanyEmployee Table
+            mentor_name = "Pending Mentor Assignment"
+            mentor_id = safe_get(project_obj, "mentor_id") or safe_get(alloc, "resource_id")
+            
+            if mentor_id:
+                mentor_obj = db.query(CompanyEmployee).filter(
+                    or_(
+                        CompanyEmployee.employee_id == mentor_id,
+                        getattr(CompanyEmployee, "employee_id", CompanyEmployee.employee_id) == mentor_id
+                    )
+                ).first()
+                if mentor_obj:
+                    mentor_name = safe_get(mentor_obj, "name") or "Assigned Mentor"
+            else:
+                # Fallback: find another resource allocated to the same project
+                mentor_alloc = db.query(Allocation).filter(
+                    Allocation.project_id == proj_id,
+                    ~Allocation.resource_id.in_(valid_ids)
+                ).first()
+                if mentor_alloc and mentor_alloc.resource_id:
+                    mentor_obj = db.query(CompanyEmployee).filter(
+                        or_(
+                            CompanyEmployee.employee_id == mentor_alloc.resource_id,
+                            getattr(CompanyEmployee, "employee_id", CompanyEmployee.employee_id) == mentor_alloc.resource_id
+                        )
+                    ).first()
+                    if mentor_obj:
+                        mentor_name = safe_get(mentor_obj, "name") or "Assigned Mentor"
+
+            results.append({
+                "id": str(safe_get(alloc, "id")),
+                "allocation_id": str(safe_get(alloc, "id")),
+                "project_id": proj_id,
+                "title": project_title,
+                "category": category,
+                "role": safe_get(alloc, "role_on_project") or "Intern Developer",
+                "mentor": mentor_name,
+                "project_status": str(project_status).lower(),
+                "status": str(status).lower(),
+                "description": description,
+                "match_score": suitability_score,
+                "tech_stack": tech_stack,
+                "progress_percentage": calculate_progress(status),
+                "start_date": str(start_date) if start_date else "N/A",
+                "due_date": str(end_date) if end_date else "N/A"
+            })
+
+        return results
+
+    except Exception as e:
+        print("\n❌ ERROR IN /my-allocations lookup:")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal Server Error during allocation lookup: {str(e)}"
+        )
+
+# Admin Confirmation / Rejection Endpoint
+@router.patch("/{allocation_id}/admin-review")
+def admin_review_allocation(
+    allocation_id: str,
+    payload: dict, # Expects: {"action": "confirm" | "reject"}
+    db: Session = Depends(get_db)
+):
+    alloc = db.query(Allocation).filter(Allocation.id == allocation_id).first()
+    if not alloc:
+        raise HTTPException(status_code=404, detail="Allocation record not found")
+
+    action = payload.get("action")
+    if action == "confirm":
+        alloc.status = "confirmed"
+    elif action == "reject":
+        alloc.status = "rejected_by_admin"
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action. Use 'confirm' or 'reject'.")
+
+    db.commit()
+    return {"status": "success", "new_allocation_status": alloc.status}

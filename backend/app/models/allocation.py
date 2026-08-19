@@ -21,11 +21,7 @@ class Allocation(Base):
     allocated_hours: Mapped[int] = mapped_column(Integer, nullable=False)
     suitability_score: Mapped[float] = mapped_column(Float, nullable=False)
     
-    status: Mapped[AllocationStatus] = mapped_column(
-        SQLEnum(AllocationStatus, name="allocation_status_enum", native_enum=False),
-        default=AllocationStatus.PROPOSED,
-        nullable=False
-    )
+    status = Column(String(10), nullable=False)
     
     assigned_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     assigned_by: Mapped[str] = mapped_column(String(100), default="AI_Engine")
