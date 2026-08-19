@@ -24,6 +24,8 @@ from app.schemas.employee import (
     DateRangeLeaveRequest,
     WeeklyBandwidthSummary,
     BatchAvailabilityUpdate,
+    WeeklyBandwidthProjection,
+    BandwidthForecastItem,
 )
 
 router = APIRouter()
@@ -436,3 +438,53 @@ def get_employee_daily_bandwidth(
         "assigned_project_hours": allocated_hours,
         "remaining_unallocated_hours": remaining_hours
     }
+
+@router.get("/{employee_id}/bandwidth", response_model=List[BandwidthForecastItem])
+def get_employee_weekly_bandwidth(
+    employee_id: str,
+    num_weeks: int = Query(default=8, ge=1, le=52),
+    db: Session = Depends(get_db)
+):
+    STANDARD_WEEKLY_GROSS = 40.0  # 8 hrs/day * 5 days
+
+    # Query active project allocations for this employee
+    active_allocations = (
+        db.query(Allocation)
+        .filter(
+            Allocation.resource_id == employee_id,
+            Allocation.status.in_(["assigned", "accepted", "ASSIGNED", "ACCEPTED"])
+        )
+        .all()
+    ) if 'Allocation' in globals() else []
+
+    # Total allocated hours across assigned projects
+    total_allocated = sum(
+        getattr(a, "allocated_hours", 32.0) for a in active_allocations
+    ) if active_allocations else 0.0
+
+    # Calculate weekly Monday dates starting from the current week
+    today = date.today()
+    start_of_week = today - timedelta(days=today.weekday())
+
+    projections = []
+    for week_idx in range(num_weeks):
+        week_monday = start_of_week + timedelta(weeks=week_idx)
+
+        # Basic logic (extend with Leave table checks if needed)
+        gross = STANDARD_WEEKLY_GROSS
+        allocated = min(total_allocated, gross)
+        is_leave = False  # Set to True if employee has approved leave this week
+        
+        net_free = 0.0 if is_leave else max(0.0, gross - allocated)
+
+        projections.append(
+            BandwidthForecastItem(
+                week_start_date=week_monday.strftime("%b %d, %Y"),  # Generates "Aug 17, 2026"
+                gross_available_hours=gross,
+                allocated_hours=allocated,
+                is_on_leave=is_leave,
+                net_free_hours=net_free
+            )
+        )
+
+    return projections

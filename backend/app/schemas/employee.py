@@ -82,6 +82,23 @@ class WeeklyBandwidthSummary(BaseModel):
     net_free_hours: int
     is_on_leave: bool
 
+# Response Schema
+class WeeklyBandwidthProjection(BaseModel):
+    week_label: str
+    start_date: str
+    allocated_hours: float
+    available_hours: float
+    total_capacity: float
+    utilization_percentage: float
+
+# 1. Schema matching your JSX item keys
+class BandwidthForecastItem(BaseModel):
+    week_start_date: str          # e.g. "Aug 17, 2026"
+    gross_available_hours: float  # e.g. 40.0
+    allocated_hours: float        # e.g. 32.0
+    is_on_leave: bool             # True / False
+    net_free_hours: float         # e.g. 8.0
+    
 # ==========================================
 # COMPANY EMPLOYEE SCHEMAS
 # ==========================================
