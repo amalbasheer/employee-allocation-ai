@@ -7,6 +7,7 @@ from sqlalchemy import Column, String, Integer, Text, Date, Boolean, ForeignKey,
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import ARRAY, FLOAT
 from app.database import Base
+from pgvector.sqlalchemy import Vector
 from app.models.enums import ProjectStatus
 if TYPE_CHECKING:
     from app.models.allocation import Allocation
@@ -38,7 +39,6 @@ class ProjectRequirement(Base):
     skill_id = Column(String(20), nullable=False)
     min_proficiency: Mapped[int] = mapped_column(Integer, default=1)
     is_mandatory: Mapped[bool] = mapped_column(Boolean, default=True)
-    requirement_embedding: Mapped[Optional[List[float]]] = mapped_column(ARRAY(FLOAT), nullable=True)
-
+    requirement_embedding = Column(Vector(768), nullable=True)
     # Relationship
     project: Mapped["Project"] = relationship("Project", back_populates="requirements")

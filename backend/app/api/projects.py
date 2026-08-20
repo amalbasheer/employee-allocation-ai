@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import text, func
 from fastapi.responses import JSONResponse
 
 from app.database import get_db
@@ -208,6 +208,8 @@ def get_projects(
     return db.query(Project).all()
 
 
+ # create a new project with auto-generated ID, deduplicated skills, and AI-driven vector embeddings
+
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 def create_project(
     project_in: ProjectCreate, 
@@ -215,81 +217,134 @@ def create_project(
     admin_user: UserProfile = Depends(require_admin)
 ):
     """
-    Create a new project. 
-    Triggers AI engine to extract required skills, resolve skill_ids, 
-    generate embeddings, and populate project_requirements.
+    Create a new project with auto-generated ID (rp2-proj-XXXX),
+    deduplicated skills, and AI-driven vector embeddings.
     """
     raw_skills_input = getattr(project_in, "raw_skills", []) or []
-    project_data = project_in.model_dump(exclude={"requirements", "raw_skills"}, errors="ignore")
-    
-    # 1. Create primary Project record
-    new_project = Project(**project_data, status=ProjectStatus.OPEN)
-    db.add(new_project)
-    db.flush()
+    project_data = project_in.model_dump(exclude={"requirements", "raw_skills"})
 
-    # 2. Process Project Requirements
-    requirements_to_process = []
+    try:
+        # -------------------------------------------------------------
+        # 1. AUTO ID GENERATION (Format: rp2-proj-0001)
+        # -------------------------------------------------------------
+        if not project_data.get("project_id"):
+            total_count = db.query(func.count(Project.project_id)).scalar() or 0
+            project_data["project_id"] = f"rp2-proj-{(total_count + 1):04d}"
 
-    # Case A: Explicit requirements passed in request payload
-    if getattr(project_in, "requirements", None):
-        for req in project_in.requirements:
-            s_name = getattr(req, "skill_name", None) or getattr(req, "skill_id", "General")
-            requirements_to_process.append({
-                "skill_name": s_name,
-                "min_proficiency": getattr(req, "min_proficiency", 3),
-                "is_mandatory": getattr(req, "is_mandatory", True)
-            })
+        new_project = Project(**project_data, status=ProjectStatus.OPEN)
+        db.add(new_project)
+        db.flush()  # Ensures project_id is bound for requirements
 
-    # Case B: Extract via AI Engine from description + raw_skills
-    elif extract_skills_from_text and (new_project.description or raw_skills_input):
-        try:
-            extracted = extract_skills_from_text(
-                description=new_project.description or "",
-                raw_skills=raw_skills_input
-            )
-            for item in extracted:
-                requirements_to_process.append({
-                    "skill_name": item.skill_name,
-                    "min_proficiency": item.min_proficiency,
-                    "is_mandatory": item.is_mandatory
+        # -------------------------------------------------------------
+        # 2. PROCESS REQUIREMENTS
+        # -------------------------------------------------------------
+        raw_requirements: List[Dict[str, Any]] = []
+
+        # Case A: Explicit requirements passed in payload
+        explicit_reqs = getattr(project_in, "requirements", None)
+        if explicit_reqs:
+            for req in explicit_reqs:
+                s_name = getattr(req, "skill_name", None) or getattr(req, "skill_id", "General")
+                raw_requirements.append({
+                    "skill_name": s_name,
+                    "min_proficiency": getattr(req, "min_proficiency", 3),
+                    "is_mandatory": getattr(req, "is_mandatory", True)
                 })
-        except Exception as e:
-            logger.warning(f"AI skill extraction failed: {e}. Falling back to raw skills processing.")
 
-    # Case C: Fallback processing for raw_skills list
-    if not requirements_to_process and raw_skills_input:
-        for sk_name in raw_skills_input:
-            requirements_to_process.append({
-                "skill_name": sk_name,
-                "min_proficiency": 3,
-                "is_mandatory": True
-            })
+        # Case B: AI Skill Extraction from description + raw_skills
+        if not raw_requirements and extract_skills_from_text:
+            if new_project.description or raw_skills_input:
+                try:
+                    extracted = extract_skills_from_text(
+                        description=new_project.description or "",
+                        raw_skills=raw_skills_input
+                    )
+                    for item in extracted:
+                        raw_requirements.append({
+                            "skill_name": getattr(item, "skill_name", str(item)),
+                            "min_proficiency": getattr(item, "min_proficiency", 3),
+                            "is_mandatory": getattr(item, "is_mandatory", True)
+                        })
+                except Exception as e:
+                    logger.warning(f"AI skill extraction failed: {e}. Falling back to raw skills.")
 
-    # 3. Resolve skill_ids, compute embeddings, and insert into project_requirements
-    for req_data in requirements_to_process:
-        skill_obj = get_or_create_skill(db, req_data["skill_name"])
+        # Case C: Fallback to raw_skills list
+        if not raw_requirements and raw_skills_input:
+            for sk_name in raw_skills_input:
+                raw_requirements.append({
+                    "skill_name": sk_name,
+                    "min_proficiency": 3,
+                    "is_mandatory": True
+                })
 
-        # Generate vector embedding for matching engine
-        embedding_vector = None
-        if generate_embedding:
-            try:
-                embedding_vector = generate_embedding(req_data["skill_name"])
-            except Exception as e:
-                logger.warning(f"Embedding generation failed for skill {req_data['skill_name']}: {e}")
+        # -------------------------------------------------------------
+        # 3. DEDUPLICATION BY SKILL NAME
+        # -------------------------------------------------------------
+        seen_skills = set()
+        deduped_requirements = []
 
-        db_req = ProjectRequirement(
-            project_id=new_project.project_id,
-            skill_id=skill_obj.skill_id,
-            min_proficiency=req_data["min_proficiency"],
-            is_mandatory=req_data["is_mandatory"],
-            requirement_embedding=embedding_vector
+        for req in raw_requirements:
+            normalized_name = req["skill_name"].strip().lower()
+            if normalized_name not in seen_skills:
+                seen_skills.add(normalized_name)
+                deduped_requirements.append(req)
+
+        # -------------------------------------------------------------
+        # 4. RESOLVE SKILL IDs, EMBEDDINGS & SAVE REQUIREMENTS
+        # -------------------------------------------------------------
+        for req_data in deduped_requirements:
+            skill_name = req_data["skill_name"].strip()
+            skill_obj = get_or_create_skill(db, skill_name)
+
+            embedding_vector = None
+            if generate_embedding:
+                try:
+                    embedding_vector = generate_embedding(skill_name)
+                except Exception as e:
+                    logger.warning(f"Embedding generation failed for skill '{skill_name}': {e}")
+
+            db_req = ProjectRequirement(
+                project_id=new_project.project_id,
+                skill_id=skill_obj.skill_id,
+                min_proficiency=req_data["min_proficiency"],
+                is_mandatory=req_data["is_mandatory"],
+                requirement_embedding=embedding_vector
+            )
+            db.add(db_req)
+
+        db.commit()
+        db.refresh(new_project)
+        # Safely fetch requirements relationship regardless of ORM property name
+        req_list = getattr(new_project, "requirements", None) or getattr(new_project, "project_requirements", None) or []
+
+        return {
+            "project_id": new_project.project_id,
+            "title": new_project.title,
+            "description": new_project.description or "",
+            "category": new_project.category or "General",
+            "project_type": getattr(new_project, "project_type", "Internal"),
+            "status": str(new_project.status.value if hasattr(new_project.status, 'value') else new_project.status),
+            "start_date": str(new_project.start_date) if new_project.start_date else None,
+            "end_date": str(new_project.end_date) if new_project.end_date else None,
+            "required_hours_per_week": new_project.required_hours_per_week,
+            "priority_level": new_project.priority_level,
+            "requirements": [
+                {
+                    "skill_id": req.skill_id,
+                    "min_proficiency": req.min_proficiency,
+                    "is_mandatory": req.is_mandatory,
+                }
+                for req in req_list
+            ],
+        }
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error creating project: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create project: {str(e)}"
         )
-        db.add(db_req)
-
-    db.commit()
-    db.refresh(new_project)
-    return new_project
-
 
 @router.get("/{project_id}", response_model=ProjectResponse)
 def get_project_by_id(

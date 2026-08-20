@@ -1,6 +1,6 @@
 # app/schemas/project.py
 from datetime import date
-from typing import List, Optional
+from typing import List, Optional, Any
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 from app.models.enums import ProjectStatus
@@ -36,8 +36,8 @@ class ProjectRequirementUpdate(BaseModel):
 
 
 class ProjectRequirementResponse(ProjectRequirementBase):
-    requirement_id: str
-    project_id: str
+    requirement_id: Optional[str] = None
+    project_id: Optional[str] = None
     requirement_embedding: Optional[List[float]] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -54,6 +54,8 @@ class ProjectBase(BaseModel):
     end_date: date
     required_hours_per_week: int
     priority_level: str = "Medium"
+
+    
 
 
 class ProjectCreate(ProjectBase):
@@ -73,7 +75,7 @@ class StatusUpdateRequest(BaseModel):
 
 class ProjectResponse(ProjectBase):
     project_id: str
-    status: ProjectStatus
-    requirements: List[ProjectRequirementResponse] = []
+    status: Optional[Any] = None
+    requirements: Optional[List[ProjectRequirementResponse]] = []
 
     model_config = ConfigDict(from_attributes=True)
