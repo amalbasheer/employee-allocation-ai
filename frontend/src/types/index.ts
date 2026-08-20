@@ -1,7 +1,22 @@
-// src/types/index.ts
+// ==========================================
+// COMMON / ENUM TYPES
+// ==========================================
+export type Role = 'ADMIN' | 'SUPERADMIN' | 'EMPLOYEE' | 'STUDENT' | 'INTERN' | 'GUEST';
+export type PriorityLevel = 'LOW' | 'MEDIUM' | 'HIGH';
+export type ProjectStatus = 'open' | 'in_progress' | 'completed' | 'cancelled';
+export type AllocationStatus = 'proposed' | 'accepted' | 'rejected' | 'assigned' | 'substituted';
 
-export type Role = 'ADMIN' | 'EMPLOYEE' | 'STUDENT' | 'INTERN' | 'GUEST';
+export enum UserRole {
+  ADMIN = 'admin',
+  SUPERADMIN = 'superadmin',
+  EMPLOYEE = 'employee',
+  STUDENT = 'student',
+  INTERN = 'intern',
+}
 
+// ==========================================
+// AUTH & USER INTERFACES
+// ==========================================
 export interface User {
   id: string;
   email: string;
@@ -11,25 +26,123 @@ export interface User {
   avatarUrl?: string;
 }
 
+export interface UserProfile {
+  id: string;
+  email: string;
+  role: UserRole | string;
+  name?: string;
+}
+
+export interface LoginRequest {
+  username: string; // Form-data / OAuth2 standard uses username/password
+  password: string;
+}
+
+export interface AuthResponse {
+  access_token: string;
+  token_type: string;
+  user: UserProfile;
+}
+
+// ==========================================
+// PROJECT & REQUIREMENT INTERFACES
+// ==========================================
 export interface ProjectRequirement {
+  requirement_id?: string;
+  project_id?: string;
   skill_id: string;
   skill_name: string;
   min_proficiency: number;
   is_mandatory: boolean;
+  requirement_embedding?: number[];
 }
 
 export interface Project {
   project_id: string;
   title: string;
   description: string;
-  project_type: 'batch' | 'workshop' | 'webinar' | 'seminar' | 'demo' | 'internal_project';
-  category: 'training_engagement' | 'work_engagement';
-  required_roles: string[];
+  project_type: 'batch' | 'workshop' | 'webinar' | 'seminar' | 'demo' | 'internal_project' | string;
+  category?: 'training_engagement' | 'work_engagement' | string;
+  required_roles?: string[];
+  start_date: string;
+  end_date?: string;
+  required_hours_per_week: number;
+  priority_level: PriorityLevel;
   status: ProjectStatus;
-  created_at: string;
-  requirements: ProjectRequirement[];
+  created_at?: string;
+  requirements?: ProjectRequirement[];
+  raw_skills?: string[];
 }
 
+export interface StatusUpdateRequest {
+  status: ProjectStatus | AllocationStatus;
+  changed_by?: string;
+  reason?: string;
+}
+
+// ==========================================
+// ALLOCATION & RECOMMENDATION INTERFACES
+// ==========================================
+export interface Allocation {
+  allocation_id: string;
+  resource_type: 'MENTOR' | 'INTERN' | string;
+  resource_id: string;
+  project_id: string;
+  role_on_project: string;
+  allocated_hours: number;
+  suitability_score: number;
+  status: AllocationStatus;
+  assigned_at?: string;
+  assigned_by?: string;
+}
+
+export interface Substitution {
+  substitution_id: string;
+  original_allocation_id: string;
+  substitute_resource_type: string;
+  substitute_resource_id: string;
+  reason?: string;
+  created_at: string;
+}
+
+export interface AllocationLog {
+  log_id: string;
+  allocation_id: string;
+  action: string;
+  old_status?: string;
+  new_status?: string;
+  changed_by: string;
+  reason?: string;
+  timestamp: string;
+}
+
+export interface ResourceMatch {
+  resource_id: string;
+  resource_type: string;
+  name?: string;
+  suitability_score: number;
+  match_reasons?: string[];
+  skills?: string[];
+}
+
+export interface ProposeAllocationPayload {
+  project_id: string;
+  resource_type: string;
+  resource_id: string;
+  role_on_project: string;
+  allocated_hours: number;
+  suitability_score: number;
+}
+
+export interface SubstituteAllocationPayload {
+  substitute_resource_type: string;
+  substitute_resource_id: string;
+  reason: string;
+}
+
+// ==========================================
+// CHAT & AI INTERFACES
+// ==========================================
 export interface ChatQueryRequest {
   query: string;
   project_id?: string;
@@ -45,83 +158,8 @@ export interface ChatQueryResponse {
 }
 
 // ==========================================
-// ENUMS
+// SKILLS & RESOURCE POOL TYPES
 // ==========================================
-export enum ProjectStatus {
-  OPEN = 'open',
-  IN_PROGRESS = 'in_progress',
-  COMPLETED = 'completed',
-  CANCELLED = 'cancelled',
-}
-
-export enum AllocationStatus {
-  PROPOSED = 'proposed',
-  ACCEPTED = 'accepted',
-  REJECTED = 'rejected',
-  ASSIGNED = 'assigned',
-  SUBSTITUTED = 'substituted',
-  CANCELLED = 'cancelled',
-}
-
-export enum UserRole {
-  ADMIN = 'admin',
-  SUPERADMIN = 'superadmin',
-  EMPLOYEE = 'employee',
-  STUDENT = 'student',
-  INTERN = 'intern',
-}
-
-// ==========================================
-// USER & ALLOCATION INTERFACES
-// ==========================================
-export interface UserProfile {
-  id: string;
-  email: string;
-  role: UserRole | string;
-  name?: string;
-}
-
-export interface Allocation {
-  allocation_id: string;
-  resource_type: string;
-  resource_id: string;
-  project_id: string;
-  role_on_project: string;
-  allocated_hours: number;
-  suitability_score: number;
-  status: AllocationStatus;
-  assigned_at: string;
-  assigned_by: string;
-}
-
-export interface ResourceMatch {
-  resource_id: string;
-  resource_type: string;
-  name?: string;
-  suitability_score: number;
-  match_reasons?: string[];
-  skills?: string[];
-}
-
-// ==========================================
-// PAYLOAD SCHEMAS
-// ==========================================
-export interface ProposeAllocationPayload {
-  project_id: string;
-  resource_type: string;
-  resource_id: string;
-  role_on_project?: string;
-  allocated_hours: number;
-  suitability_score?: number;
-}
-
-export interface SubstituteAllocationPayload {
-  substitute_resource_type: string;
-  substitute_resource_id: string;
-  reason: string;
-}
-
-// Common Skill Type
 export interface Skill {
   skill_id?: string;
   skill_name: string;

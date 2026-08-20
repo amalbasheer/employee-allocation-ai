@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Card } from '../../components/common/Card';
 import { 
-  FolderPlus, Plus, Calendar, CheckCircle2, Clock, Users, X, 
-  Layers, UserPlus, Tag, GraduationCap, UserCheck, Sliders, 
-  ArrowRight, Star, Send, XCircle, RefreshCw, ThumbsUp, ThumbsDown
+  Plus, Layers, Sliders, Clock, Send, UserCheck, XCircle, CheckCircle2, 
+  Tag, Calendar, ArrowRight, ThumbsUp, ThumbsDown, GraduationCap, 
+  Star, UserPlus, RefreshCw, Users, FolderPlus, X, PlayCircle, Crown 
 } from 'lucide-react';
+import { Card } from '../../components/common/Card';
+import api from '../../services/api'
 
-export type ProjectStatus = 'UNASSIGNED' | 'PROPOSED' | 'ACCEPTED' | 'REJECTED' | 'ALLOCATED';
+// --- Types ---
+export type ProjectStatus = 'OPEN' | 'PROPOSED' | 'ACCEPTED' | 'REJECTED' | 'IN_PROGRESS';
 export type MainTab = 'ALL_PROJECTS' | 'RECOMMENDATIONS';
 export type RecommendationSubTab = 'MENTORS' | 'STUDENTS';
 
@@ -38,58 +40,28 @@ export interface Project {
   allocatedStudentIds: string[];
 }
 
+// --- Mock Data ---
 const mockMentors: Mentor[] = [
   { id: 'm-1', name: 'Dr. Sarah Jenkins', role: 'Principal AI Engineer', matchScore: 98, skills: ['PyTorch', 'CUDA', 'FastAPI'] },
   { id: 'm-2', name: 'Alex Morgan', role: 'Staff Systems Architect', matchScore: 91, skills: ['Go', 'Kubernetes', 'AWS'] },
   { id: 'm-3', name: 'Elena Rostova', role: 'Lead Cloud Security Engineer', matchScore: 84, skills: ['Terraform', 'Security', 'Python'] },
+  { id: 'm-4', name: 'David Chen', role: 'Senior Backend Engineer', matchScore: 78, skills: ['Java', 'Spring Boot', 'PostgreSQL'] },
 ];
 
 const mockStudents: Student[] = [
   { id: 's-1', name: 'John Doe', university: 'Stanford University', matchScore: 95, skills: ['Python', 'PyTorch', 'Git'] },
   { id: 's-2', name: 'Maya Patel', university: 'MIT', matchScore: 89, skills: ['FastAPI', 'Docker', 'REST API'] },
   { id: 's-3', name: 'Liam Vance', university: 'UC Berkeley', matchScore: 82, skills: ['Go', 'Kubernetes', 'Linux'] },
+  { id: 's-4', name: 'Sophia Kim', university: 'CMU', matchScore: 76, skills: ['React', 'TypeScript', 'Node.js'] },
 ];
 
-const initialProjects: Project[] = [
-  {
-    id: 'p-101',
-    name: 'AI-Powered Recommendation Engine',
-    category: 'Machine Learning',
-    status: 'ACCEPTED',
-    requiredSkills: ['Python', 'PyTorch', 'FastAPI'],
-    startDate: 'Sep 01, 2026',
-    proposedMentorId: 'm-1',
-    proposedMentorName: 'Dr. Sarah Jenkins',
-    allocatedStudentIds: ['s-1'],
-  },
-  {
-    id: 'p-102',
-    name: 'Cloud Infrastructure Migration',
-    category: 'DevOps & Security',
-    status: 'UNASSIGNED',
-    requiredSkills: ['AWS', 'Kubernetes', 'Terraform'],
-    startDate: 'Sep 15, 2026',
-    allocatedStudentIds: [],
-  },
-  {
-    id: 'p-103',
-    name: 'Distributed Database Analytics Pipeline',
-    category: 'Backend Architecture',
-    status: 'PROPOSED',
-    requiredSkills: ['Go', 'PostgreSQL', 'Docker'],
-    startDate: 'Oct 01, 2026',
-    proposedMentorId: 'm-2',
-    proposedMentorName: 'Alex Morgan',
-    allocatedStudentIds: [],
-  },
-];
 
 export const ProjectAllocation: React.FC = () => {
-  const [projects, setProjects] = useState<Project[]>(initialProjects);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [activeTab, setActiveTab] = useState<MainTab>('ALL_PROJECTS');
   const [recommendationSubTab, setRecommendationSubTab] = useState<RecommendationSubTab>('MENTORS');
-  const [selectedProjectId, setSelectedProjectId] = useState<string>('p-102');
-  
+  const [selectedProjectId, setSelectedProjectId] = useState<string|null>(null);
+  const [loadingProjects, setLoadingProjects] = useState<boolean>(false);
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [projectName, setProjectName] = useState('');
@@ -106,8 +78,7 @@ export const ProjectAllocation: React.FC = () => {
     if (isModalOpen) window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isModalOpen]);
-
-  // --- Workflow State Handlers (Mock Backend Logic) ---
+   
   const handleAddProject = (e: React.FormEvent) => {
     e.preventDefault();
     if (!projectName.trim()) return;
@@ -117,7 +88,7 @@ export const ProjectAllocation: React.FC = () => {
       id: newId,
       name: projectName.trim(),
       category,
-      status: 'UNASSIGNED',
+      status: 'OPEN',
       requiredSkills: skillsInput ? skillsInput.split(',').map((s) => s.trim()).filter(Boolean) : [],
       startDate: startDate || 'TBD',
       allocatedStudentIds: [],
@@ -131,6 +102,74 @@ export const ProjectAllocation: React.FC = () => {
     setSkillsInput('');
     setIsModalOpen(false);
   };
+  
+  const fetchProjects = async () => {
+    setLoadingProjects(true);
+    try {
+      const res = await api.get('/api/projects/details');
+
+    // Map database response (snake_case) to React state model
+      const mappedProjects: Project[] = res.data.map((p: any) => {
+        const mentorAllocation = p.allocations?.find((a: any) => a.resource_type === 'employee');
+        const studentAllocations = p.allocations?.filter((a: any) => a.resource_type === 'intern') || [];
+
+        return {
+          id: p.project_id || p.id,
+          name: p.title || p.name,
+          category: p.category || 'General',
+          status: p.status || 'OPEN',
+          requiredSkills: p.skills || p.requiredSkills || [],
+          startDate: p.start_date || p.startDate || 'TBD',
+          proposedMentorId: mentorAllocation?.resource_id || p.proposedMentorId,
+          proposedMentorName: mentorAllocation?.resource_name || p.proposedMentorName,
+          allocatedStudentIds: studentAllocations.map((s: any) => s.resource_id) || p.allocatedStudentIds || [],
+        };
+      });
+
+      setProjects(mappedProjects);
+      if (mappedProjects.length > 0 && !selectedProjectId) {
+        setSelectedProjectId(mappedProjects[0].id);
+      }
+    } catch (err) {
+      console.error('Failed to fetch projects, loading mock data fallback', err);
+    // Fallback mock data if API endpoint is not yet connected or errors out
+      const fallbackProjects: Project[] = [
+        {
+          id: 'p-101',
+          name: 'Distributed Database Optimization',
+          category: 'Backend Architecture',
+          status: 'OPEN',
+          requiredSkills: ['Go', 'Kubernetes', 'PostgreSQL'],
+          startDate: '2026-09-01',
+          allocatedStudentIds: [],
+        },
+        {
+          id: 'p-102',
+          name: 'AI Recommendation Engine',
+          category: 'Machine Learning',
+          status: 'PROPOSED',
+          requiredSkills: ['Python', 'PyTorch', 'FastAPI'],
+          startDate: '2026-09-15',
+          proposedMentorId: 'e1',
+          proposedMentorName: 'Dr. Sarah Jenkins',
+          allocatedStudentIds: ['s1'],
+        },
+      ];
+
+      setProjects(fallbackProjects);
+      if (fallbackProjects.length > 0 && !selectedProjectId) {
+        setSelectedProjectId(fallbackProjects[0].id);
+      }
+    } finally {
+      setLoadingProjects(false);
+    }
+  };
+  
+  useEffect(() => {
+    if (activeTab === 'ALL_PROJECTS') {
+      fetchProjects();
+    }
+  }, [activeTab]);
 
   const handleProposeMentor = (projectId: string, mentor: Mentor) => {
     setProjects((prev) =>
@@ -142,7 +181,6 @@ export const ProjectAllocation: React.FC = () => {
     );
   };
 
-  // Mock Action: Simulate Mentor accepting or rejecting the proposal
   const handleSimulateMentorResponse = (projectId: string, response: 'ACCEPT' | 'REJECT') => {
     setProjects((prev) =>
       prev.map((p) => {
@@ -150,14 +188,14 @@ export const ProjectAllocation: React.FC = () => {
         if (response === 'ACCEPT') {
           return { ...p, status: 'ACCEPTED' };
         }
-        return { ...p, status: 'REJECTED' };
+        return { ...p, status: 'REJECTED', proposedMentorId: undefined, proposedMentorName: undefined };
       })
     );
   };
 
   const handleConfirmMentor = (projectId: string) => {
     setProjects((prev) =>
-      prev.map((p) => (p.id === projectId ? { ...p, status: 'ALLOCATED' } : p))
+      prev.map((p) => (p.id === projectId ? { ...p, status: 'IN_PROGRESS' } : p))
     );
   };
 
@@ -165,7 +203,7 @@ export const ProjectAllocation: React.FC = () => {
     setProjects((prev) =>
       prev.map((p) =>
         p.id === projectId
-          ? { ...p, status: 'UNASSIGNED', proposedMentorId: undefined, proposedMentorName: undefined }
+          ? { ...p, status: 'OPEN', proposedMentorId: undefined, proposedMentorName: undefined }
           : p
       )
     );
@@ -194,9 +232,9 @@ export const ProjectAllocation: React.FC = () => {
 
   const renderStatusBadge = (status: ProjectStatus) => {
     switch (status) {
-      case 'UNASSIGNED':
+      case 'OPEN':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700">
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
             <Clock className="w-3 h-3" /> Unassigned
           </span>
         );
@@ -215,13 +253,13 @@ export const ProjectAllocation: React.FC = () => {
       case 'REJECTED':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20">
-            <XCircle className="w-3 h-3" /> Mentor Declined
+            <XCircle className="w-3 h-3" /> Mentor Declined (Unassigned)
           </span>
         );
-      case 'ALLOCATED':
+      case 'IN_PROGRESS':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            <CheckCircle2 className="w-3 h-3" /> Fully Allocated
+            <PlayCircle className="w-3 h-3" /> In Progress
           </span>
         );
     }
@@ -233,6 +271,9 @@ export const ProjectAllocation: React.FC = () => {
       .filter(Boolean)
       .join(', ');
   };
+
+  const topRecommendedMentors = mockMentors.slice(0, 3);
+  const topRecommendedStudents = mockStudents.slice(0, 3);
 
   return (
     <div className="space-y-6">
@@ -260,7 +301,7 @@ export const ProjectAllocation: React.FC = () => {
               : 'border-transparent text-slate-400 hover:text-slate-200'
           }`}
         >
-          <Layers className="w-4 h-4" /> All Projects ({projects.length})
+          <Layers className="w-4 h-4" /> All Projects ({loadingProjects ? '...': projects.length})
         </button>
         <button
           onClick={() => setActiveTab('RECOMMENDATIONS')}
@@ -277,7 +318,12 @@ export const ProjectAllocation: React.FC = () => {
       {/* TAB 1: ALL PROJECTS LIST */}
       {activeTab === 'ALL_PROJECTS' && (
         <Card title="Project Directory">
-          {projects.length === 0 ? (
+          {loadingProjects ? (
+            <div className="p-8 text-center text-slate-400 flex justify-center items-center gap-2">
+              <span className="animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-500"></span>
+                Loading projects...
+            </div>
+          ) : projects.length === 0 ? (
             <div className="p-8 text-center text-slate-400">No projects available. Create one to get started.</div>
           ) : (
             <div className="space-y-4">
@@ -325,7 +371,7 @@ export const ProjectAllocation: React.FC = () => {
                         {project.allocatedStudentIds.length > 0 ? (
                           <strong className="text-slate-200">{getAssignedStudentNames(project.allocatedStudentIds)}</strong>
                         ) : (
-                          <span className="text-slate-500">None assigned</span>
+                          <span className="text-slate-500">Unassigned</span>
                         )}
                       </div>
                     </div>
@@ -371,64 +417,41 @@ export const ProjectAllocation: React.FC = () => {
                   </select>
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-slate-400">Current Status:</span>
-                  {renderStatusBadge(selectedProject.status)}
+                <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400">
+                  <div>
+                    Mentor:{' '}
+                    <span className="font-semibold text-slate-200">
+                      {selectedProject.proposedMentorName || <span className="text-amber-400/80 italic">Unassigned</span>}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span>Status:</span>
+                    {renderStatusBadge(selectedProject.status)}
+                  </div>
                 </div>
               </div>
 
-              {/* Status Banner Actions */}
+              {/* SIMULATED EMPLOYEE DASHBOARD ACTION BANNER */}
               {selectedProject.status === 'PROPOSED' && (
                 <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-bold text-amber-300">Proposal Pending</p>
-                    <p className="text-xs text-slate-400">Awaiting response from {selectedProject.proposedMentorName}.</p>
+                    <p className="text-sm font-bold text-amber-300">Employee Dashboard Simulation</p>
+                    <p className="text-xs text-slate-400">Project proposed to {selectedProject.proposedMentorName}. Simulate employee decision:</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-400 mr-2">Simulate Mentor Action:</span>
                     <button
                       onClick={() => handleSimulateMentorResponse(selectedProject.id, 'ACCEPT')}
                       className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1 transition-all"
                     >
-                      <ThumbsUp className="w-3.5 h-3.5" /> Accept
+                      <ThumbsUp className="w-3.5 h-3.5" /> Employee Accept
                     </button>
                     <button
                       onClick={() => handleSimulateMentorResponse(selectedProject.id, 'REJECT')}
                       className="bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1 transition-all"
                     >
-                      <ThumbsDown className="w-3.5 h-3.5" /> Decline
+                      <ThumbsDown className="w-3.5 h-3.5" /> Employee Reject
                     </button>
                   </div>
-                </div>
-              )}
-
-              {selectedProject.status === 'ACCEPTED' && (
-                <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-bold text-blue-300">Mentor Accepted Proposal!</p>
-                    <p className="text-xs text-slate-400">{selectedProject.proposedMentorName} accepted to lead this project.</p>
-                  </div>
-                  <button
-                    onClick={() => handleConfirmMentor(selectedProject.id)}
-                    className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-all shadow-md"
-                  >
-                    Confirm Mentor Allocation
-                  </button>
-                </div>
-              )}
-
-              {selectedProject.status === 'REJECTED' && (
-                <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-bold text-rose-300">Proposal Declined</p>
-                    <p className="text-xs text-slate-400">{selectedProject.proposedMentorName} declined the invitation.</p>
-                  </div>
-                  <button
-                    onClick={() => handleResetMentorProposal(selectedProject.id)}
-                    className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold px-4 py-2 rounded-lg border border-slate-700 transition-all"
-                  >
-                    Propose Different Mentor
-                  </button>
                 </div>
               )}
 
@@ -442,7 +465,7 @@ export const ProjectAllocation: React.FC = () => {
                       : 'border-transparent text-slate-500 hover:text-slate-300'
                   }`}
                 >
-                  <UserCheck className="w-4 h-4" /> Recommended Mentors
+                  <UserCheck className="w-4 h-4" /> Recommended Mentors (Top 3)
                 </button>
                 <button
                   onClick={() => setRecommendationSubTab('STUDENTS')}
@@ -452,7 +475,7 @@ export const ProjectAllocation: React.FC = () => {
                       : 'border-transparent text-slate-500 hover:text-slate-300'
                   }`}
                 >
-                  <GraduationCap className="w-4 h-4" /> Recommended Students
+                  <GraduationCap className="w-4 h-4" /> Recommended Interns (Top 3)
                 </button>
               </div>
 
@@ -460,22 +483,32 @@ export const ProjectAllocation: React.FC = () => {
               {recommendationSubTab === 'MENTORS' && (
                 <div className="space-y-3">
                   <p className="text-xs text-slate-400">
-                    Mentors matching skills ({selectedProject.requiredSkills.join(', ') || 'None specified'}).
+                    Top 3 mentors matching skills ({selectedProject.requiredSkills.join(', ') || 'None specified'}).
                   </p>
 
-                  <div className="grid grid-cols-1 gap-3 pt-2">
-                    {mockMentors.map((mentor) => {
-                      const isProposed = selectedProject.proposedMentorId === mentor.id;
+                  <div className="grid grid-cols-1 gap-4 pt-2">
+                    {topRecommendedMentors.map((mentor, idx) => {
+                      const isThisMentorProposed = selectedProject.proposedMentorId === mentor.id;
+                      const hasAnyMentorProposed = Boolean(selectedProject.proposedMentorId);
+                      const isTopMentor = idx === 0;
 
                       return (
                         <div
                           key={mentor.id}
-                          className={`p-4 bg-slate-950 border rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
-                            isProposed ? 'border-indigo-500/50 bg-indigo-950/10' : 'border-slate-800'
-                          }`}
+                          className={`relative bg-slate-950 border rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
+                            isTopMentor ? 'pt-7 pb-4 px-5 border-[#c59b27]/40' : 'p-5 border-slate-800'
+                          } ${isThisMentorProposed ? 'border-indigo-500/50 bg-indigo-950/10' : ''}`}
                         >
+                          {/* MATTE METALLIC GOLD OVERFLOWING CORNER BADGE ONLY */}
+                          {isTopMentor && (
+                            <div className="absolute -top-px -left-px bg-[#c59b27] text-slate-950 text-[10px] font-bold tracking-wide px-3 py-1 rounded-tl-xl rounded-br-lg border-b border-r border-[#d4af37] flex items-center gap-1.5">
+                              <Crown className="w-3 h-3 text-slate-950 fill-slate-950" />
+                              Top Best Mentor Matched
+                            </div>
+                          )}
+
                           <div className="space-y-1">
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                               <h5 className="font-bold text-white text-sm">{mentor.name}</h5>
                               <span className="text-[10px] bg-emerald-500/10 text-emerald-400 font-mono px-2 py-0.5 rounded border border-emerald-500/20 flex items-center gap-1">
                                 <Star className="w-3 h-3 fill-emerald-400" /> {mentor.matchScore}% Match
@@ -493,40 +526,35 @@ export const ProjectAllocation: React.FC = () => {
                           </div>
 
                           <div className="flex items-center gap-2">
-                            {(selectedProject.status === 'UNASSIGNED' || selectedProject.status === 'REJECTED') && (
-                              <button
-                                onClick={() => handleProposeMentor(selectedProject.id, mentor)}
-                                className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all"
-                              >
-                                <UserPlus className="w-3.5 h-3.5" /> Propose Mentor
-                              </button>
-                            )}
-
-                            {isProposed && selectedProject.status === 'PROPOSED' && (
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-amber-400 font-medium italic flex items-center gap-1.5 bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/20">
-                                  <Clock className="w-3.5 h-3.5" /> Proposal Sent
-                                </span>
+                            {isThisMentorProposed && selectedProject.status === 'PROPOSED' && (
+                              <div className="flex flex-col items-end gap-1">
                                 <button
-                                  onClick={() => handleResetMentorProposal(selectedProject.id)}
-                                  className="text-xs text-slate-400 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800 transition-all"
-                                  title="Cancel Proposal"
+                                  disabled
+                                  className="bg-slate-800 text-slate-400 cursor-not-allowed text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 border border-slate-700 opacity-80"
                                 >
-                                  <RefreshCw className="w-3.5 h-3.5" />
+                                  <Send className="w-3.5 h-3.5 text-amber-400" /> Proposed
                                 </button>
+                                <span className="text-[10px] text-amber-400 font-medium italic">
+                                  Waiting for acceptance...
+                                </span>
                               </div>
                             )}
 
-                            {isProposed && selectedProject.status === 'ACCEPTED' && (
-                              <button
-                                onClick={() => handleConfirmMentor(selectedProject.id)}
-                                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-all"
-                              >
-                                Confirm Allocation
-                              </button>
+                            {isThisMentorProposed && selectedProject.status === 'ACCEPTED' && (
+                              <div className="flex flex-col items-end gap-1">
+                                <button
+                                  onClick={() => handleConfirmMentor(selectedProject.id)}
+                                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-lg animate-pulse"
+                                >
+                                  Confirm Allocation
+                                </button>
+                                <span className="text-[10px] text-emerald-400 font-medium">
+                                  Mentor accepted proposal!
+                                </span>
+                              </div>
                             )}
 
-                            {isProposed && selectedProject.status === 'ALLOCATED' && (
+                            {isThisMentorProposed && selectedProject.status === 'IN_PROGRESS' && (
                               <div className="flex items-center gap-2">
                                 <span className="text-xs text-emerald-400 font-bold flex items-center gap-1.5 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/20">
                                   <CheckCircle2 className="w-3.5 h-3.5" /> Assigned Mentor
@@ -540,6 +568,25 @@ export const ProjectAllocation: React.FC = () => {
                                 </button>
                               </div>
                             )}
+
+                            {!isThisMentorProposed && (
+                              <button
+                                onClick={() => handleProposeMentor(selectedProject.id, mentor)}
+                                disabled={hasAnyMentorProposed && selectedProject.status !== 'REJECTED'}
+                                className={`text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all ${
+                                  hasAnyMentorProposed && selectedProject.status !== 'REJECTED'
+                                    ? 'bg-slate-800/60 text-slate-500 border border-slate-800 cursor-not-allowed'
+                                    : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md'
+                                }`}
+                                title={
+                                  hasAnyMentorProposed && selectedProject.status !== 'REJECTED'
+                                    ? 'Another mentor is already proposed or assigned'
+                                    : 'Propose this mentor'
+                                }
+                              >
+                                <UserPlus className="w-3.5 h-3.5" /> Propose as Mentor
+                              </button>
+                            )}
                           </div>
                         </div>
                       );
@@ -552,22 +599,31 @@ export const ProjectAllocation: React.FC = () => {
               {recommendationSubTab === 'STUDENTS' && (
                 <div className="space-y-3">
                   <p className="text-xs text-slate-400">
-                    Assign or unassign students directly for this project.
+                    Top 3 recommended interns matching skills.
                   </p>
 
-                  <div className="grid grid-cols-1 gap-3 pt-2">
-                    {mockStudents.map((student) => {
+                  <div className="grid grid-cols-1 gap-4 pt-2">
+                    {topRecommendedStudents.map((student, idx) => {
                       const isAssigned = selectedProject.allocatedStudentIds.includes(student.id);
+                      const isTopStudent = idx === 0;
 
                       return (
                         <div
                           key={student.id}
-                          className={`p-4 bg-slate-950 border rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
-                            isAssigned ? 'border-blue-500/50 bg-blue-950/10' : 'border-slate-800'
-                          }`}
+                          className={`relative bg-slate-950 border rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
+                            isTopStudent ? 'pt-7 pb-4 px-5 border-[#c59b27]/40' : 'p-5 border-slate-800'
+                          } ${isAssigned ? 'border-blue-500/50 bg-blue-950/10' : ''}`}
                         >
+                          {/* MATTE METALLIC GOLD OVERFLOWING CORNER BADGE ONLY */}
+                          {isTopStudent && (
+                            <div className="absolute -top-px -left-px bg-[#c59b27] text-slate-950 text-[10px] font-bold tracking-wide px-3 py-1 rounded-tl-xl rounded-br-lg border-b border-r border-[#d4af37] flex items-center gap-1.5">
+                              <Crown className="w-3 h-3 text-slate-950 fill-slate-950" />
+                              Top Best Intern Matched
+                            </div>
+                          )}
+
                           <div className="space-y-1">
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                               <h5 className="font-bold text-white text-sm">{student.name}</h5>
                               <span className="text-[10px] bg-emerald-500/10 text-emerald-400 font-mono px-2 py-0.5 rounded border border-emerald-500/20 flex items-center gap-1">
                                 <Star className="w-3 h-3 fill-emerald-400" /> {student.matchScore}% Match
@@ -594,9 +650,9 @@ export const ProjectAllocation: React.FC = () => {
                               }`}
                             >
                               {isAssigned ? (
-                                <>Remove Student</>
+                                <>Remove Intern</>
                               ) : (
-                                <><Users className="w-3.5 h-3.5" /> Assign Student</>
+                                <><Users className="w-3.5 h-3.5" /> Assign Intern</>
                               )}
                             </button>
                           </div>

@@ -1,22 +1,23 @@
 import axios from 'axios';
 
-// 1. Remove trailing '/api' to prevent duplicate pathing (/api/api/auth/login)
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+// 1. Normalize Base URL (strips trailing slashes to prevent double slashes in routes)
+const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const API_BASE_URL = rawBaseUrl.replace(/\/+$/, '');
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000, // 10 seconds timeout
+  timeout: 30000, // 30 seconds timeout
   headers: {
     'Content-Type': 'application/json',
-    "Cache-Control": "no-cache, no-store, must-revalidate",
-    "Pragma": "no-cache",
-    "Expires": "0",
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0',
   },
 });
 
+// Request Interceptor: Attach Bearer Token
 apiClient.interceptors.request.use(
   (config) => {
-    // 2. Align token key with App.tsx ('auth_token')
     const token = localStorage.getItem('auth_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -26,5 +27,15 @@ apiClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// 3. Export default so 'import api from ./services/api' works in App.tsx
+// Response Interceptor: Handle Global Auth Errors (401 Unauthorized)
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('auth_token');
+    }
+    return Promise.reject(error);
+  }
+);
+
 export default apiClient;
