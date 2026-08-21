@@ -49,6 +49,7 @@ class ProjectRequirementResponse(ProjectRequirementBase):
 class ProjectBase(BaseModel):
     title: str
     project_type: str
+    category: str
     description: Optional[str] = None
     start_date: date
     end_date: date

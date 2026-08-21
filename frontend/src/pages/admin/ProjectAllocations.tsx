@@ -19,6 +19,7 @@ export interface Mentor {
   name: string;
   role: string;
   matchScore: number;
+  allocatedHours?: number;
   skills: string[];
 }
 
@@ -27,6 +28,7 @@ export interface Student {
   name: string;
   university: string;
   matchScore: number;
+  allocatedHours?: number;
   skills: string[];
 }
 
@@ -34,6 +36,7 @@ export interface Project {
   id: string;
   name: string;
   category: string;
+  project_type: string;
   status: ProjectStatus;
   description: string;
   requiredSkills?: string[];
@@ -43,6 +46,7 @@ export interface Project {
   priorityLevel?: string;
   proposedMentorId?: string;
   proposedMentorName?: string;
+  allocationId?: string; // ID of the mentor allocation record
   allocatedStudentIds?: string[];
   allocatedStudentsname?: string[];
   proposedMentorStatus?: AllocatedStatus;
@@ -75,11 +79,16 @@ export const ProjectAllocation: React.FC = () => {
   const [projectName, setProjectName] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('Machine Learning');
+  const [projectType, setProjectType] = useState('internal_project');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState<string>('');
   const [requiredHours, setRequiredHours] = useState<number>(10);
   const [priorityLevel, setPriorityLevel] = useState<string>('Medium');
   const [skillsInput, setSkillsInput] = useState('');
+
+  const [recommendedMentors, setRecommendedMentors] = useState<Mentor[]>([]);
+  const [recommendedStudents, setRecommendedStudents] = useState<Student[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) || projects[0];
 
@@ -100,7 +109,8 @@ export const ProjectAllocation: React.FC = () => {
       const payload = {
         title: projectName.trim(),
         description: description || '',
-        project_type: category || 'General',
+        category: category || 'General',
+        project_type: projectType || 'internal_project',
         start_date: startDate || null,
         end_date: endDate || null,
         required_hours_per_week: Number(requiredHours) || 10,
@@ -119,7 +129,8 @@ export const ProjectAllocation: React.FC = () => {
       const newProject: Project = {
         id: createdProject.project_id, // Auto-generated ID (e.g., 'rp2-proj-0001')
         name: createdProject.title,
-        category: createdProject.project_type || 'General',
+        category: createdProject.category || 'General',
+        project_type: createdProject.project_type || 'internal_project',
         status: createdProject.status?.toLowerCase() || 'open',
         description: createdProject.description,
         startDate: createdProject.start_date || 'TBD',
@@ -140,6 +151,7 @@ export const ProjectAllocation: React.FC = () => {
     // 5. Reset Form State
       setProjectName('');
       setCategory('Machine Learning');
+      setProjectType('internal_project');
       setDescription('');
       setStartDate('');
       setEndDate('');
@@ -168,6 +180,7 @@ export const ProjectAllocation: React.FC = () => {
           id: p.project_id || p.id,
           name: p.title || p.name,
           category: p.category || 'General',
+          project_type: p.project_type || 'internal_project',
           status: p.status || 'open',
           requiredSkills: p.skills || p.requiredSkills || [],
           description: p.description,
@@ -177,6 +190,7 @@ export const ProjectAllocation: React.FC = () => {
           proposedMentorStatus: mentorAllocation?.allocation_status || 'unassigned',
           allocatedStudentIds: studentAllocations.map((s: any) => s.resource_id) || p.allocatedStudentIds || [],
           allocatedStudentsname: studentAllocations?.map((s: any) => s.resource_name).join(' ,') || p.allocatedStudentsname || [],
+        
         };
       });
 
@@ -192,6 +206,7 @@ export const ProjectAllocation: React.FC = () => {
           id: 'p-101',
           name: 'Distributed Database Optimization',
           category: 'Backend Architecture',
+          project_type: 'internal_project',
           status: 'open',
           description: 'database related project',
           requiredSkills: ['Go', 'Kubernetes', 'PostgreSQL'],
@@ -203,6 +218,7 @@ export const ProjectAllocation: React.FC = () => {
           id: 'p-102',
           name: 'AI Recommendation Engine',
           category: 'Machine Learning',
+          project_type: 'internal_project',
           status: 'in_progress',
           description: 'AI related project',
           requiredSkills: ['Python', 'PyTorch', 'FastAPI'],
@@ -229,42 +245,97 @@ export const ProjectAllocation: React.FC = () => {
     }
   }, [activeTab]);
 
-  const handleProposeMentor = (projectId: string, mentor: Mentor) => {
-    setProjects((prev) =>
-      prev.map((p) =>
-        p.id === projectId
-          ? { ...p, proposedMentorStatus: 'proposed', proposedMentorId: mentor.id, proposedMentorName: mentor.name }
-          : p
-      )
-    );
+  const handleProposeMentor = async (projectId: string, mentor: Mentor) => {
+    try {
+      // 1. Prepare backend payload (snake_case)
+      const payload = {
+        project_id: projectId,
+        resource_type: 'mentor',
+        resource_id: mentor.id,
+        role_on_project: mentor.role || 'Project Mentor',
+        allocated_hours: mentor.allocatedHours || 10,
+        suitability_score: mentor.matchScore || mentor.matchScore || 0.85,
+      };
+
+      // 2. Call FastAPI backend
+      const res = await api.post('/api/allocations/propose', payload);
+      const createdAllocation = res.data;
+
+      // 3. Update UI State
+      setProjects((prev) =>
+        prev.map((p) =>
+          p.id === projectId
+            ? {
+                ...p,
+                proposedMentorStatus: 'proposed',
+                proposedMentorId: mentor.id,
+                proposedMentorName: mentor.name,
+                allocationId: createdAllocation.allocation_id,
+              }
+            : p
+          )
+        );
+      } catch (err) {
+        console.error('Failed to propose mentor:', err);
+        alert('Failed to propose mentor. Please check backend logs.');
+    }
   };
 
-  const handleSimulateMentorResponse = (projectId: string, response: 'ACCEPT' | 'REJECT') => {
-    setProjects((prev) =>
-      prev.map((p) => {
-        if (p.id !== projectId) return p;
-        if (response === 'ACCEPT') {
-          return { ...p, proposedMentorStatus: 'accepted' };
-        }
-        return { ...p, proposedMentorStatus: 'rejected', proposedMentorId: undefined, proposedMentorName: undefined };
-      })
-    );
+  // 1. Accept or Reject Proposal (Simulating Mentor Response)
+  const handleSimulateMentorResponse = async (
+    allocationId: string, 
+    response: 'ACCEPT' | 'REJECT'
+  ) => {
+    try {
+      const targetStatus = response === 'ACCEPT' ? 'accepted' : 'rejected';
+      const res = await api.patch(`/allocations/${allocationId}/status`, {
+        status: targetStatus,
+        reason: `Mentor ${response.toLowerCase()}ed project proposal.`
+      });
+
+    // Update local state after successful backend response
+      setProjects((prev) =>
+        prev.map((p) => p.allocationId === allocationId ? { ...p, proposedMentorStatus: targetStatus } : p)
+      );
+    } catch (err) {
+      console.error("Failed to update mentor response:", err);
+    }
   };
 
-  const handleConfirmMentor = (projectId: string) => {
-    setProjects((prev) =>
-      prev.map((p) => (p.id === projectId ? { ...p, status: 'in_progress' } : p))
-    );
+// 2. Confirm Mentor Assignment (Admin Action)
+  const handleConfirmMentor = async (allocationId: string) => {
+    try {
+    // Calling 'assigned' status automatically updates backend project.status to 'in_progress'
+      const res = await api.patch(`/allocations/${allocationId}/status`, {
+        status: 'assigned'
+      });
+
+      setProjects((prev) =>
+        prev.map((p) => (p.allocationId === allocationId ? { ...p, status: 'in_progress' } : p))
+      );
+    } catch (err) {
+      console.error("Failed to confirm mentor assignment:", err);
+    }
   };
 
-  const handleResetMentorProposal = (projectId: string) => {
-    setProjects((prev) =>
-      prev.map((p) =>
-        p.id === projectId
-          ? { ...p, status: 'open', proposedMentorId: undefined, proposedMentorName: undefined }
-          : p
-      )
-    );
+// 3. Reset or Cancel Proposal (Admin Action)
+  const handleResetMentorProposal = async (allocationId: string) => {
+    try {
+      const res = await api.patch(`/allocations/${allocationId}/status`, {
+        status: 'cancelled',
+        reason: 'Admin reset the mentor proposal.'
+      });
+
+      setProjects((prev) =>
+        prev.map((p) =>
+          p.allocationId === allocationId
+            ? { ...p, status: 'open', proposedMentorId: undefined, proposedMentorName: undefined }
+            : p
+        )
+      );
+    } catch (err) {
+      console.error("Failed to reset mentor proposal:", err);
+    }
   };
 
   const handleAssignStudent = (projectId: string, studentId: string) => {
@@ -366,8 +437,35 @@ export const ProjectAllocation: React.FC = () => {
       .join(', ');
   };
 
-  const topRecommendedMentors = mockMentors.slice(0, 3);
-  const topRecommendedStudents = mockStudents.slice(0, 3);
+  // Fetch data when active project or sub-tab changes
+  const fetchSubTabRecommendations = async (projectId: string, subTab: 'MENTORS' | 'STUDENTS') => {
+    if (!projectId) return;
+    setIsLoading(true);
+
+    try {
+      const apiType = subTab === 'MENTORS' ? 'mentors' : 'students';
+      const res = await api.post(`/api/projects/${projectId}/recommendations`, {
+        type: apiType,
+      });
+
+      if (subTab === 'MENTORS') {
+        setRecommendedMentors(res.data);
+      } else {
+        setRecommendedStudents(res.data);
+      }
+    } catch (err) {
+      console.error(`Failed to fetch ${subTab} recommendations:`, err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+// Trigger fetch on tab or project change
+  useEffect(() => {
+    if (selectedProjectId && activeTab === 'RECOMMENDATIONS') {
+      fetchSubTabRecommendations(selectedProjectId, recommendationSubTab);
+    }
+  }, [selectedProjectId, activeTab, recommendationSubTab]);
 
   return (
     <div className="space-y-6">
@@ -435,6 +533,9 @@ export const ProjectAllocation: React.FC = () => {
                     <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400">
                       <span className="flex items-center gap-1 text-slate-300">
                         <Tag className="w-3.5 h-3.5 text-indigo-400" /> {project.category}
+                      </span>
+                      <span className="flex items-center gap-1 text-slate-300">
+                        <Tag className="w-3.5 h-3.5 text-indigo-400" /> {project.project_type}
                       </span>
                       <span className="flex items-center gap-1">
                         <Calendar className="w-3.5 h-3.5" /> Start: {project.startDate}
@@ -505,7 +606,7 @@ export const ProjectAllocation: React.FC = () => {
                   >
                     {projects.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.name} ({p.category})
+                        {p.name} ({p.project_type})
                       </option>
                     ))}
                   </select>
@@ -581,7 +682,7 @@ export const ProjectAllocation: React.FC = () => {
                   </p>
 
                   <div className="grid grid-cols-1 gap-4 pt-2">
-                    {topRecommendedMentors.map((mentor, idx) => {
+                    {recommendedMentors.map((mentor, idx) => {
                       const isThisMentorProposed = selectedProject.proposedMentorId === mentor.id;
                       const hasAnyMentorProposed = Boolean(selectedProject.proposedMentorId);
                       const isTopMentor = idx === 0;
@@ -697,7 +798,7 @@ export const ProjectAllocation: React.FC = () => {
                   </p>
 
                   <div className="grid grid-cols-1 gap-4 pt-2">
-                    {topRecommendedStudents.map((student, idx) => {
+                    {recommendedStudents.map((student, idx) => {
                       const isAssigned = (selectedProject.allocatedStudentIds ?? []).includes(student.id);
                       const isTopStudent = idx === 0;
 
@@ -822,19 +923,16 @@ export const ProjectAllocation: React.FC = () => {
                 </div>
 
                 <div>
-                  <label htmlFor="modal-priority" className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    Priority Level
+                  <label htmlFor="modal-project-type" className="block text-xs font-semibold text-slate-300 mb-1.5">
+                    Project Type
                   </label>
                   <select
-                    id="modal-priority"
-                    value={priorityLevel}
-                    onChange={(e) => setPriorityLevel(e.target.value)}
+                    id="modal-project-type"
+                    value={projectType}
+                    onChange={(e) => setProjectType(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
                   >
-                    <option value="Low">Low</option>
-                    <option value="Medium">Medium</option>
-                    <option value="High">High</option>
-                    <option value="Critical">Critical</option>
+                    <option value="internal_project">internal_project</option>
                   </select>
                 </div>
               </div>
@@ -869,20 +967,39 @@ export const ProjectAllocation: React.FC = () => {
               </div>
 
               {/* Required Hours Per Week */}
-              <div>
-                <label htmlFor="modal-hours" className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Required Hours / Week
-                </label>
-                <input
-                  id="modal-hours"
-                  type="number"
-                  min="1"
-                  max="168"
-                  placeholder="e.g. 10"
-                  value={requiredHours}
-                  onChange={(e) => setRequiredHours(Number(e.target.value))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="modal-hours" className="block text-xs font-semibold text-slate-300 mb-1.5">
+                    Required Hours / Week
+                  </label>
+                  <input
+                    id="modal-hours"
+                    type="number"
+                    min="1"
+                    max="168"
+                    placeholder="e.g. 10"
+                    value={requiredHours}
+                    onChange={(e) => setRequiredHours(Number(e.target.value))}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                
+                <div>
+                  <label htmlFor="modal-priority" className="block text-xs font-semibold text-slate-300 mb-1.5">
+                    Priority Level
+                  </label>
+                  <select
+                    id="modal-priority"
+                    value={priorityLevel}
+                    onChange={(e) => setPriorityLevel(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="Low">Low</option>
+                    <option value="Medium">Medium</option>
+                    <option value="High">High</option>
+                    <option value="Critical">Critical</option>
+                  </select>
+                </div>
               </div>
 
               {/* Description Section */}
