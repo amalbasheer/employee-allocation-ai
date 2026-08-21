@@ -62,8 +62,8 @@ def propose_allocation(
         role_on_project=payload.role_on_project,
         allocated_hours=payload.allocated_hours,
         suitability_score=payload.suitability_score,
-        status=AllocationStatus.PROPOSED,
-        assigned_by=admin_user.email
+        status="proposed",
+        assigned_by=admin_user.name
     )
     db.add(new_allocation)
     db.flush()
@@ -72,7 +72,7 @@ def propose_allocation(
     log = AllocationLog(
         allocation_id=new_allocation.allocation_id,
         action=f"PROPOSED candidate {payload.resource_id} for role '{payload.role_on_project}'",
-        changed_by=admin_user.email
+        changed_by=admin_user.name
     )
     db.add(log)
     db.commit()
@@ -97,63 +97,75 @@ def update_allocation_status(
     user_role = str(current_user.role).lower()
     prev_status = allocation.status
     target_status = payload.status
+    
+    # Identify resource type (employee/mentor vs student/intern)
+    resource_type = str(getattr(allocation, "resource_type", "employee")).lower()
 
-    # --- ACTION HANDLER: ADMIN CONFIRM (ASSIGN) ---
+    # --- ACTION HANDLER: ADMIN CONFIRM OR DIRECT ASSIGN ---
     if user_role in ["admin", "superadmin"]:
-        if target_status == AllocationStatus.ASSIGNED:
-            if prev_status != AllocationStatus.ACCEPTED:
+        if target_status == "assigned":
+            # Employees/Mentors MUST accept first before becoming assigned
+            if resource_type in ["employee", "mentor"] and prev_status != "accepted":
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Cannot confirm assignment. Current status is '{prev_status}', but employee must accept first."
+                    detail=f"Cannot confirm assignment for employee. Current status is '{prev_status}', but employee must accept first."
                 )
-            allocation.status = AllocationStatus.ASSIGNED
             
-            # Automatically update main project status to IN_PROGRESS
+            # Students/Interns bypass acceptance and go directly to "assigned"
+            allocation.status = "assigned"
+            
+            # Automatically update main project status to in_progress
             project = db.query(Project).filter(Project.project_id == allocation.project_id).first()
-            if project and project.status == ProjectStatus.OPEN:
-                project.status = ProjectStatus.IN_PROGRESS
+            if project and project.status in ["open", "created"]:
+                project.status = "in_progress"
 
-        elif target_status in [AllocationStatus.CANCELLED, AllocationStatus.PROPOSED]:
+        elif target_status in ["cancelled", "proposed"]:
             allocation.status = target_status
         else:
             raise HTTPException(status_code=400, detail=f"Invalid target status '{target_status}' for Admin action.")
 
-    # --- ACTION HANDLER: EMPLOYEE / INTERN ACCEPT OR REJECT ---
-    elif user_role in ["employee", "student", "intern"]:
+    # --- ACTION HANDLER: EMPLOYEE ACCEPT OR REJECT ---
+    elif user_role in ["employee", "mentor"]:
         if str(allocation.resource_id) != str(current_user.id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You can only accept or reject allocations assigned to your account."
             )
 
-        if prev_status != AllocationStatus.PROPOSED:
+        if prev_status != "proposed":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Allocation cannot be updated from state '{prev_status}'."
             )
 
-        if target_status in [AllocationStatus.ACCEPTED, AllocationStatus.REJECTED]:
+        if target_status in ["accepted", "rejected"]:
             allocation.status = target_status
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Employees can only transition status to 'ACCEPTED' or 'REJECTED'."
+                detail="Employees can only transition status to 'accepted' or 'rejected'."
             )
+            
+    # --- ACTION HANDLER: STUDENTS/INTERNS ---
+    elif user_role in ["student", "intern"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Students/interns do not update allocation status; projects are directly assigned by Admins."
+        )
     else:
         raise HTTPException(status_code=403, detail="Unauthorized role.")
 
-    # Detail audit log text
+    # Audit logging
     reason_suffix = f" | Reason: {payload.reason}" if getattr(payload, "reason", None) else ""
     log = AllocationLog(
         allocation_id=allocation.allocation_id,
         action=f"STATUS_CHANGE: {prev_status} -> {target_status}{reason_suffix}",
-        changed_by=current_user.email
+        changed_by=current_user.name
     )
     db.add(log)
     db.commit()
     db.refresh(allocation)
     return allocation
-
 
 # -------------------------------------------------------------------
 # 3. SUBSTITUTE REJECTED ALLOCATION (ADMIN)
@@ -170,7 +182,7 @@ def substitute_allocation(
         raise HTTPException(status_code=404, detail="Original allocation record not found")
 
     # 1. Mark original allocation as SUBSTITUTED
-    orig_allocation.status = AllocationStatus.SUBSTITUTED
+    orig_allocation.status = "substituted"
 
     # 2. Record substitution details
     sub_record = Substitution(
@@ -189,8 +201,8 @@ def substitute_allocation(
         role_on_project=orig_allocation.role_on_project,
         allocated_hours=orig_allocation.allocated_hours,
         suitability_score=orig_allocation.suitability_score,
-        status=AllocationStatus.PROPOSED,
-        assigned_by=admin_user.email
+        status="substituted",
+        assigned_by=admin_user.name
     )
     db.add(new_allocation)
     db.flush()

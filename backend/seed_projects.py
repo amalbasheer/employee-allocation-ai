@@ -39,7 +39,8 @@ PROJECTS_DATA = [
     {
         "project_id": "rp2-proj-0001",
         "title": "E-Commerce Customer Churn & Sentiment Dashboard",
-        "project_type": "Data Analytics",
+        "category": "Data Analytics",
+        "project_type": "internal_project",
         "description": "Analyze customer transaction history and feedback to build an interactive dashboard tracking churn rate and sentiment metrics.",
         "start_date": date.today(),
         "end_date": date.today() + timedelta(days=90),
@@ -56,7 +57,8 @@ PROJECTS_DATA = [
     {
         "project_id": "rp2-proj-0002",
         "title": "Healthcare Operations & Patient Flow Analytics",
-        "project_type": "Data Analytics",
+        "category": "Data Analytics",
+        "project_type": "internal_project",
         "description": "Optimize hospital bed capacity and emergency room wait times using historical admission datasets.",
         "start_date": date.today() + timedelta(days=7),
         "end_date": date.today() + timedelta(days=60),
@@ -72,7 +74,8 @@ PROJECTS_DATA = [
     {
         "project_id": "rp2-proj-0003",
         "title": "Supply Chain Inventory Forecasting Analytics",
-        "project_type": "Data Analytics",
+        "category": "Data Analytics",
+        "project_type": "internal_project",
         "description": "Develop automated reports to highlight stockout risks and reorder thresholds across retail distribution centers.",
         "start_date": date.today() - timedelta(days=15),
         "end_date": date.today() + timedelta(days=45),
@@ -90,7 +93,8 @@ PROJECTS_DATA = [
     {
         "project_id": "rp2-proj-0004",
         "title": "Predictive Financial Fraud Detection Pipeline",
-        "project_type": "Data Science",
+        "category": "Data Science",
+        "project_type": "internal_project",
         "description": "Train and deploy machine learning models (XGBoost/LightGBM) to detect anomalous transactions in real-time.",
         "start_date": date.today(),
         "end_date": date.today() + timedelta(days=120),
@@ -106,7 +110,8 @@ PROJECTS_DATA = [
     {
         "project_id": "rp2-proj-0005",
         "title": "Automated Medical Image Defect Detection",
-        "project_type": "Data Science",
+        "category": "Data Science",
+        "project_type": "internal_project",
         "description": "Construct a Computer Vision CNN pipeline to analyze radiology scans for automated lesion identification.",
         "start_date": date.today() + timedelta(days=14),
         "end_date": date.today() + timedelta(days=150),
@@ -123,7 +128,8 @@ PROJECTS_DATA = [
     {
         "project_id": "rp2-proj-0006",
         "title": "NLP Customer Support Ticket Classifier",
-        "project_type": "Data Science",
+        "category": "Data Science",
+        "project_type": "internal_project",
         "description": "Fine-tune an LLM/Transformer model to auto-categorize and route high-priority customer support tickets.",
         "start_date": date.today() - timedelta(days=30),
         "end_date": date.today() + timedelta(days=30),
@@ -161,12 +167,12 @@ def seed_projects():
                     INSERT INTO projects (
                         project_id, title, project_type, description, 
                         start_date, end_date, required_hours_per_week, 
-                        priority_level, status
+                        priority_level, status, category
                     )
                     VALUES (
                         :project_id, :title, :project_type, :description,
                         :start_date, :end_date, :required_hours_per_week,
-                        :priority_level, :status
+                        :priority_level, :status, :category
                     )
                     ON CONFLICT (project_id) DO UPDATE SET
                         title = EXCLUDED.title,
@@ -183,6 +189,7 @@ def seed_projects():
                     "required_hours_per_week": proj["required_hours_per_week"],
                     "priority_level": proj["priority_level"],
                     "status": proj["status"],
+                    "category": proj.get("category", "General"),
                 },
             )
             print(f"\n  Added Project: [{proj['project_id']}] {proj['title']} (Status: {proj['status']})")

@@ -57,15 +57,17 @@ class RecommendationRequest(BaseModel):
     skills: Optional[List[str]] = []
     type: str = "mentors"  # 'mentors' or 'students'/'interns'
 
-# Append this function to the bottom of your existing projects.py
-@router.post("/projects/{project_id}/recommendations")
+@router.post("/{project_id}/recommendations")
 async def fetch_recommendations(project_id: str, payload: RecommendationRequest):
     try:
         result_dict = recommend_candidates_for_project(project_id)
         req_type = payload.type.lower() if payload.type else "mentors"
 
+        # Handle all 3 potential AI result keys
         if req_type in ["students", "interns", "intern"]:
             candidates = result_dict.get("interns") or []
+        elif req_type in ["team_leads", "team_lead"]:
+            candidates = result_dict.get("eligible_team_leads") or []
         else:
             candidates = result_dict.get("mentors") or []
 
@@ -84,7 +86,6 @@ async def fetch_recommendations(project_id: str, payload: RecommendationRequest)
                     "university": str(c.get("university") or c.get("college") or "N/A"),
                 })
 
-        # JSONResponse avoids triggering response_model validation errors
         return JSONResponse(content=cleaned_candidates)
 
     except ValueError as ve:
@@ -123,6 +124,7 @@ async def get_all_projects(db: Session = Depends(get_db)):
                 p.status AS project_status,
                 p.start_date,
                 p.project_type,
+                p.category,
                 s.skill_name,
                 a.allocation_id,
                 a.resource_id,
@@ -157,7 +159,8 @@ async def get_all_projects(db: Session = Depends(get_db)):
                     "description": row["description"] or "",
                     "status": row["project_status"] or "OPEN",
                     "start_date": str(row["start_date"]) if row["start_date"] else "TBD",
-                    "category": row["project_type"] or "General",
+                    "category": row["category"] or "General",
+                    "project_type": row["project_type"] or "internal_project",
                     "skills": set(),
                     "allocations": {}
                 }
@@ -187,6 +190,7 @@ async def get_all_projects(db: Session = Depends(get_db)):
                 "status": proj["status"],
                 "start_date": proj["start_date"],
                 "category": proj["category"],
+                "project_type": proj["project_type"],
                 "skills": list(proj["skills"]),
                 "allocations": list(proj["allocations"].values())
             })
@@ -231,7 +235,7 @@ def create_project(
             total_count = db.query(func.count(Project.project_id)).scalar() or 0
             project_data["project_id"] = f"rp2-proj-{(total_count + 1):04d}"
 
-        new_project = Project(**project_data, status=ProjectStatus.OPEN)
+        new_project = Project(**project_data, status="open")
         db.add(new_project)
         db.flush()  # Ensures project_id is bound for requirements
 
@@ -321,8 +325,8 @@ def create_project(
             "project_id": new_project.project_id,
             "title": new_project.title,
             "description": new_project.description or "",
-            "category": new_project.category or "General",
-            "project_type": getattr(new_project, "project_type", "Internal"),
+            "category": getattr(new_project, "category", "General"),
+            "project_type": getattr(new_project, "project_type", "internal_project"),
             "status": str(new_project.status.value if hasattr(new_project.status, 'value') else new_project.status),
             "start_date": str(new_project.start_date) if new_project.start_date else None,
             "end_date": str(new_project.end_date) if new_project.end_date else None,
