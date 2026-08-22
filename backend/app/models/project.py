@@ -28,7 +28,10 @@ class Project(Base):
     status = Column(String(10), nullable=False)
 
     # Relationships
-    allocations: Mapped["Allocation"] = relationship("Allocation", back_populates="project")
+    allocations = relationship("Allocation", primaryjoin="and_("
+                "Project.project_id == foreign(Allocation.reference_id), "
+                "Allocation.reference_type == 'project'"
+                ")", back_populates="project")
     requirements: Mapped[List["ProjectRequirement"]] = relationship("ProjectRequirement", back_populates="project", cascade="all, delete-orphan")
 
 

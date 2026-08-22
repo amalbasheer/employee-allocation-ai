@@ -9,6 +9,7 @@ from sqlalchemy import or_
 from app.api.deps import get_db, get_current_user, require_admin
 from app.models.allocation import Allocation, AllocationLog, Substitution
 from app.models.project import Project, ProjectRequirement
+from app.models.webinar import TrainingEngagement, StudentBatch
 from app.models.taxonomy import Skill
 from app.models.employee import CompanyEmployee
 from app.models.enums import AllocationStatus, ProjectStatus
@@ -41,6 +42,25 @@ def calculate_progress(status: str) -> int:
         return 10
     return 0
 
+def get_allocation_target(db: Session, reference_id: str, reference_type: str):
+    """
+    Validates and fetches the target object (Project, StudentBatch, or TrainingEngagement)
+    based on the reference_type and reference_id.
+    """
+    ref_type = reference_type.lower().strip()
+
+    if ref_type == "project":
+        return db.query(Project).filter(Project.project_id == reference_id).first(), "Project"
+    elif ref_type in ["batch", "student_batch"]:
+        return db.query(StudentBatch).filter(StudentBatch.batch_id == reference_id).first(), "Student Batch"
+    elif ref_type in ["training", "webinar", "engagement"]:
+        return db.query(TrainingEngagement).filter(TrainingEngagement.engagement_id == reference_id).first(), "Training Engagement"
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid reference_type '{reference_type}'. Must be 'project', 'batch', or 'training'."
+        )
+
 
 # -------------------------------------------------------------------
 # 1. ADMIN PROPOSES AN ALLOCATION
@@ -51,12 +71,21 @@ def propose_allocation(
     db: Session = Depends(get_db),
     admin_user: UserProfile = Depends(require_admin)
 ):
-    project = db.query(Project).filter(Project.project_id == payload.project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    # 1. Verify that the target project/batch/training engagement exists
+    target_obj, target_type_label = get_allocation_target(
+        db, payload.reference_id, payload.reference_type
+    )
 
+    if not target_obj:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"{target_type_label} with ID '{payload.reference_id}' not found."
+        )
+
+    # 2. Create the Allocation record
     new_allocation = Allocation(
-        project_id=payload.project_id,
+        reference_id=payload.reference_id,
+        reference_type=payload.reference_type.lower().strip(),
         resource_type=payload.resource_type,
         resource_id=payload.resource_id,
         role_on_project=payload.role_on_project,
@@ -66,17 +95,20 @@ def propose_allocation(
         assigned_by=admin_user.name
     )
     db.add(new_allocation)
-    db.flush()
+    db.flush()  # Populates new_allocation.allocation_id for the audit log
 
-    # Create Audit Log
+    # 3. Create Audit Log entry
     log = AllocationLog(
         allocation_id=new_allocation.allocation_id,
-        action=f"PROPOSED candidate {payload.resource_id} for role '{payload.role_on_project}'",
+        action=f"PROPOSED candidate {payload.resource_id} for role '{payload.role_on_project}' on {target_type_label} ({payload.reference_id})",
         changed_by=admin_user.name
     )
     db.add(log)
+
+    # 4. Commit transaction
     db.commit()
     db.refresh(new_allocation)
+
     return new_allocation
 
 
@@ -98,8 +130,10 @@ def update_allocation_status(
     prev_status = allocation.status
     target_status = payload.status
     
-    # Identify resource type (employee/mentor vs student/intern)
-    resource_type = str(getattr(allocation, "resource_type", "employee")).lower()
+    # Identify reference and resource parameters
+    ref_type = str(getattr(allocation, "reference_type", "project") or "project").lower().strip()
+    ref_id = getattr(allocation, "reference_id", None) or getattr(allocation, "project_id", None)
+    resource_type = str(getattr(allocation, "resource_type", "employee")).lower().strip()
 
     # --- ACTION HANDLER: ADMIN CONFIRM OR DIRECT ASSIGN ---
     if user_role in ["admin", "superadmin"]:
@@ -111,13 +145,35 @@ def update_allocation_status(
                     detail=f"Cannot confirm assignment for employee. Current status is '{prev_status}', but employee must accept first."
                 )
             
-            # Students/Interns bypass acceptance and go directly to "assigned"
+            # Transition allocation status to assigned
             allocation.status = "assigned"
             
-            # Automatically update main project status to in_progress
-            project = db.query(Project).filter(Project.project_id == allocation.project_id).first()
-            if project and project.status in ["open", "created"]:
-                project.status = "in_progress"
+            # --- DYNAMIC TARGET ENTITY UPDATES ---
+            if ref_type == "project":
+                project = db.query(Project).filter(Project.project_id == ref_id).first()
+                if project and getattr(project, "status", None) in ["open", "created"]:
+                    project.status = "in_progress"
+
+            elif ref_type in ["batch", "student_batch", "studentbatch"]:
+                batch_obj = db.query(StudentBatch).filter(StudentBatch.batch_id == ref_id).first()
+                if batch_obj:
+                    # If this allocation is for an employee/mentor, set them as the batch mentor
+                    if resource_type in ["employee", "mentor"]:
+                        batch_obj.mentor_id = str(allocation.resource_id)
+                    # If current resource is student/intern, ensure mentor_id is linked if an assigned mentor allocation exists
+                    elif not getattr(batch_obj, "mentor_id", None):
+                        mentor_alloc = db.query(Allocation).filter(
+                            Allocation.reference_id == ref_id,
+                            Allocation.resource_type.in_(["employee", "mentor"]),
+                            Allocation.status.in_(["assigned", "accepted"])
+                        ).first()
+                        if mentor_alloc and mentor_alloc.resource_id:
+                            batch_obj.mentor_id = str(mentor_alloc.resource_id)
+
+            elif ref_type in ["training", "webinar", "engagement"]:
+                training_obj = db.query(TrainingEngagement).filter(TrainingEngagement.engagement_id == ref_id).first()
+                if training_obj and getattr(training_obj, "status", None) in ["scheduled", "open", "created"]:
+                    training_obj.status = "in_progress"
 
         elif target_status in ["cancelled", "proposed"]:
             allocation.status = target_status
@@ -150,7 +206,7 @@ def update_allocation_status(
     elif user_role in ["student", "intern"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Students/interns do not update allocation status; projects are directly assigned by Admins."
+            detail="Students/interns do not update allocation status; assignments are managed directly by Admins."
         )
     else:
         raise HTTPException(status_code=403, detail="Unauthorized role.")
@@ -160,7 +216,7 @@ def update_allocation_status(
     log = AllocationLog(
         allocation_id=allocation.allocation_id,
         action=f"STATUS_CHANGE: {prev_status} -> {target_status}{reason_suffix}",
-        changed_by=current_user.name
+        changed_by=getattr(current_user, "name", "System User")
     )
     db.add(log)
     db.commit()
@@ -252,59 +308,114 @@ def get_my_allocations(
 
         results = []
         for alloc in allocations_list:
-            proj_id = alloc.project_id
-            project_obj = db.query(Project).filter(Project.project_id == proj_id).first()
-            if not project_obj:
+            ref_type = (safe_get(alloc, "reference_type") or "project").lower().strip()
+            ref_id = safe_get(alloc, "reference_id") or safe_get(alloc, "project_id")
+
+            if not ref_id:
                 continue
 
-            project_title = safe_get(project_obj, "title") or "Assigned Project"
-            category = safe_get(project_obj, "project_type") or "Software Engineering"
-            project_status = safe_get(project_obj, "status") or "open"
-            description = safe_get(project_obj, "description") or ""
-            start_date = safe_get(project_obj, "start_date")
-            end_date = safe_get(project_obj, "end_date")
+            # Initialize default fields
+            title = "Assigned Engagement"
+            category = "General"
+            target_status = "open"
+            description = ""
+            start_date = None
+            end_date = None
+            tech_stack = []
+            mentor_name = "Pending Mentor Assignment"
+
+            # -------------------------------------------------------
+            # 1. PROJECT REFERENCE
+            # -------------------------------------------------------
+            if ref_type == "project":
+                project_obj = db.query(Project).filter(Project.project_id == ref_id).first()
+                if not project_obj:
+                    continue
+
+                title = safe_get(project_obj, "title") or "Assigned Project"
+                category = safe_get(project_obj, "project_type") or "Software Engineering"
+                target_status = safe_get(project_obj, "status") or "open"
+                description = safe_get(project_obj, "description") or ""
+                start_date = safe_get(project_obj, "start_date")
+                end_date = safe_get(project_obj, "end_date")
+
+                # Retrieve project skills / tech stack
+                req_skill_ids = db.query(ProjectRequirement.skill_id).filter(
+                    ProjectRequirement.project_id == ref_id
+                ).all()
+                skill_ids = [s[0] for s in req_skill_ids if s[0]]
+                if skill_ids:
+                    skills_objs = db.query(Skill).filter(Skill.skill_id.in_(skill_ids)).all()
+                    tech_stack = [
+                        safe_get(sk, "skill_name") or safe_get(sk, "name") or str(sk.skill_id)
+                        for sk in skills_objs
+                    ]
+
+                # Resolve Mentor
+                mentor_id = safe_get(project_obj, "mentor_id")
+                if mentor_id:
+                    mentor_obj = db.query(CompanyEmployee).filter(CompanyEmployee.employee_id == mentor_id).first()
+                    if mentor_obj:
+                        mentor_name = f"{safe_get(mentor_obj, 'first_name', '')} {safe_get(mentor_obj, 'last_name', '')}".strip()
+                else:
+                    mentor_alloc = db.query(Allocation).filter(
+                        Allocation.reference_id == ref_id,
+                        Allocation.reference_type == "project",
+                        ~Allocation.resource_id.in_(valid_ids)
+                    ).first()
+                    if mentor_alloc and mentor_alloc.resource_id:
+                        mentor_obj = db.query(CompanyEmployee).filter(CompanyEmployee.employee_id == mentor_alloc.resource_id).first()
+                        if mentor_obj:
+                            mentor_name = f"{safe_get(mentor_obj, 'first_name', '')} {safe_get(mentor_obj, 'last_name', '')}".strip() or "Assigned Mentor"
+
+            # -------------------------------------------------------
+            # 2. BATCH REFERENCE
+            # -------------------------------------------------------
+            elif ref_type in ["batch", "student_batch"]:
+                batch_obj = db.query(StudentBatch).filter(StudentBatch.batch_id == ref_id).first()
+                if not batch_obj:
+                    continue
+
+                title = safe_get(batch_obj, "batch_name") or safe_get(batch_obj, "name") or "Student Batch"
+                category = safe_get(batch_obj, "program") or "Student Batch"
+                target_status = safe_get(batch_obj, "status") or "active"
+                description = safe_get(batch_obj, "description") or ""
+                start_date = safe_get(batch_obj, "start_date")
+                end_date = safe_get(batch_obj, "end_date")
+                mentor_name = safe_get(batch_obj, "instructor_name") or safe_get(batch_obj, "trainer_name") or "Batch Instructor"
+
+            # -------------------------------------------------------
+            # 3. TRAINING / WEBINAR REFERENCE
+            # -------------------------------------------------------
+            elif ref_type in ["training", "webinar", "engagement"]:
+                training_obj = db.query(TrainingEngagement).filter(TrainingEngagement.engagement_id == ref_id).first()
+                if not training_obj:
+                    continue
+
+                title = safe_get(training_obj, "title") or safe_get(training_obj, "engagement_name") or "Training Engagement"
+                category = safe_get(training_obj, "type") or safe_get(training_obj, "category") or "Training"
+                target_status = safe_get(training_obj, "status") or "scheduled"
+                description = safe_get(training_obj, "description") or ""
+                start_date = safe_get(training_obj, "start_date") or safe_get(training_obj, "scheduled_at")
+                end_date = safe_get(training_obj, "end_date")
+                mentor_name = safe_get(training_obj, "instructor") or safe_get(training_obj, "speaker") or "Training Lead"
+
+            else:
+                continue
 
             suitability_score = safe_get(alloc, "suitability_score") or 0.0
             alloc_status = safe_get(alloc, "status") or "assigned"
 
-            req_skill_ids = db.query(ProjectRequirement.skill_id).filter(
-                ProjectRequirement.project_id == proj_id
-            ).all()
-            
-            skill_ids = [s[0] for s in req_skill_ids if s[0]]
-            tech_stack = []
-            if skill_ids:
-                skills_objs = db.query(Skill).filter(Skill.skill_id.in_(skill_ids)).all()
-                tech_stack = [
-                    safe_get(sk, "skill_name") or safe_get(sk, "name") or str(sk.skill_id) 
-                    for sk in skills_objs
-                ]
-
-            mentor_name = "Pending Mentor Assignment"
-            mentor_id = safe_get(project_obj, "mentor_id")
-            
-            if mentor_id:
-                mentor_obj = db.query(CompanyEmployee).filter(CompanyEmployee.employee_id == mentor_id).first()
-                if mentor_obj:
-                    mentor_name = safe_get(mentor_obj, "first_name", "") + " " + safe_get(mentor_obj, "last_name", "")
-            else:
-                mentor_alloc = db.query(Allocation).filter(
-                    Allocation.project_id == proj_id,
-                    ~Allocation.resource_id.in_(valid_ids)
-                ).first()
-                if mentor_alloc and mentor_alloc.resource_id:
-                    mentor_obj = db.query(CompanyEmployee).filter(CompanyEmployee.employee_id == mentor_alloc.resource_id).first()
-                    if mentor_obj:
-                        mentor_name = f"{safe_get(mentor_obj, 'first_name', '')} {safe_get(mentor_obj, 'last_name', '')}".strip() or "Assigned Mentor"
-
             results.append({
                 "allocation_id": str(alloc.allocation_id),
-                "project_id": proj_id,
-                "title": project_title,
+                "reference_id": ref_id,
+                "project_id": ref_id,  # Kept for frontend backwards compatibility
+                "reference_type": ref_type,
+                "title": title,
                 "category": category,
-                "role": safe_get(alloc, "role_on_project") or "Contributor",
+                "role": safe_get(alloc, "role_on_project") or "Participant",
                 "mentor": mentor_name,
-                "project_status": str(project_status).lower(),
+                "project_status": str(target_status).lower(),
                 "status": str(alloc_status).lower(),
                 "description": description,
                 "match_score": suitability_score,
@@ -322,7 +433,6 @@ def get_my_allocations(
             status_code=500,
             detail=f"Internal Server Error during allocation lookup: {str(e)}"
         )
-
 
 # -------------------------------------------------------------------
 # 5. ADMIN REVIEW ENDPOINT

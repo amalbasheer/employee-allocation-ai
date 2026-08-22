@@ -5,6 +5,7 @@ from app.models.intern import InternsAndStudents, InternSkill
 from app.models.project import Project, ProjectRequirement
 from app.models.allocation import Allocation, AllocationLog, Substitution
 from app.models.chat import ChatQuery
+from app.models.webinar import TrainingEngagement, TrainingRequirement, StudentBatch
 
 __all__ = [
     "Skill",
@@ -20,4 +21,7 @@ __all__ = [
     "AllocationLog",
     "Substitution",
     "ChatQuery",
+    "TrainingEngagement",
+    "TrainingRequirement",
+    "StudentBatch"
 ]

@@ -1,11 +1,14 @@
 # app/models/employee.py
 import uuid
+from datetime import datetime
+from typing import Optional, List
 from sqlalchemy import Column, DateTime, Date, text, String, Float, func, Integer, Boolean, ForeignKey, UniqueConstraint, CheckConstraint
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from uuid import uuid4, UUID
 from app.database import Base
 from datetime import datetime, date
 from pgvector.sqlalchemy import Vector
+
 
 class CompanyEmployee(Base):
     __tablename__ = "company_employees"
@@ -25,23 +28,28 @@ class CompanyEmployee(Base):
             # Ensures employee_id must start with 'rp2-emp-' followed by exactly 4 digits
             CheckConstraint("employee_id ~ '^rp2-emp-\\d{4}$'", name="check_employee_id_format"),
         )
+
     
+
 class EmployeeSkill(Base):
     __tablename__ = "employee_skills"
 
     employee_id = Column(String(20), ForeignKey("company_employees.employee_id", ondelete="CASCADE"), primary_key=True)
     skill_id = Column(String(20), ForeignKey("skills.skill_id", ondelete="CASCADE"), primary_key=True)
     proficiency_level: Mapped[int] = mapped_column(Integer, default=1)
+
+
     
 class Availability(Base):
     __tablename__ = "availability"
 
     availability_id = Column(String(20), primary_key=True)
-    resource_type: Mapped[str] = mapped_column(String(20), nullable=False)  # employee / intern
+    resource_type: Mapped[str] = mapped_column(String(20), nullable=False)
     resource_id = Column(String(20), nullable=False)
     week_start_date: Mapped[date] = mapped_column(Date, nullable=False)
     available_hours: Mapped[int] = mapped_column(Integer, nullable=False)
     is_on_leave: Mapped[bool] = mapped_column(Boolean, default=False)
 
     __table_args__ = (UniqueConstraint('resource_id', 'week_start_date', name='uq_resource_week'),)
-   
+
+    

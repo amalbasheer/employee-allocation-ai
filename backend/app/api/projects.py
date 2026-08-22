@@ -138,7 +138,7 @@ async def get_all_projects(db: Session = Depends(get_db)):
             FROM projects p
             LEFT JOIN project_requirements pr ON p.project_id = pr.project_id
             LEFT JOIN skills s ON pr.skill_id = s.skill_id
-            LEFT JOIN allocations a ON p.project_id = a.project_id
+            LEFT JOIN allocations a ON p.project_id = a.reference_id
             LEFT JOIN company_employees e ON a.resource_id = e.employee_id
             LEFT JOIN interns_and_students i ON a.resource_id = i.intern_id
             ORDER BY p.project_id

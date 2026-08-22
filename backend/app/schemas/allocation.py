@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 from app.models.enums import AllocationStatus
 
 class ProposeAllocationRequest(BaseModel):
-    project_id: str
+    reference_id: str
     resource_type: str  # "employee" or "student"
     resource_id: str
     role_on_project: str = "lead_mentor"
@@ -44,7 +44,8 @@ class AllocationResponse(BaseModel):
     allocation_id: str
     resource_type: str
     resource_id: str
-    project_id: str
+    reference_id: str
+    reference_type: str
     role_on_project: str
     allocated_hours: int
     suitability_score: float
