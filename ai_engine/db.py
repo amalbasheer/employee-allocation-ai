@@ -20,9 +20,9 @@ engine = create_engine(DATABASE_URL)
 
 def _parse_embedding(val):
     """
-    requirement_embedding is stored as a plain Postgres ARRAY(FLOAT),
-    not a pgvector column — sometimes comes back as a string
-    representation instead of a real list. This normalizes it either way.
+    Normalizes an embedding value into a real Python list, regardless
+    of whether it comes back from Postgres as a string representation
+    or an actual list/array — safety net for both pgvector and array columns.
     """
     if val is None:
         return None
@@ -112,6 +112,8 @@ def get_person_skills(person_id: str, person_type: str) -> list[dict]:
         }
         for r in rows
     ]
+
+
 def get_next_mentor_for_batch(domain: str) -> dict:
     """
     Round-robin: picks the team lead in this domain with the fewest
@@ -131,3 +133,40 @@ def get_next_mentor_for_batch(domain: str) -> dict:
             {"domain": domain},
         ).mappings().fetchone()
     return dict(row) if row else None
+
+
+def get_batch(batch_id: str) -> dict:
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT * FROM student_batches WHERE batch_id = :bid"),
+            {"bid": batch_id},
+        ).mappings().fetchone()
+    return dict(row) if row else None
+
+
+def get_training_engagement(engagement_id: str) -> dict:
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT * FROM training_engagements WHERE engagement_id = :eid"),
+            {"eid": engagement_id},
+        ).mappings().fetchone()
+    return dict(row) if row else None
+
+
+def get_allocation_target(allocation: dict) -> dict:
+    """
+    Given an allocation row, fetches the actual project/batch/training
+    engagement it points to — dispatches based on reference_type since
+    reference_id alone doesn't tell you which table to check.
+    """
+    ref_type = allocation.get("reference_type")
+    ref_id = allocation.get("reference_id")
+
+    if ref_type == "project":
+        return get_project(ref_id)
+    elif ref_type == "batch":
+        return get_batch(ref_id)
+    elif ref_type == "training":
+        return get_training_engagement(ref_id)
+    else:
+        raise ValueError(f"Unknown reference_type: {ref_type}")
