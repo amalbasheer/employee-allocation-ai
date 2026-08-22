@@ -112,3 +112,22 @@ def get_person_skills(person_id: str, person_type: str) -> list[dict]:
         }
         for r in rows
     ]
+def get_next_mentor_for_batch(domain: str) -> dict:
+    """
+    Round-robin: picks the team lead in this domain with the fewest
+    current batch assignments — pure fairness, no skill matching.
+    """
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("""
+                SELECT ce.employee_id, ce.name, COUNT(sb.batch_id) AS batch_count
+                FROM company_employees ce
+                LEFT JOIN student_batches sb ON sb.mentor_id = ce.employee_id
+                WHERE ce.is_team_lead = TRUE AND ce.department = :domain
+                GROUP BY ce.employee_id, ce.name
+                ORDER BY batch_count ASC, ce.employee_id ASC
+                LIMIT 1
+            """),
+            {"domain": domain},
+        ).mappings().fetchone()
+    return dict(row) if row else None
