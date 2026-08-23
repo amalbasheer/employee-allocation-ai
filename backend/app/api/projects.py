@@ -57,19 +57,47 @@ class RecommendationRequest(BaseModel):
     skills: Optional[List[str]] = []
     type: str = "mentors"  # 'mentors' or 'students'/'interns'
 
+def get_designation_titles_map(db : Session) -> dict:
+    """Fetches designation_id -> title mapping from the designations table."""
+    title_map = {}
+    try:
+        
+            query = text("""
+                SELECT 
+                    designation_id, title 
+                FROM designations
+            """)
+            rows = db.execute(query).fetchall()
+            for row in rows:
+               if row[0] is not None and row[1] is not None:
+                   title_map[str(row[0])] = str(row[1])
+
+            
+    except Exception as e:
+        print(f"[DEBUG] Failed to fetch designations map: {e}")
+    return title_map
+
 @router.post("/{project_id}/recommendations")
-async def fetch_recommendations(project_id: str, payload: RecommendationRequest):
+async def fetch_recommendations(
+    project_id: str, 
+    payload: RecommendationRequest,
+    db: Session = Depends(get_db)
+):
     try:
         result_dict = recommend_candidates_for_project(project_id)
         req_type = payload.type.lower() if payload.type else "mentors"
+        is_student_req = req_type in ["students", "interns", "intern"]
 
-        # Handle all 3 potential AI result keys
-        if req_type in ["students", "interns", "intern"]:
+        # Select candidate list based on requested type
+        if is_student_req:
             candidates = result_dict.get("interns") or []
         elif req_type in ["team_leads", "team_lead"]:
             candidates = result_dict.get("eligible_team_leads") or []
         else:
             candidates = result_dict.get("mentors") or []
+
+        # Fetch designation map ONLY for mentors / employees
+        designation_map = get_designation_titles_map(db) if not is_student_req else {}
 
         cleaned_candidates = []
         for c in candidates:
@@ -77,13 +105,23 @@ async def fetch_recommendations(project_id: str, payload: RecommendationRequest)
                 raw_skills = c.get("skills")
                 skills_list = [str(s) for s in raw_skills] if isinstance(raw_skills, list) else []
 
+                if is_student_req:
+                    # Role is fixed/unmapped for students; university is extracted
+                    role_val = "Intern"
+                    univ_val = str(c.get("university") or c.get("college_institution") or "Intern")
+                else:
+                    # Role is mapped via designation_id for mentors; university is N/A
+                    desig_id = str(c.get("designation_id") or "")
+                    role_val = designation_map.get(desig_id) or c.get("role") or "Mentor"
+                    univ_val = "N/A"
+
                 cleaned_candidates.append({
                     "id": str(c.get("id") or c.get("_id") or "unknown"),
                     "name": str(c.get("name") or c.get("full_name") or "Unnamed Candidate"),
-                    "matchScore": float(c.get("matchScore") or c.get("score") or c.get("match_score") or 0),
+                    "matchScore": float(c.get("suitability_score") or c.get("score") or c.get("match_score") or 0),
                     "skills": skills_list,
-                    "role": str(c.get("role") or c.get("designation") or "Mentor"),
-                    "university": str(c.get("university") or c.get("college") or "N/A"),
+                    "role": str(role_val),
+                    "university": univ_val,
                 })
 
         return JSONResponse(content=cleaned_candidates)

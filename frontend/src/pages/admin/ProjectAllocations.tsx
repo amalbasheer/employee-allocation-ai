@@ -443,13 +443,15 @@ export const ProjectAllocation: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const apiType = subTab === 'MENTORS' ? 'mentors' : 'students';
+    // Map 'MENTORS' subtab to fetch 'team_leads' from backend
+      const apiType = subTab === 'MENTORS' ? 'team_leads' : 'students';
+
       const res = await api.post(`/api/projects/${projectId}/recommendations`, {
         type: apiType,
       });
 
       if (subTab === 'MENTORS') {
-        setRecommendedMentors(res.data);
+        setRecommendedMentors(res.data); // Stores only team leads for mentors
       } else {
         setRecommendedStudents(res.data);
       }
@@ -660,7 +662,7 @@ export const ProjectAllocation: React.FC = () => {
                       : 'border-transparent text-slate-500 hover:text-slate-300'
                   }`}
                 >
-                  <UserCheck className="w-4 h-4" /> Recommended Mentors (Top 3)
+                  <UserCheck className="w-4 h-4" /> Recommended Mentors
                 </button>
                 <button
                   onClick={() => setRecommendationSubTab('STUDENTS')}
@@ -670,7 +672,7 @@ export const ProjectAllocation: React.FC = () => {
                       : 'border-transparent text-slate-500 hover:text-slate-300'
                   }`}
                 >
-                  <GraduationCap className="w-4 h-4" /> Recommended Interns (Top 3)
+                  <GraduationCap className="w-4 h-4" /> Recommended Interns
                 </button>
               </div>
 
@@ -678,7 +680,7 @@ export const ProjectAllocation: React.FC = () => {
               {recommendationSubTab === 'MENTORS' && (
                 <div className="space-y-3">
                   <p className="text-xs text-slate-400">
-                    Top 3 mentors matching skills ({selectedProject.requiredSkills?.join(', ') || 'None specified'}).
+                    Top mentors matching skills ({selectedProject.requiredSkills?.join(', ') || 'None specified'}).
                   </p>
 
                   <div className="grid grid-cols-1 gap-4 pt-2">

@@ -74,6 +74,7 @@ def get_available_mentors(domain: str = None) -> list[dict]:
         SELECT
             ce.employee_id AS id,
             ce.name,
+            ce.designation_id,
             ce.weekly_capacity_hours,
             ce.is_team_lead,
             COALESCE(av.available_hours, ce.weekly_capacity_hours) AS remaining_hours,
