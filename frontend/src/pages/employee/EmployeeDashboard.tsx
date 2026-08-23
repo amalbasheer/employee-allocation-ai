@@ -224,13 +224,13 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   }, [fetchDashboardData]);
 
   // Action Handler: Accept or Reject Proposal
-  const handleProposalAction = async (id: string, action: 'accept' | 'reject') => {
+  const handleProposalAction = async (id: string, action: 'accept') => {
     setActionLoadingId(id);
     const proposal = proposals.find((p) => p.id === id);
     if (!proposal) return;
 
     const targetEmployeeId = getActiveEmployeeId();
-    const allocationStatus = action === 'accept' ? 'accepted' : 'rejected_by_employee';
+    const allocationStatus = action === 'accept' ? 'accepted' : 'accepted_by_employee';
 
     try {
       const response = await fetch(`/api/allocations/${id}/respond`, {
@@ -265,6 +265,49 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
         status: 'accepted',
       };
       setWaitingConfirmations((prev) => [acceptedProposal, ...prev]);
+    }
+  };
+
+  const handleRejectionAction = async (id: string, action: 'reject') => {
+    setActionLoadingId(id);
+    const proposal = proposals.find((p) => p.id === id);
+    if (!proposal) return;
+
+    const targetEmployeeId = getActiveEmployeeId();
+    const allocationStatus = action === 'reject' ? 'rejected' : 'rejected_by_employee';
+
+    try {
+      const response = await fetch(`/api/allocations/${id}/reject`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: allocationStatus,
+          employee_id: targetEmployeeId,
+        }),
+      });
+
+      if (!response.ok) {
+        await fetch(`/api/allocations/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: allocationStatus }),
+        });
+      }
+    } catch (err) {
+      console.warn('Failed to persist action to server, updating UI locally:', err);
+    } finally {
+      setActionLoadingId(null);
+    }
+
+    // Update Local UI States
+    setProposals((prev) => prev.filter((p) => p.id !== id));
+
+    if (action === 'reject') {
+      // Move to Waiting for Confirmation list instead of Active Projects
+      const acceptedProposal: Proposal = {
+        ...proposal,
+        status: 'rejected',
+      };
     }
   };
 
@@ -346,7 +389,7 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
                   {item.status === 'proposed' ? (
                     <div className="flex gap-2">
                       <button
-                        onClick={() => handleProposalAction(item.id, 'reject')}
+                        onClick={() => handleRejectionAction(item.id, 'reject')}
                         disabled={actionLoadingId === item.id}
                         className="px-3 py-1.5 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 rounded-lg font-medium flex items-center gap-1.5 transition-all disabled:opacity-50"
                       >
