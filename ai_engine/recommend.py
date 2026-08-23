@@ -21,12 +21,20 @@ from ai_engine.project_taxonomy import get_required_roles
 
 
 def _strip_embeddings(candidates: list[dict]) -> list[dict]:
-    """Remove embedding vectors before returning to the API — they're
-    only needed internally for scoring, not useful to show anywhere."""
+    """Remove embedding vectors before returning to the API, but keep
+    readable skill names instead of raw skill_ids."""
+    with engine.connect() as conn:
+        skill_names = dict(
+            conn.execute(text("SELECT skill_id, skill_name FROM skills")).fetchall()
+        )
+
     cleaned = []
     for c in candidates:
         c_copy = {k: v for k, v in c.items() if k != "skills"}
-        c_copy["skills"] = [s["skill_id"] for s in c.get("skills", [])]
+        c_copy["skills"] = [
+            skill_names.get(s["skill_id"], s["skill_id"])
+            for s in c.get("skills", [])
+        ]
         cleaned.append(c_copy)
     return cleaned
 
