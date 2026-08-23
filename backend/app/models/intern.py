@@ -28,6 +28,7 @@ class InternsAndStudents(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     role: Mapped[str] = mapped_column(String(20), default="intern", nullable=False)
     current_status: Mapped[str] = mapped_column(String(20), default="AVAILABLE", nullable=False)
+    department: Mapped[str] = mapped_column(String(20), nullable=False)
 
     __table_args__ = (CheckConstraint("intern_id ~ '^rp2-int-\\d{4}$'", name="check_employee_id_format"),)
 

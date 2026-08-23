@@ -44,7 +44,7 @@ export interface StudentIntern {
   intern_id: string;
   name: string;
   email: string;
-  college_institution: string;
+  college_institution?: string;
   degree_program?: string;
   resume_document_url: string;
   review_status?: string;
@@ -53,6 +53,7 @@ export interface StudentIntern {
   role: string; // 'intern' | 'student'
   current_status: string; // 'AVAILABLE' | 'ALLOCATED' | 'ON_LEAVE'
   created_at?: string;
+  department: string;
 }
 
 export const UserManagement: React.FC = () => {
@@ -97,6 +98,7 @@ export const UserManagement: React.FC = () => {
     review_status: 'UNVERIFIED',
     reviewed_by: '',
     extracted_skills_raw: '',
+    department: '',
   });
 
   
@@ -170,6 +172,7 @@ export const UserManagement: React.FC = () => {
             resume_document_url: 'https://storage.bucket.com/resumes/alex_rivera.pdf',
             role: 'intern',
             current_status: 'AVAILABLE',
+            department: 'Data Science'
           },
           {
             intern_id: 's2',
@@ -180,6 +183,7 @@ export const UserManagement: React.FC = () => {
             resume_document_url: 'https://storage.bucket.com/resumes/elena_rostova.pdf',
             role: 'student',
             current_status: 'ALLOCATED',
+            department: 'Data Science',
           },
         ]);
       }
@@ -222,6 +226,7 @@ export const UserManagement: React.FC = () => {
       review_status: 'UNVERIFIED',
       reviewed_by: '',
       extracted_skills_raw: '',
+      department: '',
     });
 
     setIsModalOpen(true);
@@ -250,7 +255,7 @@ export const UserManagement: React.FC = () => {
       setStudentForm({
         name: std.name,
         email: std.email,
-        college_institution: std.college_institution,
+        college_institution: std.college_institution || '',
         degree_program: std.degree_program || '',
         resume_document_url: std.resume_document_url,
         role: std.role,
@@ -258,6 +263,7 @@ export const UserManagement: React.FC = () => {
         review_status: std.review_status || 'UNVERIFIED',
         reviewed_by: std.reviewed_by || '',
         extracted_skills_raw: std.extracted_skills_raw || '',
+        department: std.department,
       });
     }
 
@@ -385,7 +391,7 @@ export const UserManagement: React.FC = () => {
     (s) =>
       s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       s.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.college_institution.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      s.department.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (s.degree_program && s.degree_program.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
@@ -558,8 +564,8 @@ export const UserManagement: React.FC = () => {
               <thead className="bg-slate-950 text-slate-400 uppercase font-semibold border-b border-slate-800">
                 <tr>
                   <th className="p-3">Candidate</th>
-                  <th className="p-3">College / Institution</th>
                   <th className="p-3">Degree Program</th>
+                  <th className="p-3">Department</th>
                   <th className="p-3">Resume Document</th>
                   <th className="p-3">Status</th>
                   <th className="p-3">Review</th>
@@ -577,11 +583,11 @@ export const UserManagement: React.FC = () => {
                           {std.email}
                         </div>
                       </td>
-                      <td className="p-3 text-slate-300 font-medium">
-                        {std.college_institution}
-                      </td>
                       <td className="p-3 text-slate-400">
                         {std.degree_program || 'N/A'}
+                      </td>
+                      <td className="p-3 text-slate-400">
+                        {std.department || 'N/A'}
                       </td>
                       <td className="p-3">
                         {std.resume_document_url ? (
@@ -605,6 +611,8 @@ export const UserManagement: React.FC = () => {
                               ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/50'
                               : std.current_status === 'ALLOCATED'
                               ? 'bg-amber-950/60 text-amber-400 border border-amber-800/50'
+                              : std.current_status === 'TERMINATED'
+                              ? 'bg-red-950/60 text-amber-400 border border-red-800/50'
                               : 'bg-slate-800 text-slate-400 border border-slate-700'
                           }`}
                         >
@@ -815,19 +823,19 @@ export const UserManagement: React.FC = () => {
               {/* STUDENT/INTERN Specific Database Schema Fields */}
               {activeTab === 'STUDENT' && (
                 <>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">College / Institution *</label>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">College / Institution</label>
                       <input
                         type="text"
-                        required
                         value={studentForm.college_institution}
                         onChange={(e) => setStudentForm({ ...studentForm, college_institution: e.target.value })}
                         placeholder="e.g. Stanford University"
                         className="w-full bg-slate-950 border border-slate-800 text-xs text-white px-3 py-2.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       />
                     </div>
-
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-semibold text-slate-300 mb-1">Degree Program</label>
                       <input
@@ -837,6 +845,17 @@ export const UserManagement: React.FC = () => {
                         placeholder="e.g. BBA"
                         className="w-full bg-slate-950 border border-slate-800 text-xs text-white px-3 py-2.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">Department</label>
+                      <select
+                        value={studentForm.department}
+                        onChange={(e) => setStudentForm({ ...studentForm, department: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-800 text-xs text-white px-3 py-2.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      >
+                        <option value="Data Science">Data Science</option>
+                        <option value="Data Analytics">Data Analytics</option>
+                      </select>
                     </div>
                   </div>
 
@@ -863,6 +882,7 @@ export const UserManagement: React.FC = () => {
                         <option value="AVAILABLE">AVAILABLE</option>
                         <option value="ALLOCATED">ALLOCATED</option>
                         <option value="ON_LEAVE">ON_LEAVE</option>
+                        <option value="ON_LEAVE">TERMINATED</option>
                       </select>
                     </div>
                   </div>

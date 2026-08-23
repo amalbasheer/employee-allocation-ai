@@ -35,7 +35,7 @@ class InternSkillResponse(InternSkillBase):
 class InternBase(BaseModel):
     name: str
     email: EmailStr
-    college_institution: str
+    college_institution: Optional[str]
     degree_program: Optional[str] = None
     resume_document_url: str
     extracted_skills_raw: Optional[Any] = None  # JSONB field payload
@@ -43,6 +43,7 @@ class InternBase(BaseModel):
     reviewed_by: Optional[str] = None
     role: str = "intern"
     current_status: str = "AVAILABLE"
+    department: str
 
 
 class InternCreate(InternBase):
@@ -61,6 +62,7 @@ class InternUpdate(BaseModel):
     reviewed_by: Optional[str] = None
     role: Optional[str] = None
     current_status: Optional[str] = None  # e.g., 'AVAILABLE' or 'ASSIGNED'
+    department: Optional[str] = None
 
 
 class InternResponse(InternBase):
