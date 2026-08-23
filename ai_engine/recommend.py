@@ -6,18 +6,18 @@ and matching.py (the ranking math).
 """
 
 from sqlalchemy import text
-from db import (
+from ai_engine.db import (
     engine,
     get_project,
     get_project_requirements,
     get_available_mentors,
     get_available_interns,
     get_person_skills,
-    get_next_mentor_for_batch,   # ← now imported, not redefined
+    get_next_mentor_for_batch,
     _parse_embedding,
 )
-from matching import rank_candidates
-from project_taxonomy import get_required_roles
+from ai_engine.matching import rank_candidates
+from ai_engine.project_taxonomy import get_required_roles
 
 
 def recommend_candidates_for_project(project_id: str) -> dict:
