@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, select
 from sqlalchemy.exc import IntegrityError
+from pydantic import BaseModel
 
 from app.api.deps import get_db, get_current_user, require_admin
 from app.models.allocation import Allocation, AllocationLog, Substitution
@@ -272,6 +273,53 @@ def update_allocation_status(
     db.commit()
     db.refresh(allocation)
     return allocation
+
+# -------------------------------------------------------------------
+# EMPLOYEE ACCEPTING THE PROPOSAL
+# -------------------------------------------------------------------
+class AllocationRespondRequest(BaseModel):
+    status: str          # "accepted" or "rejected_by_employee"
+    employee_id: str
+
+@router.patch("/{allocation_id}/respond")
+def respond_to_allocation(
+    allocation_id: str,
+    payload: AllocationRespondRequest,
+    db: Session = Depends(get_db)
+):
+    # 1. Fetch allocation record
+    allocation = db.query(Allocation).filter(Allocation.allocation_id == allocation_id).first()
+    if not allocation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail=f"Allocation '{allocation_id}' not found"
+        )
+
+    # 2. Update allocation status
+    formatted_status = payload.status.lower()
+    allocation.status = formatted_status
+
+    # 3. Create Audit Log entry for Admin review
+    new_log_id = generate_next_log_id(db)
+    
+    log = AllocationLog(
+        log_id=new_log_id,
+        allocation_id=allocation_id,
+        action='ACCEPTED',
+        changed_by=payload.employee_id,
+        timestamp=datetime.now(timezone.utc)
+    )
+
+    db.add(log)
+    db.commit()
+    db.refresh(allocation)
+
+    return {
+        "status": "success",
+        "message": f"Proposal marked as {formatted_status}",
+        "allocation_id": allocation.allocation_id,
+        "current_status": allocation.status
+    }
 
 # -------------------------------------------------------------------
 # 3. SUBSTITUTE REJECTED ALLOCATION (ADMIN)
