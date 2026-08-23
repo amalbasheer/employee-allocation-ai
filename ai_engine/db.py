@@ -86,12 +86,9 @@ def get_available_mentors() -> list[dict]:
 
 def get_available_interns() -> list[dict]:
     """
-    Available means: AVAILABLE status, verified, not already actively
-    allocated, AND still within their internship window.
-
-    NOTE: 4-month window is measured from created_at (when they joined)
-    — this is a placeholder assumption, confirm the real rule (from
-    joining date vs. from first allocation) with the team.
+    Available means: current_status = 'AVAILABLE' (not TERMINATED),
+    verified, still within the internship window, AND not already
+    tied to an active allocation.
     """
     with engine.connect() as conn:
         rows = conn.execute(
