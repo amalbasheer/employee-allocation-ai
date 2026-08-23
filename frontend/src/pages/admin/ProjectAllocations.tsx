@@ -46,7 +46,8 @@ export interface Project {
   priorityLevel?: string;
   proposedMentorId?: string;
   proposedMentorName?: string;
-  allocationId?: string; // ID of the mentor allocation record
+  allocationId?: string;
+  reference_id?: string; // ID of the mentor allocation record
   allocatedStudentIds?: string[];
   allocatedStudentsname?: string[];
   proposedMentorStatus?: AllocatedStatus;
@@ -304,18 +305,43 @@ export const ProjectAllocation: React.FC = () => {
   };
 
 // 2. Confirm Mentor Assignment (Admin Action)
-  const handleConfirmMentor = async (allocationId: string) => {
+  // Confirm Mentor Assignment (Admin Action)
+  const handleConfirmMentor = async (
+    itemOrId: string | { allocationId?: string; reference_id?: string; project_id?: string; id?: string }
+  ) => {
+  // 1. Resolve target identifier (supports string directly or extracts from object)
+    const targetId = typeof itemOrId === 'string'
+      ? itemOrId
+      : itemOrId.allocationId || itemOrId.reference_id || itemOrId.project_id || itemOrId.id;
+
+    if (!targetId) {
+      console.error("Cannot confirm assignment: Missing target ID.", itemOrId);
+      alert("Error: Missing allocation or project identifier.");
+      return;
+    }
+
     try {
-    // Calling 'assigned' status automatically updates backend project.status to 'in_progress'
-      const res = await api.patch(`/allocations/${allocationId}/status`, {
+    // 2. Call backend PATCH endpoint (backend handles reference_id or allocation_id)
+      const res = await api.patch(`api/allocations/${targetId}/assign`, {
         status: 'assigned'
       });
 
-      setProjects((prev) =>
-        prev.map((p) => (p.allocationId === allocationId ? { ...p, status: 'in_progress' } : p))
-      );
-    } catch (err) {
-      console.error("Failed to confirm mentor assignment:", err);
+      if (res.data) {
+      // 3. Update local UI state
+        setProjects((prevProjects) =>
+          prevProjects.map((p) =>
+            p.id === targetId ||
+            p.allocationId === targetId ||
+            p.reference_id === targetId
+              ? { ...p, status: 'in_progress', allocationStatus: 'assigned' }
+              : p
+          )
+        );
+      }
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.detail || "Failed to confirm mentor assignment.";
+      console.error("Confirmation error:", errorMsg);
+      alert(`Action Failed: ${errorMsg}`);
     }
   };
 

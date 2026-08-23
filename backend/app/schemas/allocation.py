@@ -15,7 +15,7 @@ class ProposeAllocationRequest(BaseModel):
     suitability_score: float = 1.0
 
 class AllocationStatusUpdateRequest(BaseModel):
-    status: AllocationStatus
+    status: str
 
 class SubstituteRequest(BaseModel):
     substitute_resource_type: str
@@ -50,7 +50,7 @@ class AllocationResponse(BaseModel):
     role_on_project: str
     allocated_hours: int
     suitability_score: float
-    status: AllocationStatus
+    status: str
     assigned_at: datetime
     assigned_by: str
 

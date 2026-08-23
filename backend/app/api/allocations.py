@@ -163,75 +163,148 @@ def propose_allocation(
 
     return new_allocation
 
-# -------------------------------------------------------------------
-# 2. STATUS TRANSITION (ACCEPT / REJECT / ASSIGN)
-# -------------------------------------------------------------------
-@router.patch("/{allocation_id}/status", response_model=AllocationResponse)
-def update_allocation_status(
-    allocation_id: str,
-    payload: AllocationStatusUpdateRequest,
-    db: Session = Depends(get_db),
-    current_user: UserProfile = Depends(get_current_user)
-):
-    allocation = db.query(Allocation).filter(Allocation.allocation_id == allocation_id).first()
-    if not allocation:
-        raise HTTPException(status_code=404, detail="Allocation not found")
 
-    user_role = str(current_user.role).lower()
-    prev_status = allocation.status
-    target_status = payload.status
-    
-    # Identify reference and resource parameters
+# -----------------------------------------------------------------
+# CONFIRMATION BY ADMIN
+# -------------------------------------------------------------------
+@router.patch("/{identifier}/assign", response_model=AllocationResponse)
+def assign_allocation(
+    identifier: str,
+    db: Session = Depends(get_db),
+    admin_user: UserProfile = Depends(require_admin)
+):
+    clean_id = identifier.strip()
+
+    # 1. Look up by allocation_id or reference_id (case-insensitive)
+    allocation = db.query(Allocation).filter(
+        or_(
+            
+            func.lower(Allocation.reference_id) == clean_id.lower()
+        )
+    ).first()
+
+    if not allocation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Allocation matching ID or Reference '{clean_id}' not found."
+        )
+
+    prev_status = str(allocation.status).lower()
+
+    # 2. Strict validation: Allocation MUST be in 'accepted' status
+    if prev_status != "accepted":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot confirm assignment. Current status is '{prev_status}', but it must be 'accepted' first."
+        )
+
+    # 3. Transition allocation status
+    allocation.status = "assigned"
+
     ref_type = str(getattr(allocation, "reference_type", "project") or "project").lower().strip()
     ref_id = getattr(allocation, "reference_id", None) or getattr(allocation, "project_id", None)
     resource_type = str(getattr(allocation, "resource_type", "employee")).lower().strip()
 
-    # --- ACTION HANDLER: ADMIN CONFIRM OR DIRECT ASSIGN ---
+    # 4. Update linked target entity (Project / Batch / Training)
+    if ref_type == "project" and ref_id:
+        project = db.query(Project).filter(Project.project_id == ref_id).first()
+        if project:
+            project.status = "in_progress"
+
+    elif ref_type in ["batch", "student_batch", "studentbatch"] and ref_id:
+        batch_obj = db.query(StudentBatch).filter(StudentBatch.batch_id == ref_id).first()
+        if batch_obj and resource_type in ["employee", "mentor"]:
+            batch_obj.mentor_id = str(allocation.resource_id)
+
+    elif ref_type in ["training", "webinar", "engagement"] and ref_id:
+        training_obj = db.query(TrainingEngagement).filter(TrainingEngagement.engagement_id == ref_id).first()
+        if training_obj:
+            training_obj.status = "in_progress"
+
+    # 5. Create Audit Log
+    log = AllocationLog(
+        log_id=generate_next_log_id(db),
+        allocation_id=allocation.allocation_id,
+        action="ASSIGNED",
+        changed_by=admin_user.name,
+        timestamp=datetime.now(timezone.utc)
+    )
+    db.add(log)
+    db.commit()
+    db.refresh(allocation)
+
+    return allocation
+
+# -------------------------------------------------------------------
+# 2. STATUS TRANSITION (ACCEPT / REJECT / ASSIGN)
+# -------------------------------------------------------------------
+@router.patch("/{identifier}/status", response_model=AllocationResponse)
+def update_allocation_status(
+    identifier: str,  # Accepts either 'rp2-proj-0002' (reference_id) OR 'rp2-alloc-0007' (allocation_id)
+    payload: AllocationStatusUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: UserProfile = Depends(get_current_user)
+):
+    clean_id = identifier.strip()
+    # Search by reference_id first, falling back to allocation_id
+    allocation = db.query(Allocation).filter(
+        or_(
+            func.lower(Allocation.allocation_id) == clean_id.lower(),
+            func.lower(Allocation.reference_id) == clean_id.lower(),
+        )
+    ).first()
+
+    if not allocation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Allocation with Reference or Allocation ID '{clean_id}' not found."
+        )
+
+    user_role = str(getattr(current_user, "role", "")).lower()
+    prev_status = str(allocation.status).lower()
+    target_status = str(payload.status).lower()
+
+    # Identify reference parameters
+    ref_type = str(getattr(allocation, "reference_type", "project") or "project").lower().strip()
+    ref_id = getattr(allocation, "reference_id", None) or getattr(allocation, "project_id", None)
+    resource_type = str(getattr(allocation, "resource_type", "employee")).lower().strip()
+
+    # --- ADMIN / SUPERADMIN ACTION ---
     if user_role in ["admin", "superadmin"]:
         if target_status == "assigned":
-            # Employees/Mentors MUST accept first before becoming assigned
             if resource_type in ["employee", "mentor"] and prev_status != "accepted":
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Cannot confirm assignment for employee. Current status is '{prev_status}', but employee must accept first."
+                    detail=f"Cannot confirm assignment. Current status is '{prev_status}', but employee must accept first."
                 )
             
-            # Transition allocation status to assigned
             allocation.status = "assigned"
-            
-            # --- DYNAMIC TARGET ENTITY UPDATES ---
-            if ref_type == "project":
+
+            # Dynamic Target Entity Status Update
+            if ref_type == "project" and ref_id:
                 project = db.query(Project).filter(Project.project_id == ref_id).first()
-                if project and getattr(project, "status", None) in ["open", "created"]:
+                if project:
                     project.status = "in_progress"
 
-            elif ref_type in ["batch", "student_batch", "studentbatch"]:
+            elif ref_type in ["batch", "student_batch", "studentbatch"] and ref_id:
                 batch_obj = db.query(StudentBatch).filter(StudentBatch.batch_id == ref_id).first()
-                if batch_obj:
-                    # If this allocation is for an employee/mentor, set them as the batch mentor
-                    if resource_type in ["employee", "mentor"]:
-                        batch_obj.mentor_id = str(allocation.resource_id)
-                    # If current resource is student/intern, ensure mentor_id is linked if an assigned mentor allocation exists
-                    elif not getattr(batch_obj, "mentor_id", None):
-                        mentor_alloc = db.query(Allocation).filter(
-                            Allocation.reference_id == ref_id,
-                            Allocation.resource_type.in_(["employee", "mentor"]),
-                            Allocation.status.in_(["assigned", "accepted"])
-                        ).first()
-                        if mentor_alloc and mentor_alloc.resource_id:
-                            batch_obj.mentor_id = str(mentor_alloc.resource_id)
+                if batch_obj and resource_type in ["employee", "mentor"]:
+                    batch_obj.mentor_id = str(allocation.resource_id)
 
-            elif ref_type in ["training", "webinar", "engagement"]:
+            elif ref_type in ["training", "webinar", "engagement"] and ref_id:
                 training_obj = db.query(TrainingEngagement).filter(TrainingEngagement.engagement_id == ref_id).first()
-                if training_obj and getattr(training_obj, "status", None) in ["scheduled", "open", "created"]:
+                if training_obj:
                     training_obj.status = "in_progress"
 
-        elif target_status in ["cancelled", "proposed"]:
+        elif target_status in ["cancelled", "proposed", "completed"]:
             allocation.status = target_status
         else:
-            raise HTTPException(status_code=400, detail=f"Invalid target status '{target_status}' for Admin action.")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, 
+                detail=f"Invalid target status '{target_status}' for Admin action."
+            )
 
-    # --- ACTION HANDLER: EMPLOYEE ACCEPT OR REJECT ---
+    # --- EMPLOYEE / MENTOR ACTION ---
     elif user_role in ["employee", "mentor"]:
         if str(allocation.resource_id) != str(current_user.id):
             raise HTTPException(
@@ -252,26 +325,24 @@ def update_allocation_status(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Employees can only transition status to 'accepted' or 'rejected'."
             )
-            
-    # --- ACTION HANDLER: STUDENTS/INTERNS ---
-    elif user_role in ["student", "intern"]:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Students/interns do not update allocation status; assignments are managed directly by Admins."
-        )
     else:
-        raise HTTPException(status_code=403, detail="Unauthorized role.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Unauthorized role to perform this action."
+        )
 
-    # Audit logging
-    reason_suffix = f" | Reason: {payload.reason}" if getattr(payload, "reason", None) else ""
+    # Audit Logging: Upper-case target status in log table
     log = AllocationLog(
+        log_id=generate_next_log_id(db),
         allocation_id=allocation.allocation_id,
-        action=f"STATUS_CHANGE: {prev_status} -> {target_status}{reason_suffix}",
-        changed_by=getattr(current_user, "name", "System User")
+        action=target_status.upper(),
+        changed_by=getattr(current_user, "name", "System User"),
+        timestamp=datetime.now(timezone.utc)
     )
     db.add(log)
     db.commit()
     db.refresh(allocation)
+
     return allocation
 
 # -------------------------------------------------------------------
