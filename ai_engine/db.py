@@ -22,7 +22,7 @@ def _parse_embedding(val):
     """
     Normalizes an embedding value into a real Python list, regardless
     of whether it comes back from Postgres as a string representation
-    or an actual list/array — safety net for both pgvector and array columns.
+    or an actual list/array.
     """
     if val is None:
         return None
@@ -64,26 +64,48 @@ def get_project_requirements(project_id: str) -> list[dict]:
 
 
 def get_available_mentors() -> list[dict]:
-    """is_team_lead lives directly on company_employees — no join needed."""
+    """
+    Excludes anyone already tied to an active (proposed/confirmed)
+    allocation — checked against resource_id, covers projects, batches,
+    AND training engagements since they all share the allocations table.
+    """
     with engine.connect() as conn:
         rows = conn.execute(
             text("""
-                SELECT employee_id AS id, name, weekly_capacity_hours, is_team_lead
-                FROM company_employees
+                SELECT ce.employee_id AS id, ce.name, ce.weekly_capacity_hours, ce.is_team_lead
+                FROM company_employees ce
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM allocations a
+                    WHERE a.resource_id = ce.employee_id
+                    AND a.status IN ('proposed', 'assigned')
+                )
             """)
         ).mappings().fetchall()
     return [dict(r) for r in rows]
 
 
 def get_available_interns() -> list[dict]:
-    """Interns work one project at a time — simple status check, not hours math."""
+    """
+    Available means: AVAILABLE status, verified, not already actively
+    allocated, AND still within their internship window.
+
+    NOTE: 4-month window is measured from created_at (when they joined)
+    — this is a placeholder assumption, confirm the real rule (from
+    joining date vs. from first allocation) with the team.
+    """
     with engine.connect() as conn:
         rows = conn.execute(
             text("""
                 SELECT intern_id AS id, name, role, current_status
-                FROM interns_and_students
+                FROM interns_and_students i
                 WHERE current_status = 'AVAILABLE'
                   AND review_status = 'verified'
+                  AND created_at >= NOW() - INTERVAL '4 months'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM allocations a
+                      WHERE a.resource_id = i.intern_id
+                      AND a.status IN ('proposed', 'assigned')
+                  )
             """)
         ).mappings().fetchall()
     return [dict(r) for r in rows]

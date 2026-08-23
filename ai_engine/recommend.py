@@ -13,6 +13,7 @@ from db import (
     get_available_mentors,
     get_available_interns,
     get_person_skills,
+    get_next_mentor_for_batch,   # ← now imported, not redefined
     _parse_embedding,
 )
 from matching import rank_candidates
@@ -20,11 +21,6 @@ from project_taxonomy import get_required_roles
 
 
 def recommend_candidates_for_project(project_id: str) -> dict:
-    """
-    Given a project, returns ranked candidates for whichever roles it
-    actually needs — mentors only for training engagements, or both
-    interns and team-lead-eligible mentors for work engagements.
-    """
     project = get_project(project_id)
     if not project:
         raise ValueError(f"No project found with id {project_id}")
@@ -53,10 +49,6 @@ def recommend_candidates_for_project(project_id: str) -> dict:
 
 
 def recommend_projects_for_person(person_id: str, person_type: str, open_projects: list[dict]) -> list[dict]:
-    """
-    Reverse direction: given a person (right after resume parsing),
-    rank all open projects by how well they fit.
-    """
     person_skills = get_person_skills(person_id, person_type)
 
     scored = []
@@ -72,10 +64,6 @@ def recommend_projects_for_person(person_id: str, person_type: str, open_project
 
 
 def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
-    """
-    Skill-based ranking for webinars/demos/workshops.
-    TEAM LEADS ONLY — business rule, not every mentor is eligible.
-    """
     with engine.connect() as conn:
         engagement = conn.execute(
             text("SELECT * FROM training_engagements WHERE engagement_id = :eid"),
@@ -105,33 +93,12 @@ def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
     ]
 
     mentors = get_available_mentors()
-    team_leads = [m for m in mentors if m.get("is_team_lead")]  # ← team-lead-only filter
+    team_leads = [m for m in mentors if m.get("is_team_lead")]
 
     for tl in team_leads:
         tl["skills"] = get_person_skills(tl["id"], "employee")
 
     return rank_candidates(team_leads, requirements)
-
-
-def get_next_mentor_for_batch(domain: str) -> dict:
-    """
-    Round-robin: picks the team lead in this domain with the fewest
-    current batch assignments — pure fairness, no skill matching.
-    """
-    with engine.connect() as conn:
-        row = conn.execute(
-            text("""
-                SELECT ce.employee_id, ce.name, COUNT(sb.batch_id) AS batch_count
-                FROM company_employees ce
-                LEFT JOIN student_batches sb ON sb.mentor_id = ce.employee_id
-                WHERE ce.is_team_lead = TRUE AND ce.department = :domain
-                GROUP BY ce.employee_id, ce.name
-                ORDER BY batch_count ASC, ce.employee_id ASC
-                LIMIT 1
-            """),
-            {"domain": domain},
-        ).mappings().fetchone()
-    return dict(row) if row else None
 
 
 if __name__ == "__main__":
