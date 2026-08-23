@@ -7,6 +7,7 @@ from app.models.enums import AllocationStatus
 
 class ProposeAllocationRequest(BaseModel):
     reference_id: str
+    reference_type: str
     resource_type: str  # "employee" or "student"
     resource_id: str
     role_on_project: str = "lead_mentor"

@@ -245,12 +245,13 @@ export const ProjectAllocation: React.FC = () => {
     }
   }, [activeTab]);
 
-  const handleProposeMentor = async (projectId: string, mentor: Mentor) => {
+  const handleProposeMentor = async (referenceId: string, mentor: Mentor) => {
     try {
       // 1. Prepare backend payload (snake_case)
       const payload = {
-        project_id: projectId,
-        resource_type: 'mentor',
+        reference_id: referenceId,
+        reference_type: 'project',
+        resource_type: 'employee',
         resource_id: mentor.id,
         role_on_project: mentor.role || 'Project Mentor',
         allocated_hours: mentor.allocatedHours || 10,
@@ -264,7 +265,7 @@ export const ProjectAllocation: React.FC = () => {
       // 3. Update UI State
       setProjects((prev) =>
         prev.map((p) =>
-          p.id === projectId
+          p.id === referenceId
             ? {
                 ...p,
                 proposedMentorStatus: 'proposed',

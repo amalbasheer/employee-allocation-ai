@@ -1,10 +1,11 @@
 import uuid
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, func, select
+from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import get_db, get_current_user, require_admin
 from app.models.allocation import Allocation, AllocationLog, Substitution
@@ -65,6 +66,35 @@ def get_allocation_target(db: Session, reference_id: str, reference_type: str):
 # -------------------------------------------------------------------
 # 1. ADMIN PROPOSES AN ALLOCATION
 # -------------------------------------------------------------------
+def generate_next_allocation_id(db: Session) -> str:
+    # Fetch all allocation IDs matching the prefix
+    alloc_ids = db.scalars(
+        select(Allocation.allocation_id).filter(Allocation.allocation_id.like("rp2-alloc-%"))
+    ).all()
+    
+    max_num = 0
+    for alloc_id in alloc_ids:
+        parts = alloc_id.split("-")
+        if parts[-1].isdigit():
+            max_num = max(max_num, int(parts[-1]))
+            
+    return f"rp2-alloc-{max_num + 1:04d}"
+
+def generate_next_log_id(db: Session) -> str:
+    """Safely extracts the maximum numeric suffix from allocation_logs to generate rp2-log-XXXX."""
+    records = db.query(AllocationLog.log_id).filter(
+        AllocationLog.log_id.like("rp2-log-%")
+    ).all()
+
+    max_num = 0
+    for (log_id,) in records:
+        if log_id:
+            parts = str(log_id).split("-")
+            if parts[-1].isdigit():
+                max_num = max(max_num, int(parts[-1]))
+
+    return f"rp2-log-{max_num + 1:04d}"
+
 @router.post("/propose", response_model=AllocationResponse, status_code=status.HTTP_201_CREATED)
 def propose_allocation(
     payload: ProposeAllocationRequest,
@@ -82,8 +112,12 @@ def propose_allocation(
             detail=f"{target_type_label} with ID '{payload.reference_id}' not found."
         )
 
+    # Generate custom formatted primary key
+    new_alloc_id = generate_next_allocation_id(db)
+
     # 2. Create the Allocation record
     new_allocation = Allocation(
+        allocation_id=new_alloc_id,  # Set formatted primary key here
         reference_id=payload.reference_id,
         reference_type=payload.reference_type.lower().strip(),
         resource_type=payload.resource_type,
@@ -92,16 +126,33 @@ def propose_allocation(
         allocated_hours=payload.allocated_hours,
         suitability_score=payload.suitability_score,
         status="proposed",
-        assigned_by=admin_user.name
+        assigned_by=admin_user.name,
+        assigned_at=datetime.now(timezone.utc)
     )
-    db.add(new_allocation)
-    db.flush()  # Populates new_allocation.allocation_id for the audit log
+    # --- CATCH EXACT DATABASE ERROR HERE ---
+    try:
+        db.add(new_allocation)
+        db.flush()  # Populates new_allocation.allocation_id for the audit log
+    except IntegrityError as e:
+        db.rollback()
+        print("================ EXACT DB DRIVER ERROR ================")
+        print(e.orig)
+        print("=======================================================")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Database constraint error: {str(e.orig)}"
+        )
+    # --------------------------------------
 
     # 3. Create Audit Log entry
+    new_log_id = generate_next_log_id(db)
+
     log = AllocationLog(
+        log_id=new_log_id,
         allocation_id=new_allocation.allocation_id,
-        action=f"PROPOSED candidate {payload.resource_id} for role '{payload.role_on_project}' on {target_type_label} ({payload.reference_id})",
-        changed_by=admin_user.name
+        action="PROPOSED",
+        changed_by=admin_user.name,
+        timestamp=datetime.now(timezone.utc)
     )
     db.add(log)
 
@@ -110,7 +161,6 @@ def propose_allocation(
     db.refresh(new_allocation)
 
     return new_allocation
-
 
 # -------------------------------------------------------------------
 # 2. STATUS TRANSITION (ACCEPT / REJECT / ASSIGN)
