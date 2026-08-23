@@ -175,13 +175,18 @@ def assign_allocation(
 ):
     clean_id = identifier.strip()
 
-    # 1. Look up by allocation_id or reference_id (case-insensitive)
-    allocation = db.query(Allocation).filter(
-        or_(
-            
-            func.lower(Allocation.reference_id) == clean_id.lower()
+    # 1. Fetch the MOST RECENT allocation matching reference_id OR allocation_id
+    allocation = (
+        db.query(Allocation)
+        .filter(
+            or_(
+                func.lower(Allocation.reference_id) == clean_id.lower(),
+                func.lower(Allocation.allocation_id) == clean_id.lower()
+            )
         )
-    ).first()
+        .order_by(Allocation.allocation_id.desc())  # Gets the latest active record
+        .first()
+    )
 
     if not allocation:
         raise HTTPException(
@@ -189,13 +194,14 @@ def assign_allocation(
             detail=f"Allocation matching ID or Reference '{clean_id}' not found."
         )
 
-    prev_status = str(allocation.status).lower()
+    prev_status = str(allocation.status).lower().strip()
 
-    # 2. Strict validation: Allocation MUST be in 'accepted' status
-    if prev_status != "accepted":
+    # 2. Strict validation: Allocation MUST be in 'accepted' (or 'proposed' if direct admin override allowed)
+    valid_statuses = ["accepted", "proposed"]
+    if prev_status not in valid_statuses:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot confirm assignment. Current status is '{prev_status}', but it must be 'accepted' first."
+            detail=f"Cannot assign allocation '{allocation.allocation_id}'. Current status is '{prev_status}', but it must be 'accepted' first."
         )
 
     # 3. Transition allocation status
@@ -234,7 +240,6 @@ def assign_allocation(
     db.refresh(allocation)
 
     return allocation
-
 # -------------------------------------------------------------------
 # 2. STATUS TRANSITION (ACCEPT / REJECT / ASSIGN)
 # -------------------------------------------------------------------
@@ -438,55 +443,87 @@ def respond_to_allocation(
 # -------------------------------------------------------------------
 # 3. SUBSTITUTE REJECTED ALLOCATION (ADMIN)
 # -------------------------------------------------------------------
-@router.post("/{allocation_id}/substitute", response_model=SubstitutionResponse, status_code=status.HTTP_201_CREATED)
+def generate_next_sub_id(db: Session) -> str:
+    # Fetch all allocation IDs matching the prefix
+    sub_ids = db.scalars(
+        select(Substitution.substitution_id).filter(Substitution.substitution_id.like("rp2-sub-%"))
+    ).all()
+    
+    max_num = 0
+    for sub_id in sub_ids:
+        parts = sub_id.split("-")
+        if parts[-1].isdigit():
+            max_num = max(max_num, int(parts[-1]))
+            
+    return f"rp2-sub-{max_num + 1:04d}"
+
+@router.post("/{reference_id}/substitute", response_model=SubstitutionResponse, status_code=status.HTTP_201_CREATED)
 def substitute_allocation(
-    allocation_id: str,
+    reference_id: str,
     payload: SubstituteRequest,
     db: Session = Depends(get_db),
     admin_user: UserProfile = Depends(require_admin)
 ):
-    orig_allocation = db.query(Allocation).filter(Allocation.allocation_id == allocation_id).first()
-    if not orig_allocation:
-        raise HTTPException(status_code=404, detail="Original allocation record not found")
+    clean_ref_id = reference_id.strip()
 
-    # 1. Mark original allocation as SUBSTITUTED
+    # 1. Fixed typo (reference_id) & added case-insensitive matching + order_by to get latest allocation
+    orig_allocation = (
+        db.query(Allocation)
+        .filter(func.lower(Allocation.reference_id) == clean_ref_id.lower())
+        .order_by(Allocation.allocation_id.desc())
+        .first()
+    )
+
+    if not orig_allocation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail=f"Original allocation record for reference_id '{clean_ref_id}' not found."
+        )
+
+    # 2. Mark original allocation as SUBSTITUTED
     orig_allocation.status = "substituted"
 
-    # 2. Record substitution details
+    # 3. Record substitution details
     sub_record = Substitution(
+        substitution_id=generate_next_sub_id(db),
         original_allocation_id=orig_allocation.allocation_id,
         substitute_resource_type=payload.substitute_resource_type,
         substitute_resource_id=payload.substitute_resource_id,
-        reason=payload.reason
+        reason=payload.reason,
+        created_at=datetime.now(timezone.utc)
     )
     db.add(sub_record)
 
-    # 3. Create replacement allocation in PROPOSED state
+    # 4. Create replacement allocation in PROPOSED state
     new_allocation = Allocation(
-        project_id=orig_allocation.project_id,
+        allocation_id=generate_next_allocation_id(db),
+        reference_id=orig_allocation.reference_id,
+        reference_type="project",  # Preserves project type
         resource_type=payload.substitute_resource_type,
         resource_id=payload.substitute_resource_id,
         role_on_project=orig_allocation.role_on_project,
         allocated_hours=orig_allocation.allocated_hours,
         suitability_score=orig_allocation.suitability_score,
-        status="substituted",
-        assigned_by=admin_user.name
+        status="proposed",
+        assigned_by=admin_user.name, 
+        assigned_at=datetime.now(timezone.utc)
     )
     db.add(new_allocation)
     db.flush()
 
-    # 4. Log changes into allocation_log
+    # 5. Log changes into allocation_log
     log = AllocationLog(
+        log_id=generate_next_log_id(db),
         allocation_id=orig_allocation.allocation_id,
-        action=f"SUBSTITUTED by {admin_user.email}. New Allocation ID: {new_allocation.allocation_id} | Reason: {payload.reason}",
-        changed_by=admin_user.email
+        action="SUBSTITUTED",
+        changed_by=admin_user.name,
+        timestamp=datetime.now(timezone.utc)
     )
     db.add(log)
 
     db.commit()
     db.refresh(sub_record)
     return sub_record
-
 
 # -------------------------------------------------------------------
 # 4. QUERY USER ALLOCATIONS ("MY ALLOCATIONS")

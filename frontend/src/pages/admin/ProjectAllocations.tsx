@@ -247,41 +247,102 @@ export const ProjectAllocation: React.FC = () => {
   }, [activeTab]);
 
   const handleProposeMentor = async (referenceId: string, mentor: Mentor) => {
-    try {
-      // 1. Prepare backend payload (snake_case)
-      const payload = {
+  // 1. Locate current project in state
+  const currentProject = projects.find(
+    (p) => p.id === referenceId || p.reference_id === referenceId
+  );
+
+  if (!currentProject) {
+    console.error("Project not found in state for ID:", referenceId);
+    alert("Error: Selected project could not be found.");
+    return;
+  }
+
+  // 2. Case-insensitive check on all potential status fields
+  const rawStatus = String(
+    currentProject.proposedMentorStatus ||
+    currentProject.status ||
+    ''
+  ).toLowerCase();
+
+  // Flag as rejected if status contains 'reject' (e.g. 'rejected', 'rejected_by_employee', 'REJECTED')
+  const isRejected = rawStatus.includes('reject');
+
+  // Extract allocation ID across all potential keys
+  const existingAllocationId =
+    currentProject.allocationId ||
+    (currentProject.allocationId?.startsWith('rp2-alloc-') ? currentProject.allocationId : null);
+
+  const targetId = existingAllocationId || referenceId;
+
+  console.log("Substitution Check Debug:", {
+    referenceId,
+    rawStatus,
+    isRejected,
+    existingAllocationId,
+    targetId,
+    currentProject
+  });
+
+  try {
+    let res;
+
+    if (isRejected) {
+      console.log("Calling SUBSTITUTE endpoint for allocation:", existingAllocationId);
+      
+      // --- SUBSTITUTE API CALL ---
+      const substitutePayload = {
+        substitute_resource_type: 'employee',
+        substitute_resource_id: mentor.id,
+        reason: 'Re-proposing replacement mentor after employee rejection',
+      };
+
+      res = await api.post(
+        `api/allocations/${targetId}/substitute`,
+        substitutePayload
+      );
+    } else {
+      console.log("Calling PROPOSE endpoint for reference:", referenceId);
+      
+      // --- STANDARD PROPOSE API CALL ---
+      const proposePayload = {
         reference_id: referenceId,
         reference_type: 'project',
         resource_type: 'employee',
         resource_id: mentor.id,
         role_on_project: mentor.role || 'Project Mentor',
         allocated_hours: mentor.allocatedHours || 10,
-        suitability_score: mentor.matchScore || mentor.matchScore || 0.85,
+        suitability_score: mentor.matchScore || 0.85,
       };
 
-      // 2. Call FastAPI backend
-      const res = await api.post('/api/allocations/propose', payload);
-      const createdAllocation = res.data;
-
-      // 3. Update UI State
-      setProjects((prev) =>
-        prev.map((p) =>
-          p.id === referenceId
-            ? {
-                ...p,
-                proposedMentorStatus: 'proposed',
-                proposedMentorId: mentor.id,
-                proposedMentorName: mentor.name,
-                allocationId: createdAllocation.allocation_id,
-              }
-            : p
-          )
-        );
-      } catch (err) {
-        console.error('Failed to propose mentor:', err);
-        alert('Failed to propose mentor. Please check backend logs.');
+      res = await api.post('api/allocations/propose', proposePayload);
     }
-  };
+
+    const data = res.data;
+
+    // 3. Update local state back to 'proposed' for the new mentor
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === referenceId || p.reference_id === referenceId
+          ? {
+              ...p,
+              proposedMentorStatus: 'proposed',
+              allocationStatus: 'proposed',
+              proposedMentorId: mentor.id,
+              proposedMentorName: mentor.name,
+              allocationId: data.allocation_id || data.new_allocation_id || existingAllocationId,
+            }
+          : p
+      )
+    );
+
+    alert(isRejected ? 'Mentor substituted successfully!' : 'Mentor proposed successfully!');
+  } catch (err: any) {
+    const errorMsg = err.response?.data?.detail || 'Failed to assign mentor.';
+    console.error('Error handling mentor assignment:', errorMsg);
+    alert(`Action Failed: ${errorMsg}`);
+  }
+};
 
   // 1. Accept or Reject Proposal (Simulating Mentor Response)
   const handleSimulateMentorResponse = async (
@@ -348,7 +409,7 @@ export const ProjectAllocation: React.FC = () => {
 // 3. Reset or Cancel Proposal (Admin Action)
   const handleResetMentorProposal = async (allocationId: string) => {
     try {
-      const res = await api.patch(`/allocations/${allocationId}/status`, {
+      const res = await api.patch(`api/allocations/${allocationId}/status`, {
         status: 'cancelled',
         reason: 'Admin reset the mentor proposal.'
       });
@@ -763,55 +824,73 @@ export const ProjectAllocation: React.FC = () => {
                                 </span>
                               </div>
                             )}
-
-                            {isThisMentorProposed && selectedProject.proposedMentorStatus === 'accepted' && (
-                              <div className="flex flex-col items-end gap-1">
-                                <button
-                                  onClick={() => handleConfirmMentor(selectedProject.id)}
-                                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-lg animate-pulse"
-                                >
-                                  Confirm Allocation
-                                </button>
-                                <span className="text-[10px] text-emerald-400 font-medium">
-                                  Mentor accepted proposal!
-                                </span>
-                              </div>
-                            )}
-
-                            {isThisMentorProposed && selectedProject.status === 'in_progress' && (
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-emerald-400 font-bold flex items-center gap-1.5 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/20">
-                                  <CheckCircle2 className="w-3.5 h-3.5" /> Assigned Mentor
-                                </span>
-                                <button
-                                  onClick={() => handleResetMentorProposal(selectedProject.id)}
-                                  className="text-xs text-slate-400 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800 transition-all"
-                                  title="Reassign Mentor"
-                                >
-                                  <RefreshCw className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            )}
-
-                            {!isThisMentorProposed && (
-                              <button
-                                onClick={() => handleProposeMentor(selectedProject.id, mentor)}
-                                disabled={hasAnyMentorProposed && selectedProject.proposedMentorStatus !== 'rejected'}
-                                className={`text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all ${
-                                  hasAnyMentorProposed && selectedProject.proposedMentorStatus !== 'rejected'
-                                    ? 'bg-slate-800/60 text-slate-500 border border-slate-800 cursor-not-allowed'
-                                    : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md'
-                                }`}
-                                title={
-                                  hasAnyMentorProposed && selectedProject.proposedMentorStatus !== 'rejected'
-                                    ? 'Another mentor is already proposed or assigned'
-                                    : 'Propose this mentor'
-                                }
-                              >
-                                <UserPlus className="w-3.5 h-3.5" /> Propose as Mentor
-                              </button>
-                            )}
                           </div>
+
+                          <div className="flex items-center gap-2">
+                            {/* Confirm Allocation Button - Hides once assigned or in progress */}
+                            {isThisMentorProposed &&
+                              selectedProject.proposedMentorStatus === 'accepted' &&
+                              selectedProject.status !== 'in_progress' && (
+                                <div className="flex flex-col items-end gap-1">
+                                  <button
+                                    onClick={() => handleConfirmMentor(selectedProject.id)}
+                                    className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-lg animate-pulse"
+                                  >
+                                    Confirm Allocation
+                                  </button>
+                                  <span className="text-[10px] text-emerald-400 font-medium">
+                                    Mentor accepted proposal!
+                                  </span>
+                                </div>
+                              )}
+
+                            {/* Assigned Mentor Badge - Shown when project is assigned / in progress */}
+                            {isThisMentorProposed &&
+                              (selectedProject.status === 'in_progress' ||
+                                selectedProject.proposedMentorStatus === 'assigned') && (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-emerald-400 font-bold flex items-center gap-1.5 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/20">
+                                    <CheckCircle2 className="w-3.5 h-3.5" /> Assigned Mentor
+                                  </span>
+                                  <button
+                                    onClick={() => handleResetMentorProposal(selectedProject.id)}
+                                    className="text-xs text-slate-400 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800 transition-all"
+                                    title="Reassign Mentor"
+                                  >
+                                    <RefreshCw className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              )}
+                          </div>
+
+                          {!isThisMentorProposed && (
+                            <button
+                              onClick={() => handleProposeMentor(selectedProject.id, mentor)}
+                              disabled={
+                                hasAnyMentorProposed &&
+                                selectedProject.proposedMentorStatus !== 'rejected'
+                              }
+                              className={`text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all ${
+                                hasAnyMentorProposed &&
+                                selectedProject.proposedMentorStatus !== 'rejected'
+                                  ? 'bg-slate-800/60 text-slate-500 border border-slate-800 cursor-not-allowed'
+                                  : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md'
+                              }`}
+                              title={
+                                hasAnyMentorProposed &&
+                                selectedProject.proposedMentorStatus !== 'rejected'
+                                  ? 'Another mentor is already proposed or assigned'
+                                  : selectedProject.proposedMentorStatus === 'rejected'
+                                    ? 'Substitute and repropose this mentor'
+                                    : 'Propose this mentor'
+                              }
+                            >
+                              <UserPlus className="w-3.5 h-3.5" />
+                              {selectedProject.proposedMentorStatus === 'rejected'
+                                ? 'Substitute Mentor'
+                                : 'Propose as Mentor'}
+                            </button>
+                          )}
                         </div>
                       );
                     })}
