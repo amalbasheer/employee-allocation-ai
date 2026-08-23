@@ -63,48 +63,69 @@ def get_project_requirements(project_id: str) -> list[dict]:
     ]
 
 
-def get_available_mentors() -> list[dict]:
+def get_available_mentors(domain: str = None) -> list[dict]:
     """
-    Excludes anyone already tied to an active (proposed/confirmed)
-    allocation — checked against resource_id, covers projects, batches,
-    AND training engagements since they all share the allocations table.
+    Mentors not already excluded by active allocations, with remaining
+    hours calculated from this week's availability entry (if one exists).
+    If no availability row exists for this week, falls back to their
+    full weekly_capacity_hours (assumes fully free).
     """
+    query = """
+        SELECT
+            ce.employee_id AS id,
+            ce.name,
+            ce.weekly_capacity_hours,
+            ce.is_team_lead,
+            COALESCE(av.available_hours, ce.weekly_capacity_hours) AS remaining_hours,
+            COALESCE(av.is_on_leave, FALSE) AS is_on_leave
+        FROM company_employees ce
+        LEFT JOIN availability av
+            ON av.resource_id = ce.employee_id
+            AND av.resource_type = 'employee'
+            AND av.week_start_date = date_trunc('week', CURRENT_DATE)::date
+        WHERE NOT EXISTS (
+            SELECT 1 FROM allocations a
+            WHERE a.resource_id = ce.employee_id
+            AND a.status IN ('proposed', 'assigned')
+        )
+    """
+    params = {}
+    if domain:
+        query += " AND ce.department = :domain"
+        params["domain"] = domain
+
+    query += " AND COALESCE(av.is_on_leave, FALSE) = FALSE"
+    query += " AND COALESCE(av.available_hours, ce.weekly_capacity_hours) > 0"
+
     with engine.connect() as conn:
-        rows = conn.execute(
-            text("""
-                SELECT ce.employee_id AS id, ce.name, ce.weekly_capacity_hours, ce.is_team_lead
-                FROM company_employees ce
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM allocations a
-                    WHERE a.resource_id = ce.employee_id
-                    AND a.status IN ('proposed', 'assigned')
-                )
-            """)
-        ).mappings().fetchall()
+        rows = conn.execute(text(query), params).mappings().fetchall()
     return [dict(r) for r in rows]
 
 
-def get_available_interns() -> list[dict]:
+def get_available_interns(domain: str = None) -> list[dict]:
     """
-    Available means: current_status = 'AVAILABLE' (not TERMINATED),
-    verified, still within the internship window, AND not already
-    tied to an active allocation.
+    Available means: current_status = 'AVAILABLE', verified, not already
+    tied to an active allocation. No longer using a hardcoded time window
+    — admin will manage TERMINATED status directly instead.
     """
+    query = """
+        SELECT intern_id AS id, name, role, current_status
+        FROM interns_and_students i
+        WHERE current_status = 'AVAILABLE'
+          AND review_status = 'verified'
+          AND NOT EXISTS (
+              SELECT 1 FROM allocations a
+              WHERE a.resource_id = i.intern_id
+              AND a.status IN ('proposed', 'assigned')
+          )
+    """
+    params = {}
+    if domain:
+        query += " AND department = :domain"
+        params["domain"] = domain
+
     with engine.connect() as conn:
-        rows = conn.execute(
-            text("""
-                SELECT intern_id AS id, name, role, current_status
-                FROM interns_and_students i
-                WHERE current_status = 'AVAILABLE'
-                  AND review_status = 'verified'
-                  AND created_at >= NOW() - INTERVAL '4 months'
-                  AND NOT EXISTS (
-                      SELECT 1 FROM allocations a
-                      WHERE a.resource_id = i.intern_id
-                      AND a.status IN ('proposed', 'assigned')
-                  )
-            """)
-        ).mappings().fetchall()
+        rows = conn.execute(text(query), params).mappings().fetchall()
     return [dict(r) for r in rows]
 
 

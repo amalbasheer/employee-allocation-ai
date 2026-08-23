@@ -45,16 +45,17 @@ def recommend_candidates_for_project(project_id: str) -> dict:
 
     requirements = get_project_requirements(project_id)
     roles_needed = get_required_roles(project["project_type"])
+    domain = project.get("category")  # 'Data Analytics' or 'Data Science'
 
     result = {"project_title": project["title"], "roles_needed": roles_needed}
 
-    mentors = get_available_mentors()
+    mentors = get_available_mentors(domain=domain)
     for m in mentors:
         m["skills"] = get_person_skills(m["id"], "employee")
     result["mentors"] = _strip_embeddings(rank_candidates(mentors, requirements))
 
     if "intern" in roles_needed:
-        interns = get_available_interns()
+        interns = get_available_interns(domain=domain)
         for i in interns:
             i["skills"] = get_person_skills(i["id"], "intern")
         result["interns"] = _strip_embeddings(rank_candidates(interns, requirements))

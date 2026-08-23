@@ -242,14 +242,15 @@ def seed_interns():
                         text("""
                             INSERT INTO interns_and_students
                             (name, email, college_institution, degree_program,
-                             resume_document_url, review_status, role, current_status, created_at)
-                            VALUES (:name, :email, :college, :degree, :resume, 'verified', 'intern', 'AVAILABLE', NOW())
+                            resume_document_url, review_status, role, current_status, department, created_at)
+                            VALUES (:name, :email, :college, :degree, :resume, 'verified', 'intern', 'AVAILABLE', :department, NOW())
                             RETURNING intern_id
                         """),
                         {
                             "name": name, "email": email,
                             "college": college, "degree": degree,
                             "resume": f"https://fake-storage.test/{email}.pdf",
+                            "department": "Data Analytics" if domain == "DA" else "Data Science",
                         },
                     )
                     intern_id = result.fetchone()[0]
