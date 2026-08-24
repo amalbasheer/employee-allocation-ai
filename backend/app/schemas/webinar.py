@@ -75,6 +75,7 @@ class StudentBatchBase(BaseModel):
     end_date: date
     mentor_id: Optional[str] = None
     status: str = "open"
+    delivery_mode: Optional[str] = None
 
 
 class StudentBatchCreate(StudentBatchBase):

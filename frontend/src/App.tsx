@@ -6,7 +6,7 @@ import { Login } from './pages/auth/Login';
 import { ActivateAccount } from './pages/auth/ActivateAccount';
 import { OverviewDashboard } from './pages/admin/OverviewDashboard';
 import { UserManagement } from './pages/admin/UserManagement';
-import { WebinarManagement } from './pages/admin/WebinarManagement';
+import { TrainingManagement } from './pages/admin/WebinarManagement';
 import { EmployeeDashboard } from './pages/employee/EmployeeDashboard';
 import  StudentDashboard  from './pages/student/StudentDashboard';
 import { Role } from './types';
@@ -78,7 +78,7 @@ export default function App() {
                 path="/admin/webinars"
                 element={
                   <ProtectedRoute allowedRoles={['ADMIN']}>
-                    <WebinarManagement />
+                    <TrainingManagement />
                   </ProtectedRoute>
                 }
               />

@@ -81,6 +81,7 @@ class StudentBatch(Base):
     mentor_id = Column(String(20), ForeignKey("company_employees.employee_id"), nullable=True,)
     status = Column(String(20), nullable=False, server_default=text("'open'"))
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(),)
+    delivery_mode = Column(String(20), nullable=True)
 
     __table_args__ = (CheckConstraint(r"batch_id ~ '^rp2-batch-\d{4}$'", name="check_batch_id_format",),)
 

@@ -851,6 +851,7 @@ export const UserManagement: React.FC = () => {
                       <select
                         value={studentForm.department}
                         onChange={(e) => setStudentForm({ ...studentForm, department: e.target.value })}
+                  
                         className="w-full bg-slate-950 border border-slate-800 text-xs text-white px-3 py-2.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       >
                         <option value="Data Science">Data Science</option>

@@ -1,153 +1,346 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card } from '../../components/common/Card';
 import { 
   Video, Plus, Clock, CheckCircle2, XCircle, Send, 
-  UserCheck, Star, UserPlus, Sliders, ArrowRight
+  UserCheck, Star, UserPlus, Sliders, ArrowRight,
+  GraduationCap, RefreshCw, Sparkles, Filter, AlertCircle
 } from 'lucide-react';
 
-export type WebinarStatus = 'UNASSIGNED' | 'PROPOSED' | 'ACCEPTED' | 'REJECTED' | 'ALLOCATED';
-export type ActiveTab = 'WEBINARS' | 'ALLOCATION';
+export type EngagementTypeFilter = 'all' | 'webinar' | 'demo' | 'workshop' | 'seminar';
 
-export interface Mentor {
-  id: string;
+// Standard lowercase string statuses matching DB definitions
+export type EngagementStatus = 'open' | 'proposed' | 'accepted' | 'rejected' | 'allocated' | 'completed';
+
+export interface RecommendedMentor {
+  employee_id: string;
   name: string;
-  role: string;
-  matchScore: number;
-  expertise: string[];
+  designation: string;
+  match_score: number;
+  skills: string[];
 }
 
-export interface Webinar {
-  id: number;
+export interface TrainingEngagement {
+  engagement_id: string;
   title: string;
-  date: string;
-  status: WebinarStatus;
-  proposedMentorId?: string;
-  proposedMentorName?: string;
+  engagement_type: 'webinar' | 'demo' | 'workshop' | 'seminar';
+  description?: string;
+  start_date: string;
+  end_date?: string;
+  required_hours: number;
+  mentor_id?: string;
+  mentor_name?: string;
+  status: EngagementStatus;
+  created_at?: string;
 }
 
-const mockMentors: Mentor[] = [
-  {
-    id: 'm1',
-    name: 'Dr. Sarah Jenkins',
-    role: 'Principal AI Engineer',
-    matchScore: 98,
-    expertise: ['PyTorch', 'CUDA', 'Deep Learning'],
-  },
-  {
-    id: 'm2',
-    name: 'Alex Morgan',
-    role: 'Staff Systems Architect',
-    matchScore: 92,
-    expertise: ['Distributed Systems', 'Go', 'Kubernetes'],
-  },
-  {
-    id: 'm3',
-    name: 'Elena Rostova',
-    role: 'Lead Cloud Security Developer',
-    matchScore: 86,
-    expertise: ['AWS', 'Zero Trust', 'Python'],
-  },
-];
+export interface StudentBatch {
+  batch_id: string;
+  batch_name: string;
+  domain: string;
+  start_date: string;
+  end_date: string;
+  mentor_id?: string;
+  mentor_name?: string;
+  status: string;
+  delivery_mode?: string;
+}
 
-const initialWebinars: Webinar[] = [
+const initialEngagements: TrainingEngagement[] = [
   {
-    id: 1,
+    engagement_id: 'rp2-train-0001',
     title: 'Advanced PyTorch & CUDA Tuning',
-    date: 'Aug 24, 2026',
-    status: 'ACCEPTED',
-    proposedMentorId: 'm1',
-    proposedMentorName: 'Dr. Sarah Jenkins',
+    engagement_type: 'webinar',
+    description: 'Deep dive into GPU acceleration and memory management.',
+    start_date: '2026-08-24',
+    end_date: '2026-08-25',
+    required_hours: 2,
+    status: 'accepted',
+    mentor_id: 'emp-101',
+    mentor_name: 'Dr. Sarah Jenkins'
   },
   {
-    id: 2,
+    engagement_id: 'rp2-train-0002',
     title: 'Building Scalable Microservices with Go',
-    date: 'Sep 02, 2026',
-    status: 'UNASSIGNED',
+    engagement_type: 'workshop',
+    description: 'Hands-on architectural patterns using Go and gRPC.',
+    start_date: '2026-09-02',
+    end_date: '2026-09-03',
+    required_hours: 4,
+    status: 'open'
   },
   {
-    id: 3,
-    title: 'Cloud Native Security Fundamentals',
-    date: 'Sep 10, 2026',
-    status: 'PROPOSED',
-    proposedMentorId: 'm3',
-    proposedMentorName: 'Elena Rostova',
-  },
+    engagement_id: 'rp2-train-0003',
+    title: 'Cloud Native Security Demo',
+    engagement_type: 'demo',
+    description: 'Live demonstration of Zero-Trust policies in Kubernetes.',
+    start_date: '2026-09-10',
+    end_date: '2026-09-11',
+    required_hours: 2,
+    status: 'proposed',
+    mentor_id: 'emp-103',
+    mentor_name: 'Elena Rostova'
+  }
 ];
 
-export const WebinarManagement: React.FC = () => {
-  const [webinars, setWebinars] = useState<Webinar[]>(initialWebinars);
-  const [activeTab, setActiveTab] = useState<ActiveTab>('WEBINARS');
-  const [selectedWebinarId, setSelectedWebinarId] = useState<number>(2);
+const mockMentors: RecommendedMentor[] = [
+  {
+    employee_id: 'emp-101',
+    name: 'Dr. Sarah Jenkins',
+    designation: 'Principal AI Engineer',
+    match_score: 98,
+    skills: ['PyTorch', 'CUDA', 'Deep Learning']
+  },
+  {
+    employee_id: 'emp-102',
+    name: 'Alex Morgan',
+    designation: 'Staff Systems Architect',
+    match_score: 92,
+    skills: ['Distributed Systems', 'Go', 'Kubernetes']
+  },
+  {
+    employee_id: 'emp-103',
+    name: 'Elena Rostova',
+    designation: 'Lead Cloud Security Developer',
+    match_score: 86,
+    skills: ['AWS', 'Zero Trust', 'Python']
+  }
+];
 
-  const selectedWebinar = webinars.find((w) => w.id === selectedWebinarId) || webinars[0];
+const initialBatches: StudentBatch[] = [
+  {
+    batch_id: 'rp2-batch-0001',
+    batch_name: 'Batch-Jun-Jul-2026',
+    domain: 'Data Analytics',
+    start_date: '2026-06-15',
+    end_date: '2026-07-15',
+    mentor_id: 'emp-101',
+    mentor_name: 'Dr. Sarah Jenkins',
+    status: 'open',
+    delivery_mode: 'online'
+  },
+  {
+    batch_id: 'rp2-batch-0002',
+    batch_name: 'Batch-Jul-Aug-2026',
+    domain: 'Data Science',
+    start_date: '2026-07-15',
+    end_date: '2026-08-15',
+    mentor_id: 'emp-101',
+    mentor_name: 'Dr. Sarah Jenkins',
+    status: 'open',
+    delivery_mode: 'hybrid'
+  },
+  {
+    batch_id: 'rp2-batch-0003',
+    batch_name: 'Batch-Aug-Sep-2026',
+    domain: 'Data Analytics',
+    start_date: '2026-08-15',
+    end_date: '2026-09-15',
+    mentor_id: 'emp-102',
+    mentor_name: 'Alex Morgan',
+    status: 'open',
+    delivery_mode: 'online'
+  }
+];
 
-  // --- Workflow Actions ---
-  const handleProposeMentor = (webinarId: number, mentor: Mentor) => {
-    setWebinars((prev) =>
-      prev.map((w) =>
-        w.id === webinarId
-          ? {
-              ...w,
-              status: 'PROPOSED',
-              proposedMentorId: mentor.id,
-              proposedMentorName: mentor.name,
-            }
-          : w
+export const TrainingManagement: React.FC = () => {
+  const [mainTab, setMainTab] = useState<'engagements' | 'student_batch'>('engagements');
+  const [typeFilter, setTypeFilter] = useState<EngagementTypeFilter>('all');
+  const [subTab, setSubTab] = useState<'list' | 'allocation'>('list');
+
+  const [batches, setBatches] = useState<StudentBatch[]>(initialBatches);
+  
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newType, setNewType] = useState<'webinar' | 'demo' | 'workshop' | 'seminar'>('webinar');
+  const [newStartDate, setNewStartDate] = useState('');
+  const [newEndDate, setNewEndDate] = useState('');
+  const [newHours, setNewHours] = useState(2);
+  const [newDesc, setNewDesc] = useState('');
+
+  // Initialize with empty arrays instead of hardcoded mock records
+  const [engagements, setEngagements] = useState<TrainingEngagement[]>([]);
+  const [selectedEngagementId, setSelectedEngagementId] = useState<string>('');
+  const [recommendedMentors, setRecommendedMentors] = useState<RecommendedMentor[]>([]);
+
+  // 1. Fetch real engagements on initial render and auto-select the first valid record
+  useEffect(() => {
+    fetch('/api/training/engagements')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data: TrainingEngagement[]) => {
+        setEngagements(data);
+        if (data.length > 0) {
+          // Dynamically sets selected ID to an existing record (e.g., 'rp2-train-0001')
+          setSelectedEngagementId(data[0].engagement_id);
+        }
+      })
+      .catch((err) => console.error('Failed to load engagements:', err));
+  }, []);
+
+  // 2. Safely compute current selected engagement
+  const selectedEngagement = 
+    engagements.find((e) => e.engagement_id === selectedEngagementId) || engagements[0];
+
+  // 3. Fetch recommendations only when a valid selectedEngagementId exists
+  useEffect(() => {
+    if (!selectedEngagementId) return;
+
+    fetch(`/api/training/engagements/${selectedEngagementId}/recommendations`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setRecommendedMentors(data))
+      .catch((err) => console.error('Failed to fetch recommendations:', err));
+  }, [selectedEngagementId]);
+  const filteredEngagements = engagements.filter((e) => {
+    if (typeFilter === 'all') return true;
+    return e.engagement_type === typeFilter;
+  });
+
+  useEffect(() => {
+    if (selectedEngagement) {
+      fetch(`/api/training/engagements/${selectedEngagement.engagement_id}/recommendations`)
+        .then((res) => (res.ok ? res.json() : mockMentors))
+        .then((data) => setRecommendedMentors(data))
+        .catch(() => setRecommendedMentors(mockMentors));
+    }
+  }, [selectedEngagementId]);
+
+  const handleProposeMentor = async (engagementId: string, mentor: RecommendedMentor) => {
+    setEngagements((prev) =>
+      prev.map((e) =>
+        e.engagement_id === engagementId
+          ? { ...e, status: 'proposed', mentor_id: mentor.employee_id, mentor_name: mentor.name }
+          : e
       )
     );
+
+    try {
+      await fetch(`/api/training/engagements/${engagementId}/propose`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mentor_id: mentor.employee_id }),
+      });
+    } catch (err) {
+      console.warn('Backend proposal request fallback to state update', err);
+    }
   };
 
-  const handleConfirmAllocation = (webinarId: number) => {
-    setWebinars((prev) =>
-      prev.map((w) => (w.id === webinarId ? { ...w, status: 'ALLOCATED' } : w))
+  const handleConfirmAllocation = async (engagementId: string) => {
+    setEngagements((prev) =>
+      prev.map((e) => (e.engagement_id === engagementId ? { ...e, status: 'allocated' } : e))
     );
+
+    try {
+      await fetch(`/api/training/engagements/${engagementId}/confirm`, { method: 'POST' });
+    } catch (err) {
+      console.warn('Backend confirmation fallback to state update', err);
+    }
   };
 
-  const handleRePropose = (webinarId: number) => {
-    setWebinars((prev) =>
-      prev.map((w) =>
-        w.id === webinarId
-          ? { ...w, status: 'UNASSIGNED', proposedMentorId: undefined, proposedMentorName: undefined }
-          : w
-      )
-    );
+  const handleScheduleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const generatedId = `rp2-train-${String(engagements.length + 1).padStart(4, '0')}`;
+    const newEntry: TrainingEngagement = {
+      engagement_id: generatedId,
+      title: newTitle,
+      engagement_type: newType,
+      start_date: newStartDate || '2026-09-01',
+      end_date: newEndDate || '2026-09-02',
+      required_hours: newHours,
+      status: 'open',
+      description: newDesc
+    };
+
+    setEngagements([newEntry, ...engagements]);
+    setIsModalOpen(false);
+    setNewTitle('');
+    setNewDesc('');
+
+    try {
+      await fetch('/api/training/engagements', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: newTitle,
+          engagement_type: newType,
+          start_date: newStartDate,
+          end_date: newEndDate,
+          required_hours: newHours,
+          description: newDesc
+        })
+      });
+    } catch (err) {
+      console.warn('Backend creation fallback to state update', err);
+    }
   };
 
-  const handleManageSpeaker = (webinarId: number) => {
-    setSelectedWebinarId(webinarId);
-    setActiveTab('ALLOCATION');
+  const handleAutoGenerateBatch = async () => {
+    try {
+      const res = await fetch('/api/training/student-batches/auto-generate-next', { method: 'POST' });
+      if (res.ok) {
+        const generated = await res.json();
+        setBatches([generated, ...batches]);
+        return;
+      }
+    } catch (e) {
+      console.warn('Fallback to local state batch generation');
+    }
+
+    const nextBatchId = `rp2-batch-${String(batches.length + 100).padStart(4, '0')}`;
+    const newBatch: StudentBatch = {
+      batch_id: nextBatchId,
+      batch_name: 'Batch-Sep-Oct-2026',
+      domain: 'Data Analytics',
+      start_date: '2026-09-15',
+      end_date: '2026-10-15',
+      mentor_id: 'emp-102',
+      mentor_name: 'Alex Morgan',
+      status: 'open',
+      delivery_mode: 'online'
+    };
+    setBatches([newBatch, ...batches]);
   };
 
-  const renderStatusBadge = (status: WebinarStatus) => {
+  const renderStatusBadge = (status: EngagementStatus | string) => {
     switch (status) {
-      case 'UNASSIGNED':
+      case 'open':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700">
-            <Clock className="w-3 h-3" /> Unassigned
+            <Clock className="w-3 h-3" /> open
           </span>
         );
-      case 'PROPOSED':
+      case 'proposed':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
-            <Send className="w-3 h-3" /> Proposed
+            <Send className="w-3 h-3" /> proposed
           </span>
         );
-      case 'ACCEPTED':
+      case 'accepted':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
-            <UserCheck className="w-3 h-3" /> Accepted
+            <UserCheck className="w-3 h-3" /> accepted
           </span>
         );
-      case 'REJECTED':
+      case 'rejected':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20">
-            <XCircle className="w-3 h-3" /> Declined
+            <XCircle className="w-3 h-3" /> rejected
           </span>
         );
-      case 'ALLOCATED':
+      case 'allocated':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            <CheckCircle2 className="w-3 h-3" /> Confirmed
+            <CheckCircle2 className="w-3 h-3" /> allocated
+          </span>
+        );
+      case 'completed':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-purple-500/10 text-purple-400 border border-purple-500/20">
+            <CheckCircle2 className="w-3 h-3" /> completed
+          </span>
+        );
+      default:
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-800 text-slate-300">
+            {status}
           </span>
         );
     }
@@ -155,75 +348,289 @@ export const WebinarManagement: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Webinar & Workshop Management</h1>
-          <p className="text-slate-400 text-sm">Schedule technical workshops and assign speaker mentors.</p>
+          <h1 className="text-2xl font-bold text-white">Training & Knowledge Management</h1>
+          <p className="text-slate-400 text-sm">Schedule webinars, workshops, demos, and auto-allocate student batches.</p>
         </div>
-        <button className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg transition-all">
-          <Plus className="w-4 h-4" /> Schedule Webinar
-        </button>
+        <div className="flex items-center gap-3">
+          {mainTab === 'engagements' ? (
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg transition-all"
+            >
+              <Plus className="w-4 h-4" /> Schedule Engagement
+            </button>
+          ) : (
+            <button
+              onClick={handleAutoGenerateBatch}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg transition-all"
+            >
+              <RefreshCw className="w-4 h-4" /> Auto-Generate Next Batch
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Tabs Bar */}
-      <div className="flex border-b border-slate-800 gap-6">
+      <div className="flex border-b border-slate-800 gap-8">
         <button
-          onClick={() => setActiveTab('WEBINARS')}
-          className={`pb-3 text-sm font-medium flex items-center gap-2 border-b-2 transition-all ${
-            activeTab === 'WEBINARS'
+          onClick={() => { setMainTab('engagements'); setSubTab('list'); }}
+          className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition-all ${
+            mainTab === 'engagements'
               ? 'border-indigo-500 text-indigo-400'
               : 'border-transparent text-slate-400 hover:text-slate-200'
           }`}
         >
-          <Video className="w-4 h-4" /> Available Webinars
+          <Video className="w-4 h-4" /> Training Engagements
         </button>
         <button
-          onClick={() => setActiveTab('ALLOCATION')}
-          className={`pb-3 text-sm font-medium flex items-center gap-2 border-b-2 transition-all ${
-            activeTab === 'ALLOCATION'
+          onClick={() => setMainTab('student_batch')}
+          className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition-all ${
+            mainTab === 'student_batch'
               ? 'border-indigo-500 text-indigo-400'
               : 'border-transparent text-slate-400 hover:text-slate-200'
           }`}
         >
-          <Sliders className="w-4 h-4" /> Speaker Allocation & Recommendations
+          <GraduationCap className="w-4 h-4" /> Student Batches
         </button>
       </div>
 
-      {/* TAB 1: WEBINARS LISTING */}
-      {activeTab === 'WEBINARS' && (
-        <Card title="Scheduled Webinars">
+      {mainTab === 'engagements' && (
+        <div className="space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900 p-3 rounded-xl border border-slate-800">
+            <div className="flex items-center gap-2 overflow-x-auto">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider px-2 flex items-center gap-1">
+                <Filter className="w-3.5 h-3.5" /> Type:
+              </span>
+              {(['all', 'webinar', 'demo', 'workshop', 'seminar'] as EngagementTypeFilter[]).map((type) => (
+                <button
+                  key={type}
+                  onClick={() => setTypeFilter(type)}
+                  className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-all capitalize ${
+                    typeFilter === type
+                      ? 'bg-indigo-600 text-white font-bold'
+                      : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
+                  }`}
+                >
+                  {type}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2 border-t md:border-t-0 md:border-l border-slate-800 pt-2 md:pt-0 md:pl-4">
+              <button
+                onClick={() => setSubTab('list')}
+                className={`text-xs px-3 py-1.5 rounded-lg font-medium ${
+                  subTab === 'list' ? 'bg-slate-800 text-indigo-400 font-bold' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                List View
+              </button>
+              <button
+                onClick={() => setSubTab('allocation')}
+                className={`text-xs px-3 py-1.5 rounded-lg font-medium flex items-center gap-1 ${
+                  subTab === 'allocation' ? 'bg-slate-800 text-indigo-400 font-bold' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Sliders className="w-3.5 h-3.5" /> Speaker Allocation
+              </button>
+            </div>
+          </div>
+
+          {subTab === 'list' && (
+            <Card title="Training Engagements">
+              <div className="space-y-3">
+                {filteredEngagements.map((item) => (
+                  <div
+                    key={item.engagement_id}
+                    className="p-4 bg-slate-950 border border-slate-800 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all hover:border-slate-700"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="p-2.5 bg-indigo-500/10 border border-indigo-500/20 rounded-lg text-indigo-400 mt-1">
+                        <Video className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono bg-slate-900 border border-slate-700 px-2 py-0.5 rounded text-indigo-400">
+                            {item.engagement_id}
+                          </span>
+                          <h4 className="font-bold text-white text-base">{item.title}</h4>
+                          <span className="text-[10px] uppercase bg-slate-900 border border-slate-700 px-2 py-0.5 rounded text-slate-300 font-semibold">
+                            {item.engagement_type}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1">{item.description}</p>
+                        <p className="text-xs text-slate-400 mt-1">
+                          Speaker: <span className="text-slate-200 font-medium">{item.mentor_name || 'Unassigned'}</span> • Duration: <span className="text-slate-300">{item.required_hours} hrs</span> • Schedule: <span className="text-slate-300">{item.start_date}</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                      {renderStatusBadge(item.status)}
+                      <button
+                        onClick={() => {
+                          setSelectedEngagementId(item.engagement_id);
+                          setSubTab('allocation');
+                        }}
+                        className="bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-semibold px-3 py-2 rounded-lg border border-slate-700 flex items-center gap-1 transition-all"
+                      >
+                        Speaker Allocation <ArrowRight className="w-3.5 h-3.5 text-indigo-400" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          {subTab === 'allocation' && (
+            <Card title="Speaker Allocation Portal">
+              <div className="space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-slate-900 border border-slate-800 rounded-xl">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1">
+                      Select Engagement
+                    </label>
+                    <select
+                      value={selectedEngagementId}
+                      onChange={(e) => setSelectedEngagementId(e.target.value)}
+                      className="bg-slate-950 text-white text-sm font-semibold rounded-lg border border-slate-700 px-3 py-2 focus:outline-none focus:border-indigo-500 uppercase"
+                    >
+                      {engagements.map((w) => (
+                        <option key={w.engagement_id} value={w.engagement_id}>
+                          [{w.engagement_id}] {w.title} ({w.engagement_type})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-slate-400">Current Status:</span>
+                    {renderStatusBadge(selectedEngagement.status)}
+                  </div>
+                </div>
+
+                {selectedEngagement.status === 'accepted' && (
+                  <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-bold text-blue-300">Speaker Accepted Proposal!</p>
+                      <p className="text-xs text-slate-400">{selectedEngagement.mentor_name} accepted the invitation to host.</p>
+                    </div>
+                    <button
+                      onClick={() => handleConfirmAllocation(selectedEngagement.engagement_id)}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-all shadow-md"
+                    >
+                      Confirm Allocation
+                    </button>
+                  </div>
+                )}
+
+                <div className="space-y-4 pt-2">
+                  <h4 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-indigo-400" /> AI Skill-Matched Mentors
+                  </h4>
+
+                  <div className="grid grid-cols-1 gap-3">
+                    {recommendedMentors.map((mentor) => {
+                      const isProposed = selectedEngagement.mentor_id === mentor.employee_id;
+
+                      return (
+                        <div
+                          key={mentor.employee_id}
+                          className={`p-4 bg-slate-950 border rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
+                            isProposed ? 'border-indigo-500/50 bg-indigo-950/10' : 'border-slate-800'
+                          }`}
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <h5 className="font-bold text-white text-base">{mentor.name}</h5>
+                              <span className="text-xs bg-emerald-500/10 text-emerald-400 font-mono px-2 py-0.5 rounded border border-emerald-500/20 flex items-center gap-1">
+                                <Star className="w-3 h-3 fill-emerald-400" /> {mentor.match_score}% Match
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-400">{mentor.designation} • ID: {mentor.employee_id}</p>
+
+                            <div className="flex flex-wrap gap-1 pt-1">
+                              {mentor.skills.map((skill, i) => (
+                                <span key={i} className="text-[10px] bg-slate-900 text-slate-400 px-2 py-0.5 rounded border border-slate-800">
+                                  {skill}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div>
+                            {selectedEngagement.status === 'open' || selectedEngagement.status === 'rejected' ? (
+                              <button
+                                onClick={() => handleProposeMentor(selectedEngagement.engagement_id, mentor)}
+                                className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all shadow-md"
+                              >
+                                <UserPlus className="w-3.5 h-3.5" /> Propose Speaker
+                              </button>
+                            ) : null}
+
+                            {isProposed && selectedEngagement.status === 'proposed' && (
+                              <span className="text-xs text-amber-400 font-medium italic flex items-center gap-1.5 bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/20">
+                                <Clock className="w-3.5 h-3.5" /> Proposed (Awaiting Response)
+                              </span>
+                            )}
+
+                            {isProposed && selectedEngagement.status === 'allocated' && (
+                              <span className="text-xs text-emerald-400 font-bold flex items-center gap-1.5 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/20">
+                                <CheckCircle2 className="w-3.5 h-3.5" /> Allocated Speaker
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {mainTab === 'student_batch' && (
+        <Card title="Student Batches">
+          <div className="p-4 bg-indigo-950/20 border border-indigo-500/30 rounded-xl mb-4 flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-indigo-400 mt-0.5 shrink-0" />
+            <div className="text-xs text-slate-300 leading-relaxed">
+              <span className="font-bold text-indigo-300">Round-Robin Allocation:</span> Student batches use round-robin rotation to assign mentors sequentially across monthly cycles without skill requirement matching tables.
+            </div>
+          </div>
+
           <div className="space-y-3">
-            {webinars.map((webinar) => (
+            {batches.map((batch) => (
               <div
-                key={webinar.id}
+                key={batch.batch_id}
                 className="p-4 bg-slate-950 border border-slate-800 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all hover:border-slate-700"
               >
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-indigo-500/10 border border-indigo-500/20 rounded-lg text-indigo-400">
-                    <Video className="w-5 h-5" />
+                  <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-400">
+                    <GraduationCap className="w-5 h-5" />
                   </div>
                   <div>
-                    <h4 className="font-bold text-white text-sm">{webinar.title}</h4>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      {webinar.proposedMentorName ? (
-                        <>Speaker: <span className="text-slate-200 font-medium">{webinar.proposedMentorName}</span> • </>
-                      ) : (
-                        <span className="text-amber-400/80 font-medium">No speaker assigned • </span>
-                      )}
-                      {webinar.date}
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-mono bg-slate-900 border border-slate-700 px-2 py-0.5 rounded text-emerald-400">
+                        {batch.batch_id}
+                      </span>
+                      <h4 className="font-bold text-white text-sm">{batch.batch_name}</h4>
+                      <span className="text-[10px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded border border-slate-700">
+                        {batch.domain}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Duration: <span className="text-slate-200">{batch.start_date}</span> to <span className="text-slate-200">{batch.end_date}</span> • Mode: <span className="text-slate-300">{batch.delivery_mode || 'online'}</span>
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-4">
-                  {renderStatusBadge(webinar.status)}
-                  <button
-                    onClick={() => handleManageSpeaker(webinar.id)}
-                    className="bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-700 flex items-center gap-1 transition-all"
-                  >
-                    Manage Speaker <ArrowRight className="w-3.5 h-3.5 text-indigo-400" />
-                  </button>
+                <div className="flex items-center gap-3 bg-slate-900 border border-slate-800 px-3 py-2 rounded-lg">
+                  <span className="text-xs text-slate-400">Assigned Mentor:</span>
+                  <span className="text-xs font-bold text-indigo-400">{batch.mentor_name || batch.mentor_id || 'Unassigned'}</span>
                 </div>
               </div>
             ))}
@@ -231,144 +638,101 @@ export const WebinarManagement: React.FC = () => {
         </Card>
       )}
 
-      {/* TAB 2: RECOMMENDED MENTORS & ALLOCATION WORKFLOW */}
-      {activeTab === 'ALLOCATION' && (
-        <div className="space-y-6">
-          <Card title="Speaker Allocation Portal">
-            <div className="space-y-6">
-              
-              {/* Webinar Selector */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-slate-900 border border-slate-800 rounded-xl">
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl">
+            <h3 className="text-lg font-bold text-white">Schedule New Engagement</h3>
+            
+            <form onSubmit={handleScheduleSubmit} className="space-y-4">
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Title</label>
+                <input
+                  type="text"
+                  required
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  placeholder="e.g. Distributed Consensus in Go"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1">
-                    Select Webinar
-                  </label>
+                  <label className="text-xs text-slate-400 block mb-1">Engagement Type</label>
                   <select
-                    value={selectedWebinarId}
-                    onChange={(e) => setSelectedWebinarId(Number(e.target.value))}
-                    className="bg-slate-950 text-white text-sm font-semibold rounded-lg border border-slate-700 px-3 py-2 focus:outline-none focus:border-indigo-500"
+                    value={newType}
+                    onChange={(e) => setNewType(e.target.value as any)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
                   >
-                    {webinars.map((w) => (
-                      <option key={w.id} value={w.id}>
-                        {w.title} ({w.date})
-                      </option>
-                    ))}
+                    <option value="webinar">webinar</option>
+                    <option value="demo">demo</option>
+                    <option value="workshop">workshop</option>
+                    <option value="seminar">seminar</option>
                   </select>
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-slate-400">Current Status:</span>
-                  {renderStatusBadge(selectedWebinar.status)}
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Required Hours</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={newHours}
+                    onChange={(e) => setNewHours(Number(e.target.value))}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  />
                 </div>
               </div>
 
-              {/* Status Action Banners */}
-              {selectedWebinar.status === 'ACCEPTED' && (
-                <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-bold text-blue-300">Speaker Accepted Proposal!</p>
-                    <p className="text-xs text-slate-400">{selectedWebinar.proposedMentorName} accepted the request to host this session.</p>
-                  </div>
-                  <button
-                    onClick={() => handleConfirmAllocation(selectedWebinar.id)}
-                    className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-all shadow-md"
-                  >
-                    Confirm Allocation
-                  </button>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Start Date</label>
+                  <input
+                    type="date"
+                    required
+                    value={newStartDate}
+                    onChange={(e) => setNewStartDate(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  />
                 </div>
-              )}
-
-              {selectedWebinar.status === 'REJECTED' && (
-                <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-bold text-rose-300">Proposal Declined</p>
-                    <p className="text-xs text-slate-400">{selectedWebinar.proposedMentorName} was unable to host this webinar.</p>
-                  </div>
-                  <button
-                    onClick={() => handleRePropose(selectedWebinar.id)}
-                    className="bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-all"
-                  >
-                    Reset & Choose Another
-                  </button>
-                </div>
-              )}
-
-              {/* Recommended Mentors List */}
-              <div className="space-y-4 pt-2">
-                <h4 className="text-sm font-bold text-white uppercase tracking-wider">
-                  Recommended Mentors for <span className="text-indigo-400">{selectedWebinar.title}</span>
-                </h4>
-
-                <div className="grid grid-cols-1 gap-3">
-                  {mockMentors.map((mentor) => {
-                    const isProposed = selectedWebinar.proposedMentorId === mentor.id;
-
-                    return (
-                      <div
-                        key={mentor.id}
-                        className={`p-4 bg-slate-950 border rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
-                          isProposed ? 'border-indigo-500/50 bg-indigo-950/10' : 'border-slate-800'
-                        }`}
-                      >
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <h5 className="font-bold text-white text-base">{mentor.name}</h5>
-                            <span className="text-xs bg-emerald-500/10 text-emerald-400 font-mono px-2 py-0.5 rounded border border-emerald-500/20 flex items-center gap-1">
-                              <Star className="w-3 h-3 fill-emerald-400" /> {mentor.matchScore}% Match
-                            </span>
-                          </div>
-                          <p className="text-xs text-slate-400">{mentor.role}</p>
-
-                          {/* Expertise Tags */}
-                          <div className="flex flex-wrap gap-1 pt-1">
-                            {mentor.expertise.map((skill, i) => (
-                              <span key={i} className="text-[10px] bg-slate-900 text-slate-400 px-2 py-0.5 rounded border border-slate-800">
-                                {skill}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* WORKFLOW ACTION BUTTONS */}
-                        <div>
-                          {selectedWebinar.status === 'UNASSIGNED' && (
-                            <button
-                              onClick={() => handleProposeMentor(selectedWebinar.id, mentor)}
-                              className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all shadow-md"
-                            >
-                              <UserPlus className="w-3.5 h-3.5" /> Propose Webinar
-                            </button>
-                          )}
-
-                          {isProposed && selectedWebinar.status === 'PROPOSED' && (
-                            <span className="text-xs text-amber-400 font-medium italic flex items-center gap-1.5 bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/20">
-                              <Clock className="w-3.5 h-3.5" /> Awaiting Response
-                            </span>
-                          )}
-
-                          {isProposed && selectedWebinar.status === 'ACCEPTED' && (
-                            <button
-                              onClick={() => handleConfirmAllocation(selectedWebinar.id)}
-                              className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-all shadow-md"
-                            >
-                              Confirm
-                            </button>
-                          )}
-
-                          {isProposed && selectedWebinar.status === 'ALLOCATED' && (
-                            <span className="text-xs text-emerald-400 font-bold flex items-center gap-1.5 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/20">
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Confirmed Speaker
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">End Date</label>
+                  <input
+                    type="date"
+                    value={newEndDate}
+                    onChange={(e) => setNewEndDate(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  />
                 </div>
               </div>
 
-            </div>
-          </Card>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Description</label>
+                <textarea
+                  rows={3}
+                  value={newDesc}
+                  onChange={(e) => setNewDesc(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  placeholder="Details for pgvector skill extraction..."
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-lg"
+                >
+                  Schedule Engagement
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>
