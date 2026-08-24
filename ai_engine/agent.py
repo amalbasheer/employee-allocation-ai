@@ -7,8 +7,8 @@ anything, matching the scope sir confirmed.
 """
 
 from google.genai import types
-from config import client, LLM_MODEL
-from db import (
+from .config import client, LLM_MODEL
+from .db import (
     engine,
     get_available_mentors,
     get_available_interns,
@@ -18,7 +18,7 @@ from db import (
     get_training_engagement,
     get_next_mentor_for_batch,
 )
-from recommend import recommend_candidates_for_project
+from .recommend import recommend_candidates_for_project
 from sqlalchemy import text
 
 

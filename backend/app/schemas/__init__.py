@@ -71,7 +71,6 @@ from app.schemas.allocation import (
 
 # 6. Chat Query & Recommendation Schemas
 from app.schemas.chat_query import (
-    ChatQueryBase,
     ChatQueryCreate,
     ChatQueryResponse,
 )
@@ -132,7 +131,6 @@ __all__ = [
     # Allocation Logs
     "AllocationLogResponse",
     # Chat / AI Queries
-    "ChatQueryBase",
     "ChatQueryCreate",
     "ChatQueryResponse",
 ]

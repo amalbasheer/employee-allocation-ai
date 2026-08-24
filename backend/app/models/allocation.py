@@ -40,7 +40,7 @@ class Allocation(Base):
                     "foreign(Allocation.reference_id) == Project.project_id, "
                     "Allocation.reference_type == 'project'"
                     ")",
-        back_populates="allocations"
+        back_populates="allocations", overlaps="allocations,batch, webinar"
     )
 
     webinar: Mapped["TrainingEngagement"] = relationship(
@@ -49,7 +49,7 @@ class Allocation(Base):
                     "foreign(Allocation.reference_id) == TrainingEngagement.engagement_id, "
                     "Allocation.reference_type.in_(['webinar', 'training', 'engagement'])"
                     ")",
-        back_populates="allocations"
+        back_populates="allocations", overlaps="allocations,project,bacth"
     )
 
     batch: Mapped["StudentBatch"] = relationship(
@@ -58,7 +58,7 @@ class Allocation(Base):
                     "foreign(Allocation.reference_id) == StudentBatch.batch_id, "
                     "Allocation.reference_type.in_(['batch', 'student_batch', 'studentbatch'])"
                     ")",
-        back_populates="allocations"
+        back_populates="allocations", overlaps="allocations,project,webinar"
     )
 
     substitutions: Mapped[List["Substitution"]] = relationship("Substitution", back_populates="original_allocation")

@@ -1,7 +1,7 @@
 import uuid
 import traceback
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, select
@@ -14,6 +14,7 @@ from app.models.project import Project, ProjectRequirement
 from app.models.webinar import TrainingEngagement, StudentBatch
 from app.models.taxonomy import Skill
 from app.models.employee import CompanyEmployee
+from app.models.intern import InternsAndStudents
 from app.models.enums import AllocationStatus, ProjectStatus
 from app.schemas.project import UserProfile
 from app.schemas.allocation import (
@@ -604,16 +605,81 @@ def substitute_allocation(
     db.refresh(sub_record)
     return sub_record
 
-# -------------------------------------------------------------------
-# 4. QUERY USER ALLOCATIONS ("MY ALLOCATIONS")
-# -------------------------------------------------------------------
+
 @router.get("/my-allocations")
 def get_my_allocations(
     resource_id: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
+    """
+    Query allocations for the current logged-in user (Intern or Employee).
+    - Returns mentor name for intern allocations.
+    - Returns assigned students/interns (names & IDs) for employee/mentor allocations.
+    """
     try:
+        # -------------------------------------------------------
+        # Helper 1: Extract Name from any User/Employee/Student Record
+        # -------------------------------------------------------
+        def get_full_name(entity: Any) -> Optional[str]:
+            if not entity:
+                return None
+            full = safe_get(entity, "full_name") or safe_get(entity, "name")
+            if full and str(full).strip():
+                return str(full).strip()
+            first = safe_get(entity, "first_name", "") or ""
+            last = safe_get(entity, "last_name", "") or ""
+            combined = f"{first} {last}".strip()
+            return combined if combined else None
+
+        # -------------------------------------------------------
+        # Helper 2: Safe Check if Class is a SQLAlchemy Model
+        # -------------------------------------------------------
+        def is_sqlalchemy_model(cls) -> bool:
+            return isinstance(cls, type) and hasattr(cls, "__table__")
+
+        # -------------------------------------------------------
+        # Helper 3: Resolve Person Name by Resource ID
+        # -------------------------------------------------------
+        def resolve_person_name(res_id: str) -> str:
+            if not res_id:
+                return "Unknown User"
+
+            # 1. Check CompanyEmployee Table
+            if "CompanyEmployee" in globals() and is_sqlalchemy_model(CompanyEmployee):
+                emp = db.query(CompanyEmployee).filter(
+                    CompanyEmployee.employee_id == str(res_id)
+                ).first()
+                emp_name = get_full_name(emp)
+                if emp_name:
+                    return emp_name
+
+            # 2. Check Student/Intern Table (only if valid SQLAlchemy model)
+            if "Student" in globals() and is_sqlalchemy_model(InternsAndStudents):
+                student = db.query(InternsAndStudents).filter(
+                    (InternsAndStudents.intern_id == str(res_id)) | 
+                    (InternsAndStudents.student_id == str(res_id)) | 
+                    (InternsAndStudents.id == str(res_id))
+                ).first()
+                std_name = get_full_name(student)
+                if std_name:
+                    return std_name
+
+            # 3. Check UserProfile Model (only if valid SQLAlchemy model)
+            if "UserProfile" in globals() and is_sqlalchemy_model(UserProfile):
+                user = db.query(UserProfile).filter(
+                    (UserProfile.user_id == str(res_id)) | 
+                    (UserProfile.id == str(res_id))
+                ).first()
+                usr_name = get_full_name(user)
+                if usr_name:
+                    return usr_name
+
+            return f"Resource ({res_id})"
+
+        # -------------------------------------------------------
+        # 1. Collect Valid User IDs from Auth / Query Param
+        # -------------------------------------------------------
         user_ids = set()
         for field in ["id", "intern_id", "employee_id", "user_id", "student_id"]:
             val = safe_get(current_user, field)
@@ -627,6 +693,9 @@ def get_my_allocations(
         if not valid_ids:
             return []
 
+        # -------------------------------------------------------
+        # 2. Query Allocations for Current User
+        # -------------------------------------------------------
         allocations_list = db.query(Allocation).filter(
             Allocation.resource_id.in_(valid_ids)
         ).all()
@@ -642,7 +711,7 @@ def get_my_allocations(
             if not ref_id:
                 continue
 
-            # Initialize default fields
+            # Defaults
             title = "Assigned Engagement"
             category = "General"
             target_status = "open"
@@ -651,9 +720,11 @@ def get_my_allocations(
             end_date = None
             tech_stack = []
             mentor_name = "Pending Mentor Assignment"
+            assigned_students = []
+            assigned_student_names = []
 
             # -------------------------------------------------------
-            # 1. PROJECT REFERENCE
+            # A. PROJECT REFERENCE
             # -------------------------------------------------------
             if ref_type == "project":
                 project_obj = db.query(Project).filter(Project.project_id == ref_id).first()
@@ -667,7 +738,7 @@ def get_my_allocations(
                 start_date = safe_get(project_obj, "start_date")
                 end_date = safe_get(project_obj, "end_date")
 
-                # Retrieve project skills / tech stack
+                # Tech Stack
                 req_skill_ids = db.query(ProjectRequirement.skill_id).filter(
                     ProjectRequirement.project_id == ref_id
                 ).all()
@@ -679,25 +750,43 @@ def get_my_allocations(
                         for sk in skills_objs
                     ]
 
-                # Resolve Mentor
-                mentor_id = safe_get(project_obj, "mentor_id")
-                if mentor_id:
-                    mentor_obj = db.query(CompanyEmployee).filter(CompanyEmployee.employee_id == mentor_id).first()
-                    if mentor_obj:
-                        mentor_name = f"{safe_get(mentor_obj, 'first_name', '')} {safe_get(mentor_obj, 'last_name', '')}".strip()
-                else:
+                # --- 1. RESOLVE MENTOR (For Intern Dashboard) ---
+                direct_mentor_id = safe_get(project_obj, "mentor_id")
+                if direct_mentor_id:
+                    mentor_name = resolve_person_name(str(direct_mentor_id))
+
+                if mentor_name == "Pending Mentor Assignment":
                     mentor_alloc = db.query(Allocation).filter(
                         Allocation.reference_id == ref_id,
-                        Allocation.reference_type == "project",
+                        func.lower(Allocation.reference_type) == "project",
+                        func.lower(Allocation.resource_type).in_(["employee", "mentor"]),
                         ~Allocation.resource_id.in_(valid_ids)
                     ).first()
+
                     if mentor_alloc and mentor_alloc.resource_id:
-                        mentor_obj = db.query(CompanyEmployee).filter(CompanyEmployee.employee_id == mentor_alloc.resource_id).first()
-                        if mentor_obj:
-                            mentor_name = f"{safe_get(mentor_obj, 'first_name', '')} {safe_get(mentor_obj, 'last_name', '')}".strip() or "Assigned Mentor"
+                        mentor_name = resolve_person_name(str(mentor_alloc.resource_id))
+
+                # --- 2. RESOLVE ASSIGNED STUDENTS / INTERNS (For Employee Dashboard) ---
+                student_allocs = db.query(Allocation).filter(
+                    Allocation.reference_id == ref_id,
+                    func.lower(Allocation.reference_type) == "project",
+                    func.lower(Allocation.resource_type).in_(["intern", "student", "mentee"]),
+                    ~Allocation.resource_id.in_(valid_ids)
+                ).all()
+
+                for s_alloc in student_allocs:
+                    s_id = str(s_alloc.resource_id)
+                    s_name = resolve_person_name(s_id)
+                    assigned_students.append({
+                        "id": s_id,
+                        "name": s_name,
+                        "role": safe_get(s_alloc, "role_on_project") or "Intern",
+                        "status": safe_get(s_alloc, "status") or "assigned"
+                    })
+                    assigned_student_names.append(s_name)
 
             # -------------------------------------------------------
-            # 2. BATCH REFERENCE
+            # B. BATCH REFERENCE
             # -------------------------------------------------------
             elif ref_type in ["batch", "student_batch"]:
                 batch_obj = db.query(StudentBatch).filter(StudentBatch.batch_id == ref_id).first()
@@ -713,7 +802,7 @@ def get_my_allocations(
                 mentor_name = safe_get(batch_obj, "instructor_name") or safe_get(batch_obj, "trainer_name") or "Batch Instructor"
 
             # -------------------------------------------------------
-            # 3. TRAINING / WEBINAR REFERENCE
+            # C. TRAINING REFERENCE
             # -------------------------------------------------------
             elif ref_type in ["training", "webinar", "engagement"]:
                 training_obj = db.query(TrainingEngagement).filter(TrainingEngagement.engagement_id == ref_id).first()
@@ -737,12 +826,16 @@ def get_my_allocations(
             results.append({
                 "allocation_id": str(alloc.allocation_id),
                 "reference_id": ref_id,
-                "project_id": ref_id,  # Kept for frontend backwards compatibility
+                "project_id": ref_id,
                 "reference_type": ref_type,
                 "title": title,
                 "category": category,
                 "role": safe_get(alloc, "role_on_project") or "Participant",
                 "mentor": mentor_name,
+                "mentor_name": mentor_name,
+                "assigned_students": assigned_students,
+                "assigned_student_names": assigned_student_names,
+                "assigned_students_count": len(assigned_students),
                 "project_status": str(target_status).lower(),
                 "status": str(alloc_status).lower(),
                 "description": description,
@@ -761,7 +854,6 @@ def get_my_allocations(
             status_code=500,
             detail=f"Internal Server Error during allocation lookup: {str(e)}"
         )
-
 # -------------------------------------------------------------------
 # 5. ADMIN REVIEW ENDPOINT
 # -------------------------------------------------------------------

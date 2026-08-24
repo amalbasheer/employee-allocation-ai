@@ -1079,6 +1079,8 @@ export const ProjectAllocation: React.FC = () => {
                     <option value="DevOps & Security">DevOps & Security</option>
                     <option value="Full Stack">Full Stack</option>
                     <option value="Backend Architecture">Backend Architecture</option>
+                    <option value="Backend Architecture">Data Science</option>
+                    <option value="Backend Architecture">Data Analytics</option>
                   </select>
                 </div>
 

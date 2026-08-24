@@ -143,18 +143,29 @@ export interface SubstituteAllocationPayload {
 // ==========================================
 // CHAT & AI INTERFACES
 // ==========================================
+
+
+
+export interface RecommendationItem {
+  resource_id?: string;
+  name: string;
+  resource_type: string;
+  suitability_score: number;
+  reason?: string;
+}
+
 export interface ChatQueryRequest {
   query: string;
-  project_id?: string;
-  top_k?: number;
-  filters?: Record<string, any>;
+  user_id?: string | null;
 }
 
 export interface ChatQueryResponse {
+  id: string;
+  user_id: string;
   query: string;
   response_text: string;
-  recommendations: ResourceMatch[];
-  metadata?: Record<string, any>;
+  recommendations?: RecommendationItem[];
+  created_at?: string;
 }
 
 // ==========================================
