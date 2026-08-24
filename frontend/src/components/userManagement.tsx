@@ -3,8 +3,6 @@ import { employeeApi, internApi } from '../services/userService';
 import {
   CompanyEmployeeResponse,
   InternResponse,
-  CompanyEmployeeCreate,
-  InternCreate,
 } from '../types/userManagement';
 
 export const UserManagement: React.FC = () => {

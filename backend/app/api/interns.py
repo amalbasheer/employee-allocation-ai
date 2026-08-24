@@ -1,6 +1,9 @@
 # app/api/interns.py
 import traceback
 import uuid
+import sys
+from pathlib import Path
+import logging
 from typing import List
 from datetime import datetime, timezone
 from uuid import UUID
@@ -9,11 +12,33 @@ from sqlalchemy.orm import Session
 from pydantic import TypeAdapter
 from sqlalchemy.exc import IntegrityError
 
+# Import your AI engine extractor and helper utilities
+ROOT_DIR = Path(__file__).resolve().parents[3]  # Adjust depth based on app location
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
+
+# Import AI Engine services with resilient fallbacks
+try:
+    from ai_engine.extraction import extract_skills_from_text
+except ImportError:
+    extract_skills_from_text = None
+
+try:
+    from ai_engine.embedding import generate_embedding
+except ImportError:
+    generate_embedding = None
+
+logger = logging.getLogger(__name__)
+
+
+from app.utils.supabase_client import download_file_from_supabase  # helper to fetch file bytes
+
 from app.database import get_db
 from app.api.deps import require_admin  # Auth dependency
 from app.schemas.project import UserProfile
 from app.utils.supabase_client import upload_file_to_supabase, supabase_client
 from app.models.intern import InternsAndStudents, InternSkill
+from app.models.taxonomy import Skill
 from app.schemas.intern import (
     InternCreate,
     InternResponse,
@@ -45,10 +70,13 @@ def get_interns(db: Session = Depends(get_db)):
             detail={"error_type": type(e).__name__, "message": str(e), "trace": traceback.format_exc()}
         )
 
-
 @router.post("", response_model=InternResponse, status_code=status.HTTP_201_CREATED)
-def create_intern(intern_in: InternCreate, db: Session = Depends(get_db)):
-    """Create a new intern or student entry (optionally with skill mappings)."""
+async def create_intern(intern_in: InternCreate, db: Session = Depends(get_db)):
+    """
+    Create a new intern entry, extract skills via AI Engine,
+    map or create them in the master `skills` table (with embeddings),
+    and store `skill_id` and `extraction_score` in the `intern_skills` table.
+    """
     
     # 1. Unique email check
     existing = db.query(InternsAndStudents).filter(InternsAndStudents.email == intern_in.email).first()
@@ -61,46 +89,121 @@ def create_intern(intern_in: InternCreate, db: Session = Depends(get_db)):
     # 2. Extract payload and sanitize values
     intern_data = intern_in.model_dump(exclude={"skills"})
 
-    # Convert empty string designation_id to None
     if intern_data.get("designation_id") == "":
         intern_data["designation_id"] = None
 
-    # Ensure default review_status is set to UNVERIFIED for new interns
     if not intern_data.get("review_status"):
         intern_data["review_status"] = "UNVERIFIED"
 
-    # Ensure created_at timestamp is set if missing
     if not intern_data.get("created_at"):
         intern_data["created_at"] = datetime.now(timezone.utc)
 
+    # 3. AI Extraction & Skill Aggregation from Resume
+    extracted_skills_data = []
+    if intern_in.resume_document_url:
+        try:
+            # Clean path if a full URL or prefix was provided
+            path = intern_in.resume_document_url
+            clean_path = path.split("resume/")[-1] if "resume/" in path else path
+
+            # Download file bytes from Supabase storage bucket
+            file_bytes = download_file_from_supabase(
+                bucket_name="resume", 
+                destination_path=clean_path
+            )
+            
+            # Pass file bytes to your AI extractor module
+            extracted_info = await extract_skills_from_text(file_bytes)
+            
+            if isinstance(extracted_info, dict):
+                if not intern_data.get("university") and extracted_info.get("university"):
+                    intern_data["university"] = extracted_info["university"]
+                extracted_skills_data = extracted_info.get("skills", [])
+        except Exception as ai_err:
+            print(f"Warning: Failed to extract resume details: {ai_err}")
+
     try:
-        # 3. Save new intern
+        # 4. Save new intern record
         new_intern = InternsAndStudents(**intern_data)
         db.add(new_intern)
         db.commit()
         db.refresh(new_intern)
 
-        # 4. Save nested skills if provided
-        created_skills = []
+        # 5. Process and aggregate skills (Manual + AI Extracted)
+        skill_map = {}
+
+        # Add explicitly provided manual skills first (default score = 1.0)
         if intern_in.skills:
-            for skill in intern_in.skills:
-                db_skill = InternSkill(
-                    intern_id=new_intern.intern_id,
-                    **skill.model_dump()
+            for s in intern_in.skills:
+                s_dict = s.model_dump()
+                skill_name = s_dict["skill_name"].strip()
+                key = skill_name.lower()
+                skill_map[key] = {
+                    "skill_name": skill_name,
+                    "proficiency_level": s_dict.get("proficiency_level", "INTERMEDIATE"),
+                    "extraction_score": float(s_dict.get("extraction_score", 1.0))
+                }
+
+        # Merge extracted skills from AI Engine (handles strings or dicts)
+        for item in extracted_skills_data:
+            if isinstance(item, str):
+                name = item.strip()
+                level = "INTERMEDIATE"
+                score = 0.85
+            elif isinstance(item, dict):
+                name = item.get("skill_name", "").strip()
+                level = item.get("proficiency_level", "INTERMEDIATE")
+                score = float(item.get("extraction_score", item.get("score", 0.85)))
+            else:
+                continue
+
+            key = name.lower()
+            if key and key not in skill_map:
+                skill_map[key] = {
+                    "skill_name": name,
+                    "proficiency_level": level,
+                    "extraction_score": score
+                }
+
+        # 6. Resolve/Create master Skill records and save to intern_skills junction table
+        created_intern_skills = []
+        for s_data in skill_map.values():
+            skill_name = s_data["skill_name"]
+
+            # Check if master skill already exists in the master `skills` table
+            master_skill = db.query(Skill).filter(Skill.skill_name.ilike(skill_name)).first()
+
+            if not master_skill:
+                # Generate skill embedding vector via AI Engine only if master skill doesn't exist yet
+                embedding_vector = generate_embedding(skill_name)
+
+                master_skill = Skill(
+                    skill_name=skill_name,
+                    skill_embedding=embedding_vector
                 )
-                db.add(db_skill)
-                created_skills.append(db_skill)
-            
+                db.add(master_skill)
+                db.flush() # Populates master_skill.skill_id safely before committing
+
+            # Create association in intern_skills table linking intern_id -> skill_id
+            db_intern_skill = InternSkill(
+                intern_id=new_intern.intern_id,
+                skill_id=master_skill.skill_id,
+                proficiency_level=s_data["proficiency_level"],
+                extraction_score=s_data["extraction_score"]
+            )
+            db.add(db_intern_skill)
+            created_intern_skills.append(db_intern_skill)
+
+        if created_intern_skills:
             db.commit()
-            for skill in created_skills:
+            for skill in created_intern_skills:
                 db.refresh(skill)
 
-        new_intern.skills = created_skills
+        new_intern.skills = created_intern_skills
         return new_intern
 
     except IntegrityError as e:
         db.rollback()
-        # Returns readable DB error message instead of 500 crash
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Database integrity error: {str(e.orig)}"
@@ -111,6 +214,7 @@ def create_intern(intern_in: InternCreate, db: Session = Depends(get_db)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create intern: {str(e)}"
         )
+
 
 @router.get("/{intern_id}", response_model=InternResponse)
 def get_intern_by_id(intern_id: str, db: Session = Depends(get_db)):

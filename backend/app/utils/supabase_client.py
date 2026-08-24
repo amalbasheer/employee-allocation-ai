@@ -1,4 +1,3 @@
-# app/utils/supabase_client.py
 from supabase import create_client, Client
 from app.config import settings
 
@@ -16,6 +15,14 @@ def upload_file_to_supabase(file, bucket_name: str, destination_path: str):
     if not supabase_client:
         raise ValueError("Supabase client is not configured. Please set SUPABASE_URL and SUPABASE_KEY in .env.")
     
-    # Existing file upload logic here...
-    response = supabase_client.storage.from_(bucket_name).upload(destination_path, file, file_options={"content-type": "application/pdf"})
+    response = supabase_client.storage.from_(bucket_name).upload(
+        destination_path, file, file_options={"content-type": "application/pdf"}
+    )
     return response
+
+def download_file_from_supabase(bucket_name: str, destination_path: str) -> bytes:
+    """Download a file as raw bytes directly from Supabase Storage."""
+    if not supabase_client:
+        raise ValueError("Supabase client is not configured.")
+    
+    return supabase_client.storage.from_(bucket_name).download(destination_path)
