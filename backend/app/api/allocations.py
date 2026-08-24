@@ -163,8 +163,80 @@ def propose_allocation(
 
     return new_allocation
 
+# -------------------------------------------------------------------
+# ASSIGNING PROJECT TO INTERN BY ADMIN
+# -------------------------------------------------------------------
 
-# -----------------------------------------------------------------
+# Pydantic Schema for Student Assignment Request
+class StudentAssignRequest(BaseModel):
+    reference_id: str  # e.g., 'rp2-proj-0006' (Project ID)
+    resource_id: str
+    resource_type: str = "intern"    # Unique ID of the student
+    reference_type: Optional[str] = "project"
+    role_on_project: Optional[str] = "Student Contributor"
+    allocated_hours: Optional[int] = 10
+    suitability_score: Optional[float] = 0.0
+
+@router.post("/assign-student", response_model=AllocationResponse, status_code=status.HTTP_201_CREATED)
+def assign_student(
+    payload: StudentAssignRequest,
+    db: Session = Depends(get_db),
+    admin_user: UserProfile = Depends(require_admin)
+):
+    clean_ref_id = payload.reference_id.strip()
+    clean_student_id = payload.resource_id.strip()
+
+    # 1. Prevent duplicate active assignments for the same student on this project
+    existing_allocation = (
+        db.query(Allocation)
+        .filter(
+            Allocation.reference_id == clean_ref_id,
+            Allocation.resource_id == clean_student_id,
+            Allocation.resource_type == "intern",
+            Allocation.status.in_(["assigned", "proposed", "accepted"])
+        )
+        .first()
+    )
+
+    if existing_allocation:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Student '{clean_student_id}' is already assigned or proposed for this project."
+        )
+
+    # 2. Create the new Allocation directly with status='assigned'
+    new_allocation = Allocation(
+        allocation_id=generate_next_allocation_id(db),
+        reference_id=clean_ref_id,
+        reference_type=payload.reference_type,
+        resource_type="intern",
+        resource_id=clean_student_id,
+        role_on_project=payload.role_on_project,
+        allocated_hours=payload.allocated_hours,
+        suitability_score=payload.suitability_score,
+        status="assigned",  # Directly assigned without requiring student acceptance phase
+        assigned_by=admin_user.name,
+        assigned_at=datetime.now(timezone.utc)
+    )
+    db.add(new_allocation)
+    db.flush()
+
+    # 3. Create Audit Log
+    log = AllocationLog(
+        log_id=generate_next_log_id(db),
+        allocation_id=new_allocation.allocation_id,
+        action="STUDENT_ASSIGNED",
+        changed_by=admin_user.name,
+        timestamp=datetime.now(timezone.utc)
+    )
+    db.add(log)
+
+    db.commit()
+    db.refresh(new_allocation)
+
+    return new_allocation
+
+# -------------------------------------------------------------------
 # CONFIRMATION BY ADMIN
 # -------------------------------------------------------------------
 @router.patch("/{identifier}/assign", response_model=AllocationResponse)
@@ -175,43 +247,49 @@ def assign_allocation(
 ):
     clean_id = identifier.strip()
 
-    # 1. Fetch the MOST RECENT allocation matching reference_id OR allocation_id
+    # 1. First attempt direct lookup by unique allocation_id
     allocation = (
         db.query(Allocation)
-        .filter(
-            or_(
-                func.lower(Allocation.reference_id) == clean_id.lower(),
-                func.lower(Allocation.allocation_id) == clean_id.lower()
-            )
-        )
-        .order_by(Allocation.allocation_id.desc())  # Gets the latest active record
+        .filter(func.lower(Allocation.allocation_id) == clean_id.lower())
         .first()
     )
+
+    # 2. If identifier is a reference_id (Project ID), target the employee/mentor allocation record specifically
+    if not allocation:
+        allocation = (
+            db.query(Allocation)
+            .filter(
+                func.lower(Allocation.reference_id) == clean_id.lower(),
+                func.lower(Allocation.resource_type).in_(["employee", "mentor"])  # Ignore student allocations
+            )
+            .order_by(Allocation.allocation_id.desc())  # Gets latest employee proposal
+            .first()
+        )
 
     if not allocation:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Allocation matching ID or Reference '{clean_id}' not found."
+            detail=f"Employee allocation matching ID or Reference '{clean_id}' not found."
         )
 
     prev_status = str(allocation.status).lower().strip()
 
-    # 2. Strict validation: Allocation MUST be in 'accepted' (or 'proposed' if direct admin override allowed)
+    # 3. Validation for Employee / Mentor assignment: MUST be 'accepted' or 'proposed'
     valid_statuses = ["accepted", "proposed"]
     if prev_status not in valid_statuses:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot assign allocation '{allocation.allocation_id}'. Current status is '{prev_status}', but it must be 'accepted' first."
+            detail=f"Cannot confirm mentor assignment for allocation '{allocation.allocation_id}'. Current mentor proposal status is '{prev_status}', but it must be 'accepted' or 'proposed'."
         )
 
-    # 3. Transition allocation status
+    # 4. Transition allocation status
     allocation.status = "assigned"
 
     ref_type = str(getattr(allocation, "reference_type", "project") or "project").lower().strip()
     ref_id = getattr(allocation, "reference_id", None) or getattr(allocation, "project_id", None)
     resource_type = str(getattr(allocation, "resource_type", "employee")).lower().strip()
 
-    # 4. Update linked target entity (Project / Batch / Training)
+    # 5. Update linked target entity (Project / Batch / Training)
     if ref_type == "project" and ref_id:
         project = db.query(Project).filter(Project.project_id == ref_id).first()
         if project:
@@ -227,7 +305,7 @@ def assign_allocation(
         if training_obj:
             training_obj.status = "in_progress"
 
-    # 5. Create Audit Log
+    # 6. Create Audit Log
     log = AllocationLog(
         log_id=generate_next_log_id(db),
         allocation_id=allocation.allocation_id,
@@ -240,6 +318,7 @@ def assign_allocation(
     db.refresh(allocation)
 
     return allocation
+
 # -------------------------------------------------------------------
 # 2. STATUS TRANSITION (ACCEPT / REJECT / ASSIGN)
 # -------------------------------------------------------------------

@@ -426,20 +426,72 @@ export const ProjectAllocation: React.FC = () => {
     }
   };
 
-  const handleAssignStudent = (projectId: string, studentId: string) => {
-    setProjects((prev) =>
-      prev.map((p) => {
-        if (p.id === projectId) {
-          const allocatedStudentIds = p.allocatedStudentIds ?? [];
-          const isAssigned = allocatedStudentIds.includes(studentId);
-          const updatedStudentIds = isAssigned
-            ? allocatedStudentIds.filter((id) => id !== studentId)
-            : [...allocatedStudentIds, studentId];
-          return { ...p, allocatedStudentIds: updatedStudentIds };
-        }
-        return p;
-      })
+  const handleAssignStudent = async (referenceId: string, studentId: string, studentData?: any) => {
+  // 1. Locate current project in state
+    const currentProject = projects.find(
+      (p) => p.id === referenceId || p.reference_id === referenceId
     );
+
+    if (!currentProject) {
+      console.error("Project not found in state for ID:", referenceId);
+      alert("Error: Selected project could not be found.");
+      return;
+    }
+
+    const allocatedStudentIds = currentProject.allocatedStudentIds ?? [];
+    const isAssigned = allocatedStudentIds.includes(studentId);
+
+    try {
+      if (isAssigned) {
+      // --- REMOVE / UNASSIGN INTERN ---
+      // Optional: Call remove endpoint if present, e.g. await api.delete(`api/allocations/student/${referenceId}/${studentId}`);
+      
+        setProjects((prev) =>
+          prev.map((p) => {
+            if (p.id === referenceId || p.reference_id === referenceId) {
+              return {
+                ...p,
+                allocatedStudentIds: (p.allocatedStudentIds ?? []).filter((id) => id !== studentId),
+              };
+            }
+            return p;
+          })
+        );
+      } else {
+      // --- ASSIGN INTERN VIA API ---
+        const assignPayload = {
+          reference_id: referenceId,
+          resource_id: studentId,
+          reference_type: 'project',
+          resource_type: 'intern',
+          role_on_project: studentData?.role || 'Student Contributor',
+          allocated_hours: studentData?.recommendedHours || 10,
+          suitability_score: (studentData?.matchScore || 85) / 100, // Converts percentage to decimal
+        };
+
+        const res = await api.post('api/allocations/assign-student', assignPayload);
+
+      // Update local state with newly assigned student ID
+        setProjects((prev) =>
+          prev.map((p) => {
+            if (p.id === referenceId || p.reference_id === referenceId) {
+              const currentIds = p.allocatedStudentIds ?? [];
+              return {
+                ...p,
+                allocatedStudentIds: [...currentIds, studentId],
+              };
+            }
+            return p;
+          })
+        );
+
+        alert('Student assigned successfully!');
+      }
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.detail || 'Failed to update student allocation.';
+      console.error('Error handling student allocation:', errorMsg);
+      alert(`Action Failed: ${errorMsg}`);
+    }
   };
 
   const handleManageAllocation = (projectId: string, initialSubTab: RecommendationSubTab = 'MENTORS') => {
@@ -902,7 +954,7 @@ export const ProjectAllocation: React.FC = () => {
               {recommendationSubTab === 'STUDENTS' && (
                 <div className="space-y-3">
                   <p className="text-xs text-slate-400">
-                    Top 3 recommended interns matching skills.
+                    Top recommended interns matching skills.
                   </p>
 
                   <div className="grid grid-cols-1 gap-4 pt-2">
@@ -945,7 +997,7 @@ export const ProjectAllocation: React.FC = () => {
 
                           <div>
                             <button
-                              onClick={() => handleAssignStudent(selectedProject.id, student.id)}
+                              onClick={() => handleAssignStudent(selectedProject.id, student.id, student)}
                               className={`text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all ${
                                 isAssigned
                                   ? 'bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/30'
