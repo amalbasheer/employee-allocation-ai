@@ -12,7 +12,9 @@ from fastapi.responses import JSONResponse
 from app.database import get_db
 from app.models.project import Project, ProjectRequirement
 from app.models.taxonomy import Skill
+from app.models.allocation import Allocation
 from app.models.enums import ProjectStatus
+from app.models.employee import CompanyEmployee
 from app.schemas.project import (
     ProjectCreate,
     ProjectResponse,
@@ -195,7 +197,7 @@ async def get_all_projects(db: Session = Depends(get_db)):
                     "project_id": str(pid),
                     "title": row["title"] or "",
                     "description": row["description"] or "",
-                    "status": row["project_status"] or "OPEN",
+                    "status": row["project_status"] or "open",
                     "start_date": str(row["start_date"]) if row["start_date"] else "TBD",
                     "category": row["category"] or "General",
                     "project_type": row["project_type"] or "internal_project",
@@ -400,6 +402,90 @@ def get_project_by_id(
         raise HTTPException(status_code=404, detail="Project not found")
     return project
 
+VALID_PROJECT_STATUSES = ["open", "in_progress", "completed", "cancelled"]
+
+def calculate_progress(status: str) -> int:
+    status_lower = str(status).lower()
+    if status_lower in ["completed", "done", "finished"]:
+        return 100
+    elif status_lower in ["in_progress", "active", "started", "assigned"]:
+        return 50
+    elif status_lower in ["accepted", "proposed", "pending"]:
+        return 10
+    return 0
+
+@router.patch("/{project_id}/status", response_model=ProjectResponse)
+def update_project_status(
+    project_id: str,
+    status_in: StatusUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: UserProfile = Depends(get_current_user)
+):
+    """Update overall project lifecycle status and compute progress percentage dynamically."""
+    
+    # 1. Fetch Project
+    project = db.query(Project).filter(Project.project_id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # 2. Authorization Check
+    user_role = str(getattr(current_user, "role", "")).lower().strip()
+
+    if user_role != "admin":
+        employee = db.query(CompanyEmployee).filter(
+            func.lower(CompanyEmployee.email) == func.lower(current_user.email)
+        ).first()
+
+        if not employee:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Employee record associated with your email could not be found."
+            )
+
+        employee_id = str(getattr(employee, "employee_id", getattr(employee, "id", "")))
+
+        is_assigned_mentor = db.query(Allocation).filter(
+            Allocation.reference_id == project_id,
+            Allocation.resource_id == employee_id,
+            func.lower(Allocation.resource_type).in_(["employee", "mentor"]),
+            func.lower(Allocation.status).in_(["assigned", "in_progress", "accepted", "active"])
+        ).first()
+
+        if not is_assigned_mentor:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to update the status of this project."
+            )
+
+    # 3. Validate Status Input
+    target_status = status_in.status.lower().strip()
+    if target_status not in VALID_PROJECT_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid project status '{status_in.status}'. Valid states: {VALID_PROJECT_STATUSES}"
+        )
+
+    # 4. Update Status & Compute Progress Percentage
+    project.status = target_status
+    
+    # Dynamically calculate progress on DB model column
+    computed_progress = calculate_progress(target_status)
+    if hasattr(project, "progress_percentage"):
+        project.progress_percentage = computed_progress
+    elif hasattr(project, "progress"):
+        project.progress = computed_progress
+
+    # Cascade to Allocations if completed or cancelled
+    if target_status in ["completed", "cancelled"]:
+        db.query(Allocation).filter(
+            Allocation.reference_id == project_id,
+            func.lower(Allocation.resource_type).in_(["employee", "mentor"])
+        ).update({"status": target_status}, synchronize_session=False)
+
+    db.commit()
+    db.refresh(project)
+    
+    return project
 
 @router.patch("/{project_id}", response_model=ProjectResponse)
 def update_project(
@@ -417,32 +503,6 @@ def update_project(
     for field, value in update_data.items():
         setattr(project, field, value)
 
-    db.commit()
-    db.refresh(project)
-    return project
-
-
-@router.patch("/{project_id}/status", response_model=ProjectResponse)
-def update_project_status(
-    project_id: str,
-    status_in: StatusUpdateRequest,
-    db: Session = Depends(get_db),
-    admin_user: UserProfile = Depends(require_admin)
-):
-    """Update overall project lifecycle status (open, in_progress, completed, cancelled)."""
-    project = db.query(Project).filter(Project.project_id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    try:
-        new_status = ProjectStatus(status_in.status.lower())
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid project status '{status_in.status}'. Valid states: {[e.value for e in ProjectStatus]}"
-        )
-
-    project.status = new_status
     db.commit()
     db.refresh(project)
     return project
