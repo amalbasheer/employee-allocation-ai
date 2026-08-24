@@ -413,7 +413,6 @@ def calculate_progress(status: str) -> int:
     elif status_lower in ["accepted", "proposed", "pending"]:
         return 10
     return 0
-
 @router.patch("/{project_id}/status", response_model=ProjectResponse)
 def update_project_status(
     project_id: str,
@@ -421,14 +420,14 @@ def update_project_status(
     db: Session = Depends(get_db),
     current_user: UserProfile = Depends(get_current_user)
 ):
-    """Update overall project lifecycle status and compute progress percentage dynamically."""
+    """Update project status and cascade completion to all assigned allocations (employees and interns)."""
     
     # 1. Fetch Project
     project = db.query(Project).filter(Project.project_id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    # 2. Authorization Check
+    # 2. Authorization Check (Must be Admin or Assigned Employee/Mentor)
     user_role = str(getattr(current_user, "role", "")).lower().strip()
 
     if user_role != "admin":
@@ -465,26 +464,24 @@ def update_project_status(
             detail=f"Invalid project status '{status_in.status}'. Valid states: {VALID_PROJECT_STATUSES}"
         )
 
-    # 4. Update Status & Compute Progress Percentage
+    # 4. Update Project Status & Progress Percentage
     project.status = target_status
-    
-    # Dynamically calculate progress on DB model column
     computed_progress = calculate_progress(target_status)
+
     if hasattr(project, "progress_percentage"):
         project.progress_percentage = computed_progress
     elif hasattr(project, "progress"):
         project.progress = computed_progress
 
-    # Cascade to Allocations if completed or cancelled
+    # 5. Cascade Status to ALL Allocations (Updates both Employee and Intern records)
     if target_status in ["completed", "cancelled"]:
         db.query(Allocation).filter(
-            Allocation.reference_id == project_id,
-            func.lower(Allocation.resource_type).in_(["employee", "mentor"])
+            Allocation.reference_id == project_id
         ).update({"status": target_status}, synchronize_session=False)
 
     db.commit()
     db.refresh(project)
-    
+
     return project
 
 @router.patch("/{project_id}", response_model=ProjectResponse)
