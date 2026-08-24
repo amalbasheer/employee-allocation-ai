@@ -1,21 +1,26 @@
-# app/schemas/chat_query.py
-from pydantic import BaseModel
-from typing import Optional
-from uuid import UUID
+from typing import Optional, List, Any
 from datetime import datetime
+from pydantic import BaseModel, Field
 
-class ChatQueryBase(BaseModel):
-    user_query: str
-    processed_intent: Optional[str] = None
-    response_payload: Optional[dict] = None
+class RecommendationItem(BaseModel):
+    resource_id: Optional[str] = None
+    name: str
+    resource_type: str
+    suitability_score: float
+    reason: Optional[str] = None
+
+class ChatQueryCreate(BaseModel):
+    query: str
     user_id: Optional[str] = None
 
-class ChatQueryCreate(ChatQueryBase):
-    pass
-
-class ChatQueryResponse(ChatQueryBase):
-    query_id: str
-    created_at: Optional[datetime] = None
+class ChatQueryResponse(BaseModel):
+    id: str = Field(..., validation_alias="query_id")
+    user_id: str
+    query: str = Field(..., validation_alias="query_text", serialization_alias="query")
+    response_text: str
+    recommendations: Optional[List[RecommendationItem]] = []
+    created_at: Optional[datetime] = Field(None, validation_alias="timestamp")
 
     class Config:
         from_attributes = True
+        populate_by_name = True

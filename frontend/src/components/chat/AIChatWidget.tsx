@@ -1,8 +1,7 @@
-// src/components/chat/AIChatWidget.tsx
-import React, { useState } from 'react';
-import { MessageSquare, X, Send, Bot, User, Sparkles } from 'lucide-react';
-import { apiClient } from '../../services/api';
+import React, { useState, useEffect, useRef } from 'react';
+import { Sparkles, Bot, User, X, Send, Loader2, History, RotateCcw } from 'lucide-react';
 import { ChatQueryResponse } from '../../types';
+import { chatService } from '../../services/chatService';
 
 interface Message {
   id: string;
@@ -15,47 +14,104 @@ export const AIChatWidget: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      sender: 'bot',
-      text: 'Hello! I am your AI Allocation Assistant. Ask me anything about project requirements, skill availability, or mentor recommendations.',
-    },
-  ]);
+  const [fetchingHistory, setFetchingHistory] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const defaultWelcomeMessage: Message = {
+    id: '1',
+    sender: 'bot',
+    text: 'Hello! I am your AI Allocation Assistant. Ask me anything about projects, mentor availability, or student batches.',
+  };
+
+  const [messages, setMessages] = useState<Message[]>([defaultWelcomeMessage]);
+
+  const getCurrentUserId = (): string | null => {
+    return localStorage.getItem('user_id') || localStorage.getItem('userId') || null;
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, isOpen]);
+
+  // Fetch History for the current user
+  const handleFetchHistory = async () => {
+    setFetchingHistory(true);
+    try {
+      const userId = getCurrentUserId();
+      const historyData = await chatService.getHistory(userId || undefined);
+
+      if (historyData && historyData.length > 0) {
+        const restoredMessages: Message[] = [];
+        historyData.forEach((log, idx) => {
+          restoredMessages.push({
+            id: `hist-u-${log.id || idx}`,
+            sender: 'user',
+            text: log.query,
+          });
+          restoredMessages.push({
+            id: `hist-b-${log.id || idx}`,
+            sender: 'bot',
+            text: log.response_text || 'No response recorded.',
+            recommendations: log.recommendations || [],
+          });
+        });
+        setMessages(restoredMessages);
+        setHistoryLoaded(true);
+      }
+    } catch (err) {
+      console.error('Failed to load chat history', err);
+    } finally {
+      setFetchingHistory(false);
+    }
+  };
+
+  // Sending a Message
   const handleSend = async () => {
     if (!input.trim() || loading) return;
 
-    const userMsg: Message = { id: Date.now().toString(), sender: 'user', text: input };
+    const queryText = input.trim();
+    const userId = getCurrentUserId();
+
+    // 1. Append user message to state
+    const userMsg: Message = {
+      id: `user-${Date.now()}`,
+      sender: 'user',
+      text: queryText,
+    };
+
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
     setLoading(true);
 
     try {
-      const response = await apiClient.post<ChatQueryResponse>('/chat/', {
-        query: userMsg.text,
-        top_k: 3,
+      // 2. Post query to backend
+      const response = await chatService.sendQuery({
+        query: queryText,
+        user_id: userId,
       });
 
+      // 3. Append bot response to state
       const botMsg: Message = {
-        id: (Date.now() + 1).toString(),
+        id: response.id || `bot-${Date.now()}`,
         sender: 'bot',
-        text: response.data.response_text,
-        recommendations: response.data.recommendations,
+        text: response.response_text || 'No response generated.',
+        recommendations: response.recommendations || [],
       };
+
       setMessages((prev) => [...prev, botMsg]);
     } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: (Date.now() + 1).toString(),
-          sender: 'bot',
-          text: 'I could not process that query. Please make sure the backend API is online.',
-        },
-      ]);
+      console.error('Failed to send query', err);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleResetChat = () => {
+    setMessages([defaultWelcomeMessage]);
+    setHistoryLoaded(false);
   };
 
   return (
@@ -85,15 +141,42 @@ export const AIChatWidget: React.FC = () => {
                 </span>
               </div>
             </div>
-            <button
-              onClick={() => setIsOpen(false)}
-              className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-700"
-            >
-              <X className="w-5 h-5" />
-            </button>
+
+            {/* Actions: History, Reset, Close */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleFetchHistory}
+                disabled={fetchingHistory}
+                title="Load History"
+                className="p-1.5 text-slate-400 hover:text-indigo-400 rounded-lg hover:bg-slate-700 transition-colors disabled:opacity-50"
+              >
+                {fetchingHistory ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <History className="w-4 h-4" />
+                )}
+              </button>
+
+              {historyLoaded && (
+                <button
+                  onClick={handleResetChat}
+                  title="Clear View"
+                  className="p-1.5 text-slate-400 hover:text-amber-400 rounded-lg hover:bg-slate-700 transition-colors"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                </button>
+              )}
+
+              <button
+                onClick={() => setIsOpen(false)}
+                className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-700 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
 
-          {/* Messages Container */}
+          {/* Messages Window */}
           <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-slate-950/50">
             {messages.map((msg) => (
               <div
@@ -112,13 +195,13 @@ export const AIChatWidget: React.FC = () => {
                       : 'bg-slate-800 text-slate-200 border border-slate-700 rounded-tl-none'
                   }`}
                 >
-                  <p>{msg.text}</p>
+                  <p className="whitespace-pre-wrap">{msg.text}</p>
                   {msg.recommendations && msg.recommendations.length > 0 && (
                     <div className="mt-3 pt-2 border-t border-slate-700 space-y-2">
                       <span className="text-[11px] font-semibold text-indigo-300">Top Recommendations:</span>
-                      {msg.recommendations.map((rec) => (
+                      {msg.recommendations.map((rec, idx) => (
                         <div
-                          key={rec.resource_id}
+                          key={rec.resource_id || idx}
                           className="bg-slate-900/80 p-2 rounded-lg text-xs flex justify-between items-center border border-slate-800"
                         >
                           <div>
@@ -141,10 +224,11 @@ export const AIChatWidget: React.FC = () => {
               </div>
             ))}
             {loading && (
-              <div className="flex gap-2 text-slate-400 text-xs items-center">
-                <Bot className="w-4 h-4 animate-spin text-indigo-400" /> AI is reasoning...
+              <div className="flex gap-2 text-slate-400 text-xs items-center p-2 bg-slate-800/40 rounded-lg w-fit">
+                <Loader2 className="w-4 h-4 animate-spin text-indigo-400" /> AI is reasoning...
               </div>
             )}
+            <div ref={messagesEndRef} />
           </div>
 
           {/* Input Box */}
@@ -154,12 +238,12 @@ export const AIChatWidget: React.FC = () => {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              placeholder="Ask about candidate recommendations..."
+              placeholder="Ask a question..."
               className="flex-1 bg-slate-800 text-white placeholder-slate-400 text-xs sm:text-sm px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
             <button
               onClick={handleSend}
-              disabled={loading}
+              disabled={loading || !input.trim()}
               className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white p-2.5 rounded-xl transition-all"
             >
               <Send className="w-4 h-4" />

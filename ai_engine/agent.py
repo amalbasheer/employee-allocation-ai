@@ -7,8 +7,8 @@ matching the scope sir confirmed.
 """
 
 from google.genai import types
-from config import client, LLM_MODEL
-from db import (
+from .config import client, LLM_MODEL
+from .db import (
     get_available_mentors,
     get_available_interns,
     get_project,

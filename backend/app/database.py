@@ -2,6 +2,7 @@
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from app.config import settings
+import json
 
 if not settings.DATABASE_URL:
     raise ValueError("DATABASE_URL is missing in .env file.")
@@ -11,6 +12,7 @@ engine = create_engine(
     settings.DATABASE_URL,
     pool_pre_ping=True,
     echo=False,
+    json_serializer=lambda obj: json.dumps(obj, default=str),
     connect_args={"connect_timeout": 10}
 )
 

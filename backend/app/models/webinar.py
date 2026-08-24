@@ -47,7 +47,7 @@ class TrainingEngagement(Base):
     allocations = relationship("Allocation", primaryjoin="and_("
                 "TrainingEngagement.engagement_id == foreign(Allocation.reference_id), "
                 "Allocation.reference_type.in_(['webinar', 'training', 'engagement'])"
-                ")", back_populates="webinar")
+                ")", back_populates="webinar", overlaps="allocations,project,batch")
     
 class TrainingRequirement(Base):
     """
@@ -89,4 +89,4 @@ class StudentBatch(Base):
     allocations = relationship("Allocation", primaryjoin="and_("
                 "StudentBatch.batch_id == foreign(Allocation.reference_id), "
                 "Allocation.reference_type.in_(['batch', 'student_batch', 'studentbatch'])"
-                ")", back_populates="batch")
+                ")", back_populates="batch", overlaps="allocations,webinar,project")

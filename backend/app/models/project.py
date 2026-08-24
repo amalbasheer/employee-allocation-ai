@@ -31,7 +31,7 @@ class Project(Base):
     allocations = relationship("Allocation", primaryjoin="and_("
                 "Project.project_id == foreign(Allocation.reference_id), "
                 "Allocation.reference_type == 'project'"
-                ")", back_populates="project")
+                ")", back_populates="project", overlaps="allocations,webinar,batch")
     requirements: Mapped[List["ProjectRequirement"]] = relationship("ProjectRequirement", back_populates="project", cascade="all, delete-orphan")
 
 
