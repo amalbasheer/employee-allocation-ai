@@ -83,6 +83,11 @@ def recommend_projects_for_person(person_id: str, person_type: str, open_project
 
 
 def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
+    """
+    Skill-based ranking for webinars/demos/workshops — TEAM LEADS ONLY.
+    Excludes anyone with a date-overlapping training engagement already
+    scheduled (batch commitments do NOT block them, only other trainings).
+    """
     with engine.connect() as conn:
         engagement = conn.execute(
             text("SELECT * FROM training_engagements WHERE engagement_id = :eid"),
@@ -101,6 +106,22 @@ def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
             {"eid": engagement_id},
         ).mappings().fetchall()
 
+        # Team leads with a DATE-OVERLAPPING training conflict — excluded
+        conflicting_leads = conn.execute(
+            text("""
+                SELECT DISTINCT a.resource_id
+                FROM allocations a
+                JOIN training_engagements te ON te.engagement_id = a.reference_id
+                WHERE a.reference_type = 'training'
+                  AND a.status IN ('proposed', 'assigned')
+                  AND te.engagement_id != :eid
+                  AND te.start_date <= :end_date
+                  AND te.end_date >= :start_date
+            """),
+            {"eid": engagement_id, "start_date": engagement["start_date"], "end_date": engagement["end_date"]},
+        ).fetchall()
+        conflicting_ids = {row[0] for row in conflicting_leads}
+
     requirements = [
         {
             "skill_id": r["skill_id"],
@@ -112,7 +133,10 @@ def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
     ]
 
     mentors = get_available_mentors()
-    team_leads = [m for m in mentors if m.get("is_team_lead")]
+    team_leads = [
+        m for m in mentors
+        if m.get("is_team_lead") and m["id"] not in conflicting_ids
+    ]
 
     for tl in team_leads:
         tl["skills"] = get_person_skills(tl["id"], "employee")

@@ -33,19 +33,51 @@ def reset():
 
 
 def seed_batches():
-    for month_num, month_name in [(7, "Jul"), (8, "Aug")]:
-        start = date(2026, month_num, 15)
-        end_month = month_num + 4
-        end_year = 2026
-        if end_month > 12:
-            end_month -= 12
-            end_year += 1
-        end = date(end_year, end_month, 15)
+    # June + July: fixed mentor per domain, status = completed (already happened)
+    fixed_assignments = [
+        ("Data Analytics", "DA", 0),  # index 0 = first DA employee in seed order (a team lead)
+        ("Data Science", "DS", 0),    # index 0 = first DS employee (a team lead)
+    ]
 
+    for domain, short, emp_index in fixed_assignments:
+        with engine.connect() as conn:
+            mentor_row = conn.execute(
+                text("""
+                    SELECT employee_id, name FROM company_employees
+                    WHERE department = :domain AND is_team_lead = TRUE
+                    ORDER BY employee_id ASC
+                    LIMIT 1
+                """),
+                {"domain": domain},
+            ).mappings().fetchone()
+
+        for month_num, month_name in [(6, "Jun"), (7, "Jul")]:
+            start = date(2026, month_num, 15)
+            for mode in DELIVERY_MODES:
+                batch_name = f"{month_name} {short} {mode}"
+                with engine.begin() as conn:
+                    result = conn.execute(
+                        text("""
+                            INSERT INTO student_batches
+                            (batch_name, domain, start_date, end_date, mentor_id, status, delivery_mode)
+                            VALUES (:name, :domain, :start, :end, :mentor_id, 'completed', :mode)
+                            RETURNING batch_id
+                        """),
+                        {
+                            "name": batch_name, "domain": domain,
+                            "start": start, "end": start + timedelta(days=60),  # a 2-month block, ~60 days
+                            "mentor_id": mentor_row["employee_id"], "mode": mode.lower(),
+                        },
+                    )
+                    batch_id = result.fetchone()[0]
+                print(f"  [{batch_id}] {batch_name} -> {mentor_row['name']} (COMPLETED)")
+
+    # August onward: no mentor assigned yet — admin assigns manually via frontend
+    for month_num, month_name in [(8, "Aug")]:
+        start = date(2026, month_num, 15)
         for domain, short in DOMAINS:
             for mode in DELIVERY_MODES:
                 batch_name = f"{month_name} {short} {mode}"
-
                 with engine.begin() as conn:
                     result = conn.execute(
                         text("""
@@ -56,12 +88,12 @@ def seed_batches():
                         """),
                         {
                             "name": batch_name, "domain": domain,
-                            "start": start, "end": end, "mode": mode.lower(),
+                            "start": start, "end": start + timedelta(days=60),
+                            "mode": mode.lower(),
                         },
                     )
                     batch_id = result.fetchone()[0]
-
-                print(f"  [{batch_id}] {batch_name} ({start} to {end}) — mentor to be assigned manually")
+                print(f"  [{batch_id}] {batch_name} -> unassigned (admin assigns manually)")
 
 
 def seed_training():

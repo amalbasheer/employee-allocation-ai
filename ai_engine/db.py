@@ -155,24 +155,56 @@ def get_person_skills(person_id: str, person_type: str) -> list[dict]:
     ]
 
 
-def get_next_mentor_for_batch(domain: str) -> dict:
+def get_next_mentor_for_batch(domain: str, month_num: int, year: int = 2026) -> dict:
     """
-    Round-robin: picks the team lead in this domain with the fewest
-    current batch assignments — pure fairness, no skill matching.
+    Mentors are assigned in 2-month blocks (Jun-Jul, Aug-Sep, Oct-Nov...),
+    covering both online and offline sessions for that block.
+
+    Given a specific month, finds which 2-month block it belongs to.
+    If a mentor is already assigned to another batch within that same
+    block, reuse them (so both months share one mentor). Otherwise,
+    round-robin picks whoever has covered the fewest blocks so far.
     """
+    # Determine the block's start month (odd months start blocks: Jun, Aug, Oct...)
+    block_start_month = month_num if month_num % 2 == 0 else month_num - 1
+    block_end_month = block_start_month + 1
+
     with engine.connect() as conn:
+        # Check if a mentor is already assigned within this block for this domain
+        existing = conn.execute(
+            text("""
+                SELECT sb.mentor_id, ce.name
+                FROM student_batches sb
+                JOIN company_employees ce ON ce.employee_id = sb.mentor_id
+                WHERE sb.domain = :domain
+                  AND sb.mentor_id IS NOT NULL
+                  AND EXTRACT(MONTH FROM sb.start_date) BETWEEN :block_start AND :block_end
+                  AND EXTRACT(YEAR FROM sb.start_date) = :year
+                LIMIT 1
+            """),
+            {"domain": domain, "block_start": block_start_month, "block_end": block_end_month, "year": year},
+        ).mappings().fetchone()
+
+        if existing:
+            return {"employee_id": existing["mentor_id"], "name": existing["name"]}
+
+        # No one assigned to this block yet — round-robin pick the least-used mentor
         row = conn.execute(
             text("""
-                SELECT ce.employee_id, ce.name, COUNT(sb.batch_id) AS batch_count
+                SELECT ce.employee_id, ce.name, COUNT(a.allocation_id) AS block_count
                 FROM company_employees ce
-                LEFT JOIN student_batches sb ON sb.mentor_id = ce.employee_id
-                WHERE ce.is_team_lead = TRUE AND ce.department = :domain
+                LEFT JOIN allocations a
+                    ON a.resource_id = ce.employee_id
+                    AND a.reference_type = 'batch'
+                    AND a.status IN ('proposed', 'accepted', 'assigned')
+                WHERE ce.department = :domain
                 GROUP BY ce.employee_id, ce.name
-                ORDER BY batch_count ASC, ce.employee_id ASC
+                ORDER BY block_count ASC, ce.employee_id ASC
                 LIMIT 1
             """),
             {"domain": domain},
         ).mappings().fetchone()
+
     return dict(row) if row else None
 
 
