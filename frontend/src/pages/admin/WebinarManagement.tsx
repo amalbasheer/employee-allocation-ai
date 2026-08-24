@@ -451,9 +451,7 @@ export const TrainingManagement: React.FC = () => {
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-mono bg-slate-900 border border-slate-700 px-2 py-0.5 rounded text-indigo-400">
-                            {item.engagement_id}
-                          </span>
+                          
                           <h4 className="font-bold text-white text-base">{item.title}</h4>
                           <span className="text-[10px] uppercase bg-slate-900 border border-slate-700 px-2 py-0.5 rounded text-slate-300 font-semibold">
                             {item.engagement_type}
@@ -499,7 +497,7 @@ export const TrainingManagement: React.FC = () => {
                     >
                       {engagements.map((w) => (
                         <option key={w.engagement_id} value={w.engagement_id}>
-                          [{w.engagement_id}] {w.title} ({w.engagement_type})
+                           {w.title} ({w.engagement_type})
                         </option>
                       ))}
                     </select>

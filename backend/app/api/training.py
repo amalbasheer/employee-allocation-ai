@@ -5,7 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc, or_
+from sqlalchemy import func, desc, or_, text, select
 
 from app.api.deps import get_db
 from app.models.webinar import TrainingEngagement, TrainingRequirement, StudentBatch
@@ -33,6 +33,7 @@ class CreateEngagementSchema(BaseModel):
 
 class ProposeMentorSchema(BaseModel):
     mentor_id: str
+    suitability_score: float = 1.0
 
 class EmployeeActionSchema(BaseModel):
     action: str  # "accept" or "reject"
@@ -165,36 +166,114 @@ async def schedule_engagement(payload: CreateEngagementSchema, db: Session = Dep
     db.refresh(new_engagement)
     return new_engagement
 
+
+def parse_skill_label(skill_item, skill_map: dict) -> str | None:
+    """Extracts and maps skill representations (string, dict, or object) to display names."""
+    if isinstance(skill_item, str):
+        # If it's a skill ID, replace with skill_name from DB map if present
+        return skill_map.get(skill_item, skill_item)
+
+    if isinstance(skill_item, dict):
+        s_id = skill_item.get("skill_id") or skill_item.get("id")
+        s_name = skill_item.get("skill_name") or skill_item.get("name") or skill_item.get("title")
+        
+        # Prefer mapped name by ID first, fallback to explicit name or raw ID
+        if s_id in skill_map:
+            return skill_map[s_id]
+        return s_name or (skill_map.get(s_id, s_id) if s_id else None)
+
+    # Object handling
+    s_id = getattr(skill_item, "skill_id", None)
+    s_name = getattr(skill_item, "skill_name", None) or getattr(skill_item, "name", None)
+    if s_id in skill_map:
+        return skill_map[s_id]
+    return s_name or s_id
+
+
 @router.get("/engagements/{engagement_id}/recommendations")
 def get_recommendations(engagement_id: str, db: Session = Depends(get_db)):
     engagement = db.query(TrainingEngagement).filter(TrainingEngagement.engagement_id == engagement_id).first()
     if not engagement:
-        raise HTTPException(status_code=404, detail="Engagement not found")
+        raise HTTPException(status_code=404, detail=f"No training engagement found with id {engagement_id}")
 
-    query_text = f"{engagement.title} {engagement.description or ''}"
-    recommended_mentors = []
-    
-    if recommend_mentor_for_training and callable(recommend_mentor_for_training):
-        try:
-            recommended_mentors = recommend_mentor_for_training(query_text, entity_type="mentor", top_k=5)
-        except Exception as e:
-            logger.warning(f"AI Recommend failed: {e}")
+    raw_recommendations = []
+    try:
+        raw_recommendations = recommend_mentor_for_training(engagement_id=engagement_id)
+    except Exception as e:
+        logger.warning(f"AI Mentor Recommendation failed: {e}")
 
-    if not recommended_mentors:
+    # Build skill_id -> skill_name lookup dictionary from DB
+    skill_map = {}
+    try:
+        skill_rows = db.execute(text("SELECT skill_id, skill_name FROM skills")).fetchall()
+        skill_map = {row[0]: row[1] for row in skill_rows}
+    except Exception as e:
+        logger.warning(f"Could not load skill mapping from DB: {e}")
+
+    formatted_recommendations = []
+    for idx, item in enumerate(raw_recommendations):
+        raw_skills = item.get("skills", [])
+        
+        # Translate skill IDs to skill names
+        extracted_skills = [
+            label for label in (parse_skill_label(s, skill_map) for s in raw_skills) if label is not None
+        ]
+
+        score = item.get("score") if item.get("score") is not None else item.get("match_score", 0.0)
+
+        formatted_recommendations.append({
+            "employee_id": item.get("id") or item.get("employee_id"),
+            "name": item.get("name") or item.get("full_name", f"Mentor {idx+1}"),
+            "designation": item.get("designation") or item.get("role", "Team Lead"),
+            "match_score": round(float(score) * 100 if float(score) <= 1.0 else float(score), 1),
+            "skills": extracted_skills
+        })
+
+    # Fallback if recommendations list is empty
+    if not formatted_recommendations:
         employees = db.query(CompanyEmployee).limit(5).all()
-        recommended_mentors = [
+        formatted_recommendations = [
             {
-                "employee_id": e.employee_id,
-                "name": getattr(e, "full_name", f"Mentor {idx}"),
+                "employee_id": getattr(e, "employee_id", f"emp-10{idx}"),
+                "name": getattr(e, "full_name", f"Mentor {idx+1}"),
                 "designation": getattr(e, "designation", "Technical Specialist"),
-                "match_score": 95 - (idx * 4),
+                "match_score": round(95.0 - (idx * 4), 1),
                 "skills": ["Python", "Machine Learning", "System Design"]
             }
             for idx, e in enumerate(employees)
         ]
 
-    return recommended_mentors
+    return formatted_recommendations
 
+
+def generate_next_allocation_id(db: Session) -> str:
+    # Fetch all allocation IDs matching the prefix
+    alloc_ids = db.scalars(
+        select(Allocation.allocation_id).filter(Allocation.allocation_id.like("rp2-alloc-%"))
+    ).all()
+    
+    max_num = 0
+    for alloc_id in alloc_ids:
+        parts = alloc_id.split("-")
+        if parts[-1].isdigit():
+            max_num = max(max_num, int(parts[-1]))
+            
+    return f"rp2-alloc-{max_num + 1:04d}"
+
+def generate_next_log_id(db: Session) -> str:
+    """Safely extracts the maximum numeric suffix from allocation_logs to generate rp2-log-XXXX."""
+    records = db.query(AllocationLog.log_id).filter(
+        AllocationLog.log_id.like("rp2-log-%")
+    ).all()
+
+    max_num = 0
+    for (log_id,) in records:
+        if log_id:
+            parts = str(log_id).split("-")
+            if parts[-1].isdigit():
+                max_num = max(max_num, int(parts[-1]))
+
+    return f"rp2-log-{max_num + 1:04d}"
 
 @router.post("/engagements/{engagement_id}/propose")
 def propose_mentor(engagement_id: str, payload: ProposeMentorSchema, db: Session = Depends(get_db)):
@@ -212,20 +291,31 @@ def propose_mentor(engagement_id: str, payload: ProposeMentorSchema, db: Session
 
     if not alloc:
         alloc = Allocation(
-            reference_type="engagement",
+            allocation_id=generate_next_allocation_id(db),
+            # FIX: Use engagement.engagement_type (instance value) instead of TrainingEngagement.engagement_type
+            reference_type="training",
             reference_id=engagement_id,
-            employee_id=payload.mentor_id,
-            status="proposed"
+            resource_id=payload.mentor_id,
+            resource_type="employee",
+            status="proposed",
+            suitability_score=payload.suitability_score,
+            role_on_project="trainer",
+            assigned_at=datetime.now(timezone.utc),
+            assigned_by="admin",
+            allocated_hours=2
+
+
         )
         db.add(alloc)
     else:
-        alloc.employee_id = payload.mentor_id
+        alloc.resource_id = payload.mentor_id
         alloc.status = "proposed"
 
     log_entry = AllocationLog(
-        reference_id=engagement_id,
-        employee_id=payload.mentor_id,
-        action="proposed",
+        log_id=generate_next_log_id(db),
+        allocation_id=alloc.allocation_id,
+        action="PROPOSED",
+        changed_by="admin",
         timestamp=datetime.now(timezone.utc)
     )
     db.add(log_entry)
