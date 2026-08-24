@@ -37,13 +37,13 @@ class InternBase(BaseModel):
     email: EmailStr
     college_institution: Optional[str]
     degree_program: Optional[str] = None
-    resume_document_url: str
+    resume_document_url: Optional[str] = None
     extracted_skills_raw: Optional[Any] = None  # JSONB field payload
     review_status: str = "pending_review"
     reviewed_by: Optional[str] = None
     role: str = "intern"
     current_status: str = "AVAILABLE"
-    department: str
+    department: Optional[str] = None
 
 
 class InternCreate(InternBase):

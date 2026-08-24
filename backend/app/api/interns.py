@@ -1,10 +1,19 @@
 # app/api/interns.py
+from dotenv import load_dotenv
+load_dotenv()
+
 import traceback
 import uuid
 import sys
+import io
+import inspect
+import urllib.request
+from pypdf import PdfReader
+
+from importlib import import_module
 from pathlib import Path
 import logging
-from typing import List
+from typing import List, Dict, Any
 from datetime import datetime, timezone
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
@@ -12,21 +21,16 @@ from sqlalchemy.orm import Session
 from pydantic import TypeAdapter
 from sqlalchemy.exc import IntegrityError
 
+
+
 # Import your AI engine extractor and helper utilities
 ROOT_DIR = Path(__file__).resolve().parents[3]  # Adjust depth based on app location
 if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
 # Import AI Engine services with resilient fallbacks
-try:
-    from ai_engine.extraction import extract_skills_from_text
-except ImportError:
-    extract_skills_from_text = None
-
-try:
-    from ai_engine.embedding import generate_embedding
-except ImportError:
-    generate_embedding = None
+from ai_engine.extraction import extract_skills_from_text
+from ai_engine.embedding import generate_embedding
 
 logger = logging.getLogger(__name__)
 
@@ -70,14 +74,73 @@ def get_interns(db: Session = Depends(get_db)):
             detail={"error_type": type(e).__name__, "message": str(e), "trace": traceback.format_exc()}
         )
 
+def get_resume_bytes(url_or_path: str) -> bytes:
+    """Fetch file bytes from a public HTTP URL or Supabase storage path."""
+    if url_or_path.startswith("http://") or url_or_path.startswith("https://"):
+        req = urllib.request.Request(url_or_path, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req) as response:
+            return response.read()
+    else:
+        clean_path = url_or_path.split("resume/")[-1] if "resume/" in url_or_path else url_or_path
+        return download_file_from_supabase(bucket_name="resume", destination_path=clean_path)
+
+
+def extract_text_from_pdf_bytes(file_bytes: bytes) -> str:
+    """Extract plain text from PDF bytes."""
+    try:
+        pdf_file = io.BytesIO(file_bytes)
+        reader = PdfReader(pdf_file)
+        text = "".join([page.extract_text() or "" for page in reader.pages])
+        return text.strip()
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to parse PDF text: {e}")
+        return ""
+
+
+# String to Integer mapping for database insertion
+TEXT_TO_INT_LEVEL = {
+    "BEGINNER": 1,
+    "INTERMEDIATE": 3,
+    "ADVANCED": 4,
+    "EXPERT": 5,
+}
+
+
+def parse_level_to_int(val: Any) -> int:
+    """Standardize integer ratings (1-5) or string ratings into database integer values."""
+    if isinstance(val, int):
+        return max(1, min(5, val))
+    if isinstance(val, str):
+        if val.isdigit():
+            return max(1, min(5, int(val)))
+        upper_val = val.upper()
+        if upper_val in TEXT_TO_INT_LEVEL:
+            return TEXT_TO_INT_LEVEL[upper_val]
+    return 3  # Default to Intermediate (3) if unspecified
+
+
+def get_next_skill_number(db: Session) -> int:
+    """Find highest numeric ID matching 'rp2-skl-XXXX' to increment sequentially."""
+    last_skill = (
+        db.query(Skill.skill_id)
+        .filter(Skill.skill_id.like("rp2-skl-%"))
+        .order_by(Skill.skill_id.desc())
+        .first()
+    )
+    if last_skill and last_skill[0]:
+        try:
+            return int(last_skill[0].split("-")[-1])
+        except (ValueError, IndexError):
+            return 0
+    return 0
+
+
 @router.post("", response_model=InternResponse, status_code=status.HTTP_201_CREATED)
 async def create_intern(intern_in: InternCreate, db: Session = Depends(get_db)):
     """
-    Create a new intern entry, extract skills via AI Engine,
-    map or create them in the master `skills` table (with embeddings),
-    and store `skill_id` and `extraction_score` in the `intern_skills` table.
+    Create a new intern entry safely. Automatically extracts resume skills,
+    maps master skills, links junction tables, and formats output.
     """
-    
     # 1. Unique email check
     existing = db.query(InternsAndStudents).filter(InternsAndStudents.email == intern_in.email).first()
     if existing:
@@ -86,74 +149,103 @@ async def create_intern(intern_in: InternCreate, db: Session = Depends(get_db)):
             detail=f"An intern with email '{intern_in.email}' already exists."
         )
 
-    # 2. Extract payload and sanitize values
-    intern_data = intern_in.model_dump(exclude={"skills"})
+    # 2. Extract payload and set defaults
+    raw_payload = intern_in.model_dump(exclude={"skills"})
 
-    if intern_data.get("designation_id") == "":
-        intern_data["designation_id"] = None
+    if raw_payload.get("designation_id") == "":
+        raw_payload["designation_id"] = None
 
-    if not intern_data.get("review_status"):
-        intern_data["review_status"] = "UNVERIFIED"
+    if not raw_payload.get("review_status"):
+        raw_payload["review_status"] = "UNVERIFIED"
 
-    if not intern_data.get("created_at"):
-        intern_data["created_at"] = datetime.now(timezone.utc)
+    if not raw_payload.get("created_at"):
+        raw_payload["created_at"] = datetime.now(timezone.utc)
 
-    # 3. AI Extraction & Skill Aggregation from Resume
-    extracted_skills_data = []
-    if intern_in.resume_document_url:
+    # 3. Resume Extraction via AI Engine
+    extracted_skills_raw: List[Any] = []
+    resume_target = (
+        raw_payload.get("resume_document_url")
+        or raw_payload.get("resume_path")
+        or getattr(intern_in, "resume_document_url", None)
+        or getattr(intern_in, "resume_path", None)
+    )
+
+    print(f"\n🔍 DEBUG: resume_target = '{resume_target}'", flush=True)
+
+    if resume_target:
         try:
-            # Clean path if a full URL or prefix was provided
-            path = intern_in.resume_document_url
-            clean_path = path.split("resume/")[-1] if "resume/" in path else path
+            print("⏳ Fetching resume bytes...", flush=True)
+            file_bytes = get_resume_bytes(resume_target)
+            print(f"✅ Downloaded {len(file_bytes)} bytes", flush=True)
 
-            # Download file bytes from Supabase storage bucket
-            file_bytes = download_file_from_supabase(
-                bucket_name="resume", 
-                destination_path=clean_path
-            )
-            
-            # Pass file bytes to your AI extractor module
-            extracted_info = await extract_skills_from_text(file_bytes)
-            
-            if isinstance(extracted_info, dict):
-                if not intern_data.get("university") and extracted_info.get("university"):
-                    intern_data["university"] = extracted_info["university"]
-                extracted_skills_data = extracted_info.get("skills", [])
+            extracted_text = extract_text_from_pdf_bytes(file_bytes)
+            print(f"📄 Extracted PDF Text Length: {len(extracted_text)} characters", flush=True)
+
+            if not extracted_text:
+                print("⚠️ WARNING: PDF yielded 0 text characters (File may be an image/scanned PDF).", flush=True)
+
+            input_payload = extracted_text if extracted_text else file_bytes
+
+            if extract_skills_from_text and callable(extract_skills_from_text):
+                print("🤖 Invoking AI extract_skills_from_text...", flush=True)
+                if inspect.iscoroutinefunction(extract_skills_from_text):
+                    extracted_info = await extract_skills_from_text(input_payload)
+                else:
+                    extracted_info = extract_skills_from_text(input_payload)
+
+                print(f"🤖 Raw AI Output: {extracted_info}", flush=True)
+
+                if isinstance(extracted_info, dict):
+                    if not raw_payload.get("university") and extracted_info.get("university"):
+                        raw_payload["university"] = extracted_info["university"]
+                    extracted_skills_raw = extracted_info.get("skills", [])
+                elif isinstance(extracted_info, list):
+                    extracted_skills_raw = extracted_info
+
+                print(f"✅ Extracted Skills Count: {len(extracted_skills_raw)}", flush=True)
+            else:
+                print("❌ ERROR: 'extract_skills_from_text' is None or not callable.", flush=True)
+
         except Exception as ai_err:
-            print(f"Warning: Failed to extract resume details: {ai_err}")
+            print(f"❌ Resume Processing Exception: {str(ai_err)}", flush=True)
 
     try:
-        # 4. Save new intern record
-        new_intern = InternsAndStudents(**intern_data)
+        # 4. Filter payload dynamically to matching model columns ONLY
+        valid_intern_columns = {col.key for col in InternsAndStudents.__table__.columns}
+        filtered_model_data = {k: v for k, v in raw_payload.items() if k in valid_intern_columns}
+
+        new_intern = InternsAndStudents(**filtered_model_data)
         db.add(new_intern)
         db.commit()
         db.refresh(new_intern)
 
-        # 5. Process and aggregate skills (Manual + AI Extracted)
-        skill_map = {}
+        # 5. Aggregate manual and extracted skills with Integer Level Mapping
+        skill_map: Dict[str, Dict[str, Any]] = {}
 
-        # Add explicitly provided manual skills first (default score = 1.0)
+        # Manual skills from request payload
         if intern_in.skills:
             for s in intern_in.skills:
-                s_dict = s.model_dump()
-                skill_name = s_dict["skill_name"].strip()
-                key = skill_name.lower()
-                skill_map[key] = {
-                    "skill_name": skill_name,
-                    "proficiency_level": s_dict.get("proficiency_level", "INTERMEDIATE"),
-                    "extraction_score": float(s_dict.get("extraction_score", 1.0))
-                }
+                s_dict = s.model_dump() if hasattr(s, "model_dump") else dict(s)
+                name = (s_dict.get("skill_name") or s_dict.get("name") or "").strip()
+                if name:
+                    key = name.lower()
+                    skill_map[key] = {
+                        "skill_name": name,
+                        "proficiency_level": parse_level_to_int(s_dict.get("proficiency_level")),
+                        "extraction_score": float(s_dict.get("extraction_score", 1.0))
+                    }
 
-        # Merge extracted skills from AI Engine (handles strings or dicts)
-        for item in extracted_skills_data:
+        # AI-extracted skills with integer level parsing
+        for item in extracted_skills_raw:
             if isinstance(item, str):
                 name = item.strip()
-                level = "INTERMEDIATE"
+                level = 3
                 score = 0.85
             elif isinstance(item, dict):
-                name = item.get("skill_name", "").strip()
-                level = item.get("proficiency_level", "INTERMEDIATE")
-                score = float(item.get("extraction_score", item.get("score", 0.85)))
+                name = (item.get("skill_name") or item.get("name") or "").strip()
+                level = parse_level_to_int(item.get("proficiency_level"))
+                raw_score = item.get("extraction_score") or item.get("confidence") or item.get("score") or 0.85
+                score = float(raw_score)
             else:
                 continue
 
@@ -165,42 +257,95 @@ async def create_intern(intern_in: InternCreate, db: Session = Depends(get_db)):
                     "extraction_score": score
                 }
 
-        # 6. Resolve/Create master Skill records and save to intern_skills junction table
-        created_intern_skills = []
+        print(f"📊 Processed {len(skill_map)} unique skills to insert.", flush=True)
+
+        # Dynamic column detection for Skill model
+        skill_name_col = "skill_name" if hasattr(Skill, "skill_name") else ("name" if hasattr(Skill, "name") else "title")
+        skill_attr = getattr(Skill, skill_name_col)
+
+        # Detect valid columns on InternSkill model
+        intern_skill_valid_cols = {col.key for col in InternSkill.__table__.columns}
+
+        # Initialize sequential ID counter
+        current_skill_num = get_next_skill_number(db)
+
+        # 6. Map/Create Master Skills & Link Junction Rows
         for s_data in skill_map.values():
             skill_name = s_data["skill_name"]
 
-            # Check if master skill already exists in the master `skills` table
-            master_skill = db.query(Skill).filter(Skill.skill_name.ilike(skill_name)).first()
+            master_skill = db.query(Skill).filter(skill_attr.ilike(skill_name)).first()
 
             if not master_skill:
-                # Generate skill embedding vector via AI Engine only if master skill doesn't exist yet
-                embedding_vector = generate_embedding(skill_name)
+                current_skill_num += 1
+                new_skill_id = f"rp2-skl-{current_skill_num:04d}"
 
-                master_skill = Skill(
-                    skill_name=skill_name,
-                    skill_embedding=embedding_vector
-                )
+                skill_kwargs = {skill_name_col: skill_name}
+
+                if hasattr(Skill, "skill_id"):
+                    skill_kwargs["skill_id"] = new_skill_id
+
+                if hasattr(Skill, "skill_embedding"):
+                    if generate_embedding and callable(generate_embedding):
+                        try:
+                            skill_kwargs["skill_embedding"] = generate_embedding(skill_name)
+                        except Exception as emb_err:
+                            logger.warning(f"⚠️ Failed embedding for '{skill_name}': {emb_err}")
+
+                master_skill = Skill(**skill_kwargs)
                 db.add(master_skill)
-                db.flush() # Populates master_skill.skill_id safely before committing
+                db.flush()
 
-            # Create association in intern_skills table linking intern_id -> skill_id
-            db_intern_skill = InternSkill(
-                intern_id=new_intern.intern_id,
-                skill_id=master_skill.skill_id,
-                proficiency_level=s_data["proficiency_level"],
-                extraction_score=s_data["extraction_score"]
-            )
+            # Map confidence / score field variations alongside integer proficiency level
+            junction_data = {
+                "intern_id": new_intern.intern_id,
+                "skill_id": master_skill.skill_id,
+                "proficiency_level": s_data["proficiency_level"],
+                "extraction_score": s_data["extraction_score"],
+                "extraction_confidence": s_data["extraction_score"],
+                "confidence": s_data["extraction_score"],
+                "score": s_data["extraction_score"],
+            }
+            filtered_junction_data = {k: v for k, v in junction_data.items() if k in intern_skill_valid_cols}
+
+            db_intern_skill = InternSkill(**filtered_junction_data)
             db.add(db_intern_skill)
-            created_intern_skills.append(db_intern_skill)
 
-        if created_intern_skills:
-            db.commit()
-            for skill in created_intern_skills:
-                db.refresh(skill)
+        db.commit()
 
-        new_intern.skills = created_intern_skills
-        return new_intern
+        # 7. Query joined skills explicitly to build response payload
+        joined_skills = (
+            db.query(InternSkill, skill_attr.label("skill_name"))
+            .join(Skill, InternSkill.skill_id == Skill.skill_id)
+            .filter(InternSkill.intern_id == new_intern.intern_id)
+            .all()
+        )
+
+        formatted_skills = [
+            {
+                "intern_id": row.InternSkill.intern_id,
+                "skill_id": row.InternSkill.skill_id,
+                "skill_name": row.skill_name,
+                "proficiency_level": getattr(row.InternSkill, "proficiency_level", 3),
+                "extraction_score": getattr(
+                    row.InternSkill,
+                    "extraction_confidence",
+                    getattr(
+                        row.InternSkill,
+                        "extraction_score",
+                        getattr(row.InternSkill, "confidence", 0.85)
+                    )
+                ),
+            }
+            for row in joined_skills
+        ]
+
+        response_data = {
+            col.key: getattr(new_intern, col.key)
+            for col in new_intern.__table__.columns
+        }
+        response_data["skills"] = formatted_skills
+
+        return response_data
 
     except IntegrityError as e:
         db.rollback()
@@ -214,7 +359,6 @@ async def create_intern(intern_in: InternCreate, db: Session = Depends(get_db)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create intern: {str(e)}"
         )
-
 
 @router.get("/{intern_id}", response_model=InternResponse)
 def get_intern_by_id(intern_id: str, db: Session = Depends(get_db)):

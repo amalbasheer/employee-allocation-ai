@@ -6,7 +6,7 @@ then store the result (skill_embedding column) — never recompute it
 on every match request.
 """
 
-from config import client, EMBEDDING_MODEL, EMBEDDING_DIM
+from .config import client, EMBEDDING_MODEL, EMBEDDING_DIM
 
 
 def generate_embedding(text: str) -> list[float]:

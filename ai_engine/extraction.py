@@ -6,7 +6,7 @@ source_type, matching what each destination table actually needs.
 """
 
 import json
-from config import client, LLM_MODEL
+from .config import client, LLM_MODEL
 
 RESUME_PROMPT = """You are a skill-extraction engine for a workforce allocation system.
 Read the resume text below and extract every technical skill, tool, domain area,
