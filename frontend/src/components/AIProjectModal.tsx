@@ -43,7 +43,7 @@ export const AIProjectModal: React.FC<AIProjectModalProps> = ({ isOpen, onClose 
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await fetch("/api/v1/ai-projects/suggest", {
+      const res = await fetch("/api/ai-projects/suggest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
@@ -66,7 +66,7 @@ export const AIProjectModal: React.FC<AIProjectModalProps> = ({ isOpen, onClose 
     setSelectedProject(project);
     setLoading(true);
     try {
-      const response = await fetch("/api/v1/ai-projects/generate-proposal-pdf", {
+      const response = await fetch("/api/ai-projects/generate-proposal-pdf", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(project),
@@ -96,8 +96,10 @@ export const AIProjectModal: React.FC<AIProjectModalProps> = ({ isOpen, onClose 
         {/* Header */}
         <div style={styles.modalHeader}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Sparkles color="#8b5cf6" size={20} />
-            <h3 style={{ margin: 0, color: "var(--text-main, #0f172a)" }}>AI Project Generator</h3>
+            <Sparkles color="#a78bfa" size={20} />
+            <h3 style={{ margin: 0, color: "var(--text-main, #f8fafc)", fontSize: 18, fontWeight: 600 }}>
+              AI Project Generator
+            </h3>
           </div>
           <button onClick={onClose} style={styles.closeBtn} type="button" aria-label="Close modal">
             <X size={18} />
@@ -115,10 +117,12 @@ export const AIProjectModal: React.FC<AIProjectModalProps> = ({ isOpen, onClose 
                 setFormData({ ...formData, category: e.target.value })
               }
             >
-              <option value="Web Development">Web Development</option>
-              <option value="AI & Machine Learning">AI & Machine Learning</option>
-              <option value="Mobile App Development">Mobile App Development</option>
-              <option value="Cloud & DevOps">Cloud & DevOps</option>
+              <option value="Web Development" style={styles.option}>Web Development</option>
+              <option value="AI & Machine Learning" style={styles.option}>AI & Machine Learning</option>
+              <option value="Mobile App Development" style={styles.option}>Mobile App Development</option>
+              <option value="Cloud & DevOps" style={styles.option}>Cloud & DevOps</option>
+              <option value="Data Science" style={styles.option}>Data Science</option>
+              <option value="Data Analytics" style={styles.option}>Data Analytics</option>
             </select>
 
             <label style={styles.label}>Preferred Tech Stack</label>
@@ -140,14 +144,14 @@ export const AIProjectModal: React.FC<AIProjectModalProps> = ({ isOpen, onClose 
                 setFormData({ ...formData, difficulty: e.target.value })
               }
             >
-              <option value="Beginner">Beginner</option>
-              <option value="Intermediate">Intermediate</option>
-              <option value="Advanced">Advanced</option>
+              <option value="Beginner" style={styles.option}>Beginner</option>
+              <option value="Intermediate" style={styles.option}>Intermediate</option>
+              <option value="Advanced" style={styles.option}>Advanced</option>
             </select>
 
             <label style={styles.label}>Additional Requirements / Ideas (Optional)</label>
             <textarea
-              style={{ ...styles.input, height: 70 }}
+              style={{ ...styles.input, height: 75, resize: "vertical" }}
               placeholder="e.g. Must include real-time chat feature..."
               value={formData.description}
               onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
@@ -156,7 +160,7 @@ export const AIProjectModal: React.FC<AIProjectModalProps> = ({ isOpen, onClose 
             />
 
             <button type="submit" disabled={loading} style={styles.submitBtn}>
-              {loading ? <Loader2 style={{ animation: "spin 1s linear infinite" }} /> : "Generate Ideas"}
+              {loading ? <Loader2 style={{ animation: "spin 1s linear infinite" }} size={18} /> : "Generate Ideas"}
             </button>
           </form>
         )}
@@ -164,14 +168,16 @@ export const AIProjectModal: React.FC<AIProjectModalProps> = ({ isOpen, onClose 
         {/* STEP 2: CHOOSE A PROJECT */}
         {step === 2 && (
           <div>
-            <p style={{ fontSize: 14, color: "var(--text-muted, #64748b)" }}>
-              Select a project idea to view options and download a detailed PDF proposal:
+            <p style={{ fontSize: 13, color: "var(--text-muted, #94a3b8)", marginTop: 0, marginBottom: 16 }}>
+              Select a project idea to generate and download a detailed PDF proposal:
             </p>
             <div style={styles.cardList}>
               {suggestions.map((proj, idx) => (
                 <div key={proj.id || idx} style={styles.projectCard}>
-                  <h4 style={{ margin: "0 0 4px 0", color: "var(--text-main, #0f172a)" }}>{proj.title}</h4>
-                  <p style={{ fontSize: 13, color: "var(--text-muted, #64748b)", margin: "0 0 12px 0" }}>
+                  <h4 style={{ margin: "0 0 6px 0", color: "var(--text-main, #f8fafc)", fontSize: 15 }}>
+                    {proj.title}
+                  </h4>
+                  <p style={{ fontSize: 13, color: "var(--text-muted, #94a3b8)", margin: "0 0 14px 0", lineHeight: 1.4 }}>
                     {proj.summary}
                   </p>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -195,7 +201,7 @@ export const AIProjectModal: React.FC<AIProjectModalProps> = ({ isOpen, onClose 
               ))}
             </div>
             <button onClick={() => setStep(1)} style={styles.backBtn} type="button">
-              Back to Form
+              ← Back to Form
             </button>
           </div>
         )}
@@ -210,7 +216,8 @@ const styles: Record<string, React.CSSProperties> = {
   overlay: {
     position: "fixed",
     inset: 0,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "rgba(0, 0, 0, 0.75)",
+    backdropFilter: "blur(4px)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -219,83 +226,101 @@ const styles: Record<string, React.CSSProperties> = {
   modal: {
     width: "100%",
     maxWidth: "520px",
-    backgroundColor: "var(--bg-card, #ffffff)",
-    borderRadius: "12px",
+    backgroundColor: "var(--bg-card, #0f172a)",
+    border: "1px solid var(--border-color, #1e293b)",
+    borderRadius: "16px",
     padding: "24px",
-    boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)",
+    boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
   },
   modalHeader: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: "16px",
+    marginBottom: "20px",
   },
   closeBtn: {
     background: "none",
     border: "none",
     cursor: "pointer",
-    color: "var(--text-muted, #64748b)",
+    color: "var(--text-muted, #94a3b8)",
+    padding: 4,
+    borderRadius: "6px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
   },
   form: {
     display: "flex",
     flexDirection: "column",
-    gap: "12px",
+    gap: "14px",
   },
   label: {
-    fontSize: "13px",
+    fontSize: "12px",
     fontWeight: 600,
-    color: "var(--text-main, #334155)",
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+    color: "var(--text-muted, #94a3b8)",
   },
   input: {
-    padding: "10px",
-    borderRadius: "6px",
-    border: "1px solid var(--border-color, #cbd5e1)",
-    backgroundColor: "var(--bg-item, #fff)",
-    color: "var(--text-main, #0f172a)",
+    padding: "10px 14px",
+    borderRadius: "8px",
+    border: "1px solid var(--border-color, #334155)",
+    backgroundColor: "var(--bg-item, #1e293b)",
+    color: "var(--text-main, #f8fafc)",
     fontFamily: "inherit",
+    fontSize: "14px",
+    outline: "none",
+  },
+  option: {
+    backgroundColor: "#1e293b",
+    color: "#f8fafc",
   },
   submitBtn: {
-    marginTop: "12px",
-    padding: "10px",
-    backgroundColor: "#8b5cf6",
-    color: "#fff",
+    marginTop: "10px",
+    padding: "12px",
+    backgroundColor: "#6366f1",
+    color: "#ffffff",
     border: "none",
-    borderRadius: "6px",
+    borderRadius: "8px",
     fontWeight: 600,
+    fontSize: "14px",
     cursor: "pointer",
     display: "flex",
     justifyContent: "center",
     alignItems: "center",
+    boxShadow: "0 4px 12px rgba(99, 102, 241, 0.3)",
   },
   cardList: {
     display: "flex",
     flexDirection: "column",
     gap: "12px",
-    maxHeight: "350px",
+    maxHeight: "360px",
     overflowY: "auto",
     margin: "16px 0",
+    paddingRight: "4px",
   },
   projectCard: {
-    border: "1px solid var(--border-color, #e2e8f0)",
-    padding: "14px",
-    borderRadius: "8px",
-    backgroundColor: "var(--bg-item, #f8fafc)",
+    border: "1px solid var(--border-color, #1e293b)",
+    padding: "16px",
+    borderRadius: "10px",
+    backgroundColor: "var(--bg-item, #1e293b)",
   },
   badge: {
     fontSize: "11px",
-    padding: "3px 8px",
-    backgroundColor: "rgba(139, 92, 246, 0.15)",
-    color: "#8b5cf6",
-    borderRadius: "12px",
+    padding: "4px 10px",
+    backgroundColor: "rgba(99, 102, 241, 0.15)",
+    color: "#a5b4fc",
+    borderRadius: "20px",
     fontWeight: 600,
+    border: "1px solid rgba(99, 102, 241, 0.3)",
   },
   downloadBtn: {
     display: "flex",
     alignItems: "center",
     gap: 6,
-    padding: "6px 12px",
-    backgroundColor: "#10b981",
-    color: "#fff",
+    padding: "8px 14px",
+    backgroundColor: "#059669",
+    color: "#ffffff",
     border: "none",
     borderRadius: "6px",
     fontSize: "12px",
@@ -305,8 +330,10 @@ const styles: Record<string, React.CSSProperties> = {
   backBtn: {
     background: "none",
     border: "none",
-    color: "var(--text-muted, #64748b)",
+    color: "var(--text-muted, #94a3b8)",
     fontSize: "13px",
+    fontWeight: 500,
     cursor: "pointer",
-  },
-};
+    padding: 0,
+    marginTop: 4,
+  },};
