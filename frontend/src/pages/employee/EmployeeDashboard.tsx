@@ -141,8 +141,8 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     return '';
   }, [propEmployeeId]);
 
-  // 2. Fetch Dashboard Data from API for Allocations
-  const fetchDashboardData = useCallback(async () => {
+  // Fetch Dashboard Data from API for Project Allocations ONLY
+const fetchDashboardData = useCallback(async () => {
   setLoading(true);
 
   const targetEmployeeId = getActiveEmployeeId();
@@ -176,8 +176,14 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
         : (data.allocations || data.data || []);
 
       if (Array.isArray(rawAllocations)) {
-        // A. Map Proposed Allocations
-        const fetchedProposals: Proposal[] = rawAllocations
+        // FILTER: Keep ONLY allocations where reference_type === 'project'
+        const projectAllocations = rawAllocations.filter((a: any) => {
+          const refType = String(a.reference_type || 'project').toLowerCase();
+          return refType === 'project';
+        });
+
+        // A. Map Proposed Project Allocations
+        const fetchedProposals: Proposal[] = projectAllocations
           .filter((a: any) => {
             const s = String(a.status || '').toLowerCase();
             return s === 'proposed' || s === 'pending';
@@ -195,8 +201,8 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
             dueDate: a.due_date || 'N/A',
           }));
 
-        // B. Map Waiting Confirmations
-        const fetchedWaiting: Proposal[] = rawAllocations
+        // B. Map Waiting Confirmations (Project Only)
+        const fetchedWaiting: Proposal[] = projectAllocations
           .filter((a: any) => {
             const s = String(a.status || '').toLowerCase();
             return ['accepted', 'accepted_by_employee'].includes(s);
@@ -214,8 +220,8 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
             dueDate: a.due_date || 'N/A',
           }));
 
-        // C. Map Active Projects
-        const fetchedActive: ActiveProject[] = rawAllocations
+        // C. Map Active Projects (Project Only)
+        const fetchedActive: ActiveProject[] = projectAllocations
           .filter((a: any) => {
             const s = String(a.status || '').toLowerCase();
             return ['assigned', 'confirmed', 'active', 'approved', 'in_progress'].includes(s);
@@ -231,8 +237,8 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
             status: 'in_progress',
           }));
 
-        // D. Map Completed Projects (NEW SECTION)
-        const fetchedCompleted: ActiveProject[] = rawAllocations
+        // D. Map Completed Projects (Project Only)
+        const fetchedCompleted: ActiveProject[] = projectAllocations
           .filter((a: any) => {
             const s = String(a.status || '').toLowerCase();
             return ['completed', 'done', 'finished'].includes(s);
@@ -251,7 +257,7 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
         setProposals(fetchedProposals);
         setWaitingConfirmations(fetchedWaiting);
         setActiveProjects(fetchedActive);
-        setCompletedProjects(fetchedCompleted); // UPDATE STATE
+        setCompletedProjects(fetchedCompleted);
         setUsingFallback(false);
       }
     } else {
@@ -268,129 +274,120 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     setCompletedProjects([]);
     setUsingFallback(true);
   } finally {
-    setWebinars(initialWebinars);
     setLoading(false);
   }
 }, [getActiveEmployeeId]);
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, [fetchDashboardData]);
-  
-  const [isUpdatingStatus, setIsUpdatingStatus] = useState<boolean>(false);
+useEffect(() => {
+  fetchDashboardData();
+}, [fetchDashboardData]);
 
-  const handleUpdateProjectStatus = async (projectId: string, newStatus: string) => {
-    try {
-      const res = await api.patch(`api/projects/${projectId}/status`, {
-        status: newStatus.toLowerCase(),
-      });
+const [isUpdatingStatus, setIsUpdatingStatus] = useState<boolean>(false);
 
-      const updatedProject = res.data;
+const handleUpdateProjectStatus = async (projectId: string, newStatus: string) => {
+  try {
+    const res = await api.patch(`api/projects/${projectId}/status`, {
+      status: newStatus.toLowerCase(),
+    });
+
+    const updatedProject = res.data;
 
     // Update state directly from backend payload
-      setProjects((prevProjects) =>
-        prevProjects.map((p) =>
-          p.id === projectId || p.id === projectId
-            ? {
-                ...p,
-                status: updatedProject.status,
-                progressPercentage: updatedProject.progress_percentage ?? updatedProject.progress,
-              }
-            : p
-        )
-      );
-    } catch (err: any) {
-      console.error('Failed to update project status:', err);
-    }
-  };
+    setActiveProjects((prevProjects) =>
+      prevProjects.map((p) =>
+        p.id === projectId
+          ? {
+              ...p,
+              status: updatedProject.status,
+              progressPercentage: updatedProject.progress_percentage ?? updatedProject.progress,
+            }
+          : p
+      )
+    );
+  } catch (err: any) {
+    console.error('Failed to update project status:', err);
+  }
+};
 
-  // Action Handler: Accept or Reject Proposal
-  const handleProposalAction = async (id: string, action: 'accept') => {
-    setActionLoadingId(id);
-    const proposal = proposals.find((p) => p.id === id);
-    if (!proposal) return;
+// Action Handler: Accept Proposal
+const handleProposalAction = async (id: string, action: 'accept') => {
+  setActionLoadingId(id);
+  const proposal = proposals.find((p) => p.id === id);
+  if (!proposal) return;
 
-    const targetEmployeeId = getActiveEmployeeId();
-    const allocationStatus = action === 'accept' ? 'accepted' : 'accepted_by_employee';
+  const targetEmployeeId = getActiveEmployeeId();
+  const allocationStatus = action === 'accept' ? 'accepted' : 'accepted_by_employee';
 
-    try {
-      const response = await fetch(`/api/allocations/${id}/respond`, {
-        method: 'PATCH',
+  try {
+    const response = await fetch(`/api/allocations/${id}/respond`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: allocationStatus,
+        employee_id: targetEmployeeId,
+      }),
+    });
+
+    if (!response.ok) {
+      await fetch(`/api/allocations/${id}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          status: allocationStatus,
-          employee_id: targetEmployeeId,
-        }),
+        body: JSON.stringify({ status: allocationStatus }),
       });
-
-      if (!response.ok) {
-        await fetch(`/api/allocations/${id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: allocationStatus }),
-        });
-      }
-    } catch (err) {
-      console.warn('Failed to persist action to server, updating UI locally:', err);
-    } finally {
-      setActionLoadingId(null);
     }
+  } catch (err) {
+    console.warn('Failed to persist action to server, updating UI locally:', err);
+  } finally {
+    setActionLoadingId(null);
+  }
 
-    // Update Local UI States
-    setProposals((prev) => prev.filter((p) => p.id !== id));
+  // Update Local UI States
+  setProposals((prev) => prev.filter((p) => p.id !== id));
 
-    if (action === 'accept') {
-      // Move to Waiting for Confirmation list instead of Active Projects
-      const acceptedProposal: Proposal = {
-        ...proposal,
-        status: 'accepted',
-      };
-      setWaitingConfirmations((prev) => [acceptedProposal, ...prev]);
-    }
-  };
+  if (action === 'accept') {
+    const acceptedProposal: Proposal = {
+      ...proposal,
+      status: 'accepted',
+    };
+    setWaitingConfirmations((prev) => [acceptedProposal, ...prev]);
+  }
+};
 
-  const handleRejectionAction = async (id: string, action: 'reject') => {
-    setActionLoadingId(id);
-    const proposal = proposals.find((p) => p.id === id);
-    if (!proposal) return;
+// Action Handler: Reject Proposal
+const handleRejectionAction = async (id: string, action: 'reject') => {
+  setActionLoadingId(id);
+  const proposal = proposals.find((p) => p.id === id);
+  if (!proposal) return;
 
-    const targetEmployeeId = getActiveEmployeeId();
-    const allocationStatus = action === 'reject' ? 'rejected' : 'rejected_by_employee';
+  const targetEmployeeId = getActiveEmployeeId();
+  const allocationStatus = action === 'reject' ? 'rejected' : 'rejected_by_employee';
 
-    try {
-      const response = await fetch(`/api/allocations/${id}/reject`, {
-        method: 'PATCH',
+  try {
+    const response = await fetch(`/api/allocations/${id}/reject`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: allocationStatus,
+        employee_id: targetEmployeeId,
+      }),
+    });
+
+    if (!response.ok) {
+      await fetch(`/api/allocations/${id}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          status: allocationStatus,
-          employee_id: targetEmployeeId,
-        }),
+        body: JSON.stringify({ status: allocationStatus }),
       });
-
-      if (!response.ok) {
-        await fetch(`/api/allocations/${id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: allocationStatus }),
-        });
-      }
-    } catch (err) {
-      console.warn('Failed to persist action to server, updating UI locally:', err);
-    } finally {
-      setActionLoadingId(null);
     }
+  } catch (err) {
+    console.warn('Failed to persist action to server, updating UI locally:', err);
+  } finally {
+    setActionLoadingId(null);
+  }
 
-    // Update Local UI States
-    setProposals((prev) => prev.filter((p) => p.id !== id));
-
-    if (action === 'reject') {
-      // Move to Waiting for Confirmation list instead of Active Projects
-      const acceptedProposal: Proposal = {
-        ...proposal,
-        status: 'rejected',
-      };
-    }
-  };
+  // Update Local UI States
+  setProposals((prev) => prev.filter((p) => p.id !== id));
+};
   
   if (loading) {
     return (
@@ -606,9 +603,11 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
             </div>
           </div>
         ))
-      )}
-    </div>
-  </Card>
+        )}
+        
+        </div>
+      </Card>
+
       {/* CARD 2: COMPLETED PROJECTS */}
   <Card 
     title={`Completed Projects (${completedProjects.length})`} 
@@ -658,37 +657,6 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
         ))
       )}
     </div>
-  </Card> 
-      <Card title="Webinars & Sessions" subtitle="Workshops and technical sessions">
-        <div className="space-y-4">
-          {webinars.map((webinar) => (
-            <div key={webinar.id} className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h5 className="text-sm font-bold text-white flex items-center gap-2">
-                    <Video className="w-4 h-4 text-amber-400" /> {webinar.title}
-                  </h5>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    {webinar.date} • {webinar.time}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between pt-2 border-t border-slate-900 text-xs">
-                <a
-                  href={webinar.meetingUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="bg-indigo-600/10 text-indigo-400 hover:bg-indigo-600/20 text-xs font-semibold px-3 py-1.5 rounded-lg border border-indigo-500/20 flex items-center gap-1.5 transition-all"
-                >
-                  Launch Session <ExternalLink className="w-3 h-3 text-indigo-400" />
-                </a>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Card>
-    </div>
-  
-  );
-};
+  </Card>
+  </div>
+  )};

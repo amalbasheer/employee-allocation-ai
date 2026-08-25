@@ -455,13 +455,21 @@ def respond_to_allocation(
     formatted_status = payload.status.lower()
     allocation.status = formatted_status
 
-    # 3. Create Audit Log entry for Admin review
+    # 3. Sync status with training_engagements table if reference_type is training
+    if allocation.reference_type == "training":
+        engagement = db.query(TrainingEngagement).filter(
+            TrainingEngagement.engagement_id == allocation.reference_id
+        ).first()
+        if engagement:
+            engagement.status = formatted_status
+
+    # 4. Create Audit Log entry for Admin review
     new_log_id = generate_next_log_id(db)
     
     log = AllocationLog(
         log_id=new_log_id,
         allocation_id=allocation_id,
-        action='ACCEPTED',
+        action=formatted_status.upper(),
         changed_by=payload.employee_id,
         timestamp=datetime.now(timezone.utc)
     )
@@ -476,7 +484,6 @@ def respond_to_allocation(
         "allocation_id": allocation.allocation_id,
         "current_status": allocation.status
     }
-
 # -------------------------------------------------------------------
 # EMPLOYEE REJECTING THE PROPOSAL
 # -------------------------------------------------------------------
@@ -498,7 +505,30 @@ def respond_to_allocation(
     formatted_status = payload.status.lower()
     allocation.status = formatted_status
 
-    # 3. Create Audit Log entry for Admin review
+    # 3. Reference Type Differentiation & Status Syncing
+    ref_type = (allocation.reference_type or '').lower()
+
+    if ref_type in ['training_engagement', 'training', 'webinar', 'workshop']:
+        # Fetch and update target Training Engagement record
+        training_item = (
+            db.query(TrainingEngagement)
+            .filter(func.lower(TrainingEngagement.engagement_id) == allocation.reference_id.lower())
+            .first()
+        )
+        if training_item:
+            training_item.status = formatted_status  # e.g., 'rejected_by_employee'
+
+    elif ref_type == 'project':
+        # Fetch and update target Project record (if applicable)
+        project_item = (
+            db.query(Project)
+            .filter(func.lower(Project.project_id) == allocation.reference_id.lower())
+            .first()
+        )
+        if project_item:
+            project_item.status = formatted_status
+
+    # 4. Create Audit Log entry for Admin review
     new_log_id = generate_next_log_id(db)
     
     log = AllocationLog(
@@ -520,11 +550,11 @@ def respond_to_allocation(
         "current_status": allocation.status
     }
 
+
 # -------------------------------------------------------------------
-# 3. SUBSTITUTE REJECTED ALLOCATION (ADMIN)
+# SUBSTITUTE REJECTED ALLOCATION (ADMIN)
 # -------------------------------------------------------------------
 def generate_next_sub_id(db: Session) -> str:
-    # Fetch all allocation IDs matching the prefix
     sub_ids = db.scalars(
         select(Substitution.substitution_id).filter(Substitution.substitution_id.like("rp2-sub-%"))
     ).all()
@@ -537,6 +567,7 @@ def generate_next_sub_id(db: Session) -> str:
             
     return f"rp2-sub-{max_num + 1:04d}"
 
+
 @router.post("/{reference_id}/substitute", response_model=SubstitutionResponse, status_code=status.HTTP_201_CREATED)
 def substitute_allocation(
     reference_id: str,
@@ -546,7 +577,7 @@ def substitute_allocation(
 ):
     clean_ref_id = reference_id.strip()
 
-    # 1. Fixed typo (reference_id) & added case-insensitive matching + order_by to get latest allocation
+    # 1. Fetch latest original allocation record
     orig_allocation = (
         db.query(Allocation)
         .filter(func.lower(Allocation.reference_id) == clean_ref_id.lower())
@@ -563,7 +594,28 @@ def substitute_allocation(
     # 2. Mark original allocation as SUBSTITUTED
     orig_allocation.status = "substituted"
 
-    # 3. Record substitution details
+    # 3. Dynamic Reference Type handling & linked entity status update
+    ref_type = (orig_allocation.reference_type or "project").lower()
+
+    if ref_type in ['training_engagement', 'training', 'webinar', 'workshop']:
+        training_item = (
+            db.query(TrainingEngagement)
+            .filter(func.lower(TrainingEngagement.engagement_id) == clean_ref_id.lower())
+            .first()
+        )
+        if training_item:
+            training_item.status = "proposed"  # Reset status for the substitute trainer
+
+    elif ref_type == 'project':
+        project_item = (
+            db.query(Project)
+            .filter(func.lower(Project.project_id) == clean_ref_id.lower())
+            .first()
+        )
+        if project_item:
+            project_item.status = "proposed"
+
+    # 4. Record substitution details
     sub_record = Substitution(
         substitution_id=generate_next_sub_id(db),
         original_allocation_id=orig_allocation.allocation_id,
@@ -574,11 +626,11 @@ def substitute_allocation(
     )
     db.add(sub_record)
 
-    # 4. Create replacement allocation in PROPOSED state
+    # 5. Create replacement allocation in PROPOSED state (Preserving orig_allocation.reference_type)
     new_allocation = Allocation(
         allocation_id=generate_next_allocation_id(db),
         reference_id=orig_allocation.reference_id,
-        reference_type="project",  # Preserves project type
+        reference_type=orig_allocation.reference_type,  # Dynamically preserves project or training_engagement
         resource_type=payload.substitute_resource_type,
         resource_id=payload.substitute_resource_id,
         role_on_project=orig_allocation.role_on_project,
@@ -591,7 +643,7 @@ def substitute_allocation(
     db.add(new_allocation)
     db.flush()
 
-    # 5. Log changes into allocation_log
+    # 6. Log changes into allocation_log
     log = AllocationLog(
         log_id=generate_next_log_id(db),
         allocation_id=orig_allocation.allocation_id,
@@ -604,7 +656,6 @@ def substitute_allocation(
     db.commit()
     db.refresh(sub_record)
     return sub_record
-
 
 @router.get("/my-allocations")
 def get_my_allocations(

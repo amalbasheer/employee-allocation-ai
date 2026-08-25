@@ -8,7 +8,8 @@ import {
   CheckSquare, 
   GraduationCap, 
   DockIcon,
-  Clock
+  Clock,
+  WrapText
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -23,8 +24,10 @@ export const Sidebar: React.FC = () => {
   ];
 
   const employeeNav = [
-    { label: 'My Proposals & Projects', path: '/employee/dashboard', icon: DockIcon },
+    { label: 'My Proposal & Projects', path: '/employee/dashboard', icon: DockIcon },
+    { label: 'Training & Engagements', path: '/employee/engagement', icon: WrapText},
     { label: 'Availability Check', path: '/employee/availability', icon: Clock },
+    
   
   ];
 

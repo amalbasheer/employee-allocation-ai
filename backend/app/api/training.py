@@ -340,12 +340,13 @@ def confirm_allocation(engagement_id: str, db: Session = Depends(get_db)):
         Allocation.reference_type.in_(["webinar", "training", "engagement"])
     ).first()
     if alloc:
-        alloc.status = "allocated"
+        alloc.status = "assigned"
 
     log_entry = AllocationLog(
-        reference_id=engagement_id,
-        employee_id=engagement.mentor_id,
-        action="confirmed_assigned",
+        log_id=generate_next_log_id(db),
+        allocation_id=alloc.allocation_id,
+        action="TRAINER_ASSIGNED",
+        changed_by="admin",
         timestamp=datetime.now(timezone.utc)
     )
     db.add(log_entry)
