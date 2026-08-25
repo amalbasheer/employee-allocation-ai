@@ -46,16 +46,16 @@ export const AllocationActionButtons: React.FC<AllocationActionButtonsProps> = (
         {/* ========================================== */}
         {/* EMPLOYEE ACTIONS                           */}
         {/* ========================================== */}
-        {!isAdmin && allocation.status === AllocationStatus.PROPOSED && (
+        {!isAdmin && allocation.status === 'proposed' && (
           <>
             <button
-              onClick={() => handleStatusChange(AllocationStatus.ACCEPTED)}
+              onClick={() => handleStatusChange('accepted')}
               className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded text-sm font-medium transition"
             >
               Accept Proposal
             </button>
             <button
-              onClick={() => handleStatusChange(AllocationStatus.REJECTED)}
+              onClick={() => handleStatusChange('rejected')}
               className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded text-sm font-medium transition"
             >
               Reject Proposal
@@ -69,9 +69,9 @@ export const AllocationActionButtons: React.FC<AllocationActionButtonsProps> = (
         {isAdmin && (
           <>
             {/* Confirm assignment when candidate accepted */}
-            {allocation.status === AllocationStatus.ACCEPTED && (
+            {allocation.status === 'accepted' && (
               <button
-                onClick={() => handleStatusChange(AllocationStatus.ASSIGNED)}
+                onClick={() => handleStatusChange('assigned')}
                 className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium transition"
               >
                 Confirm Assignment
@@ -79,7 +79,7 @@ export const AllocationActionButtons: React.FC<AllocationActionButtonsProps> = (
             )}
 
             {/* Trigger substitution modal when candidate rejected */}
-            {allocation.status === AllocationStatus.REJECTED && onOpenSubstituteModal && (
+            {allocation.status === 'rejected' && onOpenSubstituteModal && (
               <button
                 onClick={() => onOpenSubstituteModal(allocation)}
                 className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded text-sm font-medium transition"
@@ -93,23 +93,19 @@ export const AllocationActionButtons: React.FC<AllocationActionButtonsProps> = (
         {/* ========================================== */}
         {/* READ-ONLY STATUS BADGES                    */}
         {/* ========================================== */}
-        {allocation.status === AllocationStatus.ASSIGNED && (
+        {allocation.status === 'assigned' && (
           <span className="px-2.5 py-1 bg-green-100 text-green-800 rounded-full text-xs font-semibold">
             Assigned (Active)
           </span>
         )}
 
-        {allocation.status === AllocationStatus.SUBSTITUTED && (
+        {allocation.status === 'substituted' && (
           <span className="px-2.5 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-semibold">
             Substituted
           </span>
         )}
 
-        {allocation.status === AllocationStatus.CANCELLED && (
-          <span className="px-2.5 py-1 bg-gray-100 text-gray-800 rounded-full text-xs font-semibold">
-            Cancelled
-          </span>
-        )}
+        
       </div>
     </div>
   );

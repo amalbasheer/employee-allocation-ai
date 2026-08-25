@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { 
   Plus, Layers, Sliders, Clock, Send, UserCheck, XCircle, CheckCircle2, 
   Tag, Calendar, ArrowRight, ThumbsUp, ThumbsDown, GraduationCap, CheckCircle,
-  Star, UserPlus, RefreshCw, Users, FolderPlus, X, PlayCircle, Crown 
+  Star, UserPlus, RefreshCw, Users, FolderPlus, X, PlayCircle, Crown, Sparkles 
 } from 'lucide-react';
 import { Card } from '../../components/common/Card';
+import AIProjectModal from "../../components/AIProjectModal";
 import api from '../../services/api'
 import { AllocationStatus } from '../../types';
 
@@ -77,6 +78,7 @@ export const ProjectAllocation: React.FC = () => {
   const [selectedProjectId, setSelectedProjectId] = useState<string|null>(null);
   const [loadingProjects, setLoadingProjects] = useState<boolean>(false);
   // Modal State
+  const [isAIModalOpen, setIsAIModalOpen] = useState<boolean>(false);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [projectName, setProjectName] = useState('');
   const [description, setDescription] = useState('');
@@ -630,12 +632,26 @@ export const ProjectAllocation: React.FC = () => {
           <h1 className="text-2xl font-bold text-white">Project Allocation Portal</h1>
           <p className="text-slate-400 text-sm">Manage projects and assign recommended mentors and students.</p>
         </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg transition-all"
-        >
-          <Plus className="w-4 h-4" /> Add Project
-        </button>
+        <div className="flex items-center gap-3">
+  {/* Standard Add Project Button */}
+  <button
+    onClick={() => setIsModalOpen(true)}
+    className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg transition-all"
+    type="button"
+  >
+    <Plus className="w-4 h-4" /> Add Project
+  </button>
+
+  {/* AI Project Generator Button */}
+  <button
+    onClick={() => setIsAIModalOpen(true)}
+    className="bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg transition-all"
+    type="button"
+  >
+    <Sparkles size={16} /> Generate AI Project
+  </button>
+</div>
+      
       </div>
 
       {/* Main Navigation Tabs */}
@@ -700,7 +716,10 @@ export const ProjectAllocation: React.FC = () => {
                     <div className="flex flex-wrap gap-1.5 pt-1">
   {(project.requiredSkills ?? []).map((skill, index) => (
     <span key={index} className="text-[11px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded-md border border-slate-800">
-      {typeof skill === 'object' ? (skill.skill_name || skill.skill_id) : skill}
+      {typeof skill === 'object' && skill !== null
+        ? ((skill as { skill_name?: string; skill_id?: string }).skill_name ||
+          (skill as { skill_name?: string; skill_id?: string }).skill_id)
+        : skill}
     </span>
   ))}
 </div>
@@ -1214,6 +1233,48 @@ export const ProjectAllocation: React.FC = () => {
           </div>
         </div>
       )}
+      {/* 4. Render the AI Modal */}
+      <AIProjectModal
+        isOpen={isAIModalOpen}
+        onClose={() => setIsAIModalOpen(false)}
+      />
     </div>
-  );
-};
+  );}
+  // Inline TypeScript style definitions
+const styles: Record<string, React.CSSProperties> = {
+  container: {
+    padding: "24px",
+    color: "var(--text-main, currentColor)",
+  },
+  headerRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "24px",
+  },
+  title: {
+    fontSize: "24px",
+    fontWeight: 700,
+    margin: 0,
+    color: "var(--text-main, currentColor)",
+  },
+  subtitle: {
+    fontSize: "14px",
+    color: "var(--text-muted, #64748b)",
+    margin: "4px 0 0 0",
+  },
+  aiButton: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "10px 18px",
+    backgroundColor: "#8b5cf6",
+    color: "#ffffff",
+    border: "none",
+    borderRadius: "6px",
+    fontWeight: 600,
+    cursor: "pointer",
+    transition: "background-color 0.2s ease",
+  },
+}
+;
