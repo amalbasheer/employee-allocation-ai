@@ -1,255 +1,496 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import Chart from 'react-apexcharts';
-import { Card } from '../../components/common/Card';
-import { Users, GitMerge, CheckCircle, AlertTriangle } from 'lucide-react';
+import React, { useEffect, useState } from "react";
+import {
+  Briefcase,
+  Users,
+  Clock,
+  Zap,
+  UserCheck,
+  RefreshCw,
+  TrendingUp,
+  PieChart,
+  CheckCircle2,
+  AlertCircle,
+} from "lucide-react";
 
-interface AllocationsTrend {
-  categories: string[];
-  series: { name: string; data: number[] }[];
+interface SkillCoverageItem {
+  skill_name: string;
+  demand: number;
+  supply: number;
+  coverage_pct: number;
 }
 
-interface ProjectStatus {
-  labels: string[];
-  series: number[];
+interface AuditLog {
+  id: string | number;
+  action: string;
+  target: string;
+  changed_by: string;
+  timestamp: string;
 }
 
-interface DashboardMetrics {
-  totalProjects?: number;
-  total_projects?: number;
-  activeCandidates?: number;
-  active_candidates?: number;
-  allocationRate?: string;
-  allocation_rate?: string;
-  pendingApprovals?: number;
-  pending_approvals?: number;
-  allocationsTrend?: AllocationsTrend;
-  allocations_trend?: AllocationsTrend;
-  projectStatus?: ProjectStatus;
-  project_status?: ProjectStatus;
+interface DashboardData {
+  kpis: {
+    active_projects: number;
+    total_projects: number;
+    utilization_rate: number;
+    allocated_hours: number;
+    capacity_hours: number;
+    avg_ai_match_score: number;
+    total_employees: number;
+    total_interns: number;
+    pending_intern_reviews: number;
+  };
+  allocations_trend: { categories: string[]; series: Array<{ data: number[] }> };
+  entity_allocation_breakdown: { series: number[] };
+  skill_coverage: SkillCoverageItem[];
+  recent_logs: AuditLog[];
 }
 
-export const OverviewDashboard: React.FC = () => {
-  const [metricsData, setMetricsData] = useState<DashboardMetrics | null>(null);
-  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
-  const [isClient, setIsClient] = useState(false);
+export default function DashboardOverview() {
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchDashboardData = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch("/api/dashboard/overview");
+      if (!response.ok) throw new Error("Failed to fetch dashboard data");
+      const result = await response.json();
+      setData(result);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch dashboard data");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    setIsClient(true);
-  }, []);
-
-  useEffect(() => {
-    const fetchDashboardData = async () => {
-      try {
-        const res = await fetch('/api/dashboard/overview');
-        if (res.ok) {
-          const data = await res.json();
-          setMetricsData(data);
-        } else {
-          throw new Error('API request failed');
-        }
-      } catch {
-        // Fallback default dataset if endpoint is unmapped or offline
-        setMetricsData({
-          totalProjects: 24,
-          activeCandidates: 142,
-          allocationRate: '89%',
-          pendingApprovals: 3,
-          allocationsTrend: {
-            categories: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
-            series: [
-              { name: 'Assigned', data: [12, 19, 15, 25, 22, 30] },
-              { name: 'Proposed', data: [5, 8, 12, 6, 9, 4] },
-            ],
-          },
-          projectStatus: {
-            labels: ['In Progress', 'Open', 'Completed', 'Cancelled'],
-            series: [12, 6, 4, 2],
-          },
-        });
-      }
-    };
-
     fetchDashboardData();
-    const interval = setInterval(fetchDashboardData, 10000);
-    return () => clearInterval(interval);
   }, []);
 
-  // Safe extractors that work with both snake_case (FastAPI) and camelCase
-  const trend = metricsData?.allocationsTrend || metricsData?.allocations_trend;
-  const status = metricsData?.projectStatus || metricsData?.project_status;
+  if (loading) {
+    return (
+      <div style={styles.centerContainer}>
+        <RefreshCw size={32} style={{ animation: "spin 1s linear infinite" }} />
+        <p style={{ marginTop: 12, fontSize: 16, color: "var(--text-muted, #94a3b8)" }}>
+          Loading Dashboard Metrics...
+        </p>
+      </div>
+    );
+  }
 
-  const categories = trend?.categories || [];
-  const trendSeries = trend?.series || [];
-  const statusLabels = status?.labels || [];
-  const statusSeries = status?.series || [];
+  if (error || !data) {
+    return (
+      <div style={styles.centerContainer}>
+        <AlertCircle size={40} color="var(--color-danger, #ef4444)" />
+        <p style={{ marginTop: 12, color: "var(--color-danger, #ef4444)", fontWeight: 600 }}>
+          {error || "Error loading metrics"}
+        </p>
+        <button onClick={fetchDashboardData} style={styles.retryButton}>
+          Retry
+        </button>
+      </div>
+    );
+  }
 
-  const barChartOptions: ApexCharts.ApexOptions = useMemo(
-    () => ({
-      chart: {
-        type: 'bar',
-        stacked: true,
-        background: 'transparent',
-        toolbar: { show: false },
-        events: {
-          dataPointSelection: (event, chartContext, config) => {
-            if (config && categories.length > config.dataPointIndex) {
-              setSelectedMonth(categories[config.dataPointIndex]);
-            }
-          },
-        },
-      },
-      theme: { mode: 'dark' },
-      colors: ['#818cf8', '#64748b'],
-      plotOptions: {
-        bar: { borderRadius: 6, columnWidth: '40%' },
-      },
-      xaxis: {
-        categories: categories,
-        labels: { style: { colors: '#94a3b8' } },
-        axisBorder: { color: '#334155' },
-        axisTicks: { color: '#334155' },
-      },
-      yaxis: {
-        labels: { style: { colors: '#94a3b8' } },
-      },
-      grid: { borderColor: '#1e293b' },
-      legend: { labels: { colors: '#cbd5e1' }, position: 'top', horizontalAlign: 'right' },
-      dataLabels: { enabled: false },
-      tooltip: { theme: 'dark' },
-    }),
-    [categories]
-  );
+  const { kpis, allocations_trend, entity_allocation_breakdown, skill_coverage, recent_logs } = data;
 
-  const donutChartOptions: ApexCharts.ApexOptions = useMemo(
-    () => ({
-      chart: { background: 'transparent' },
-      theme: { mode: 'dark' },
-      labels: statusLabels,
-      colors: ['#34d399', '#818cf8', '#fbbf24', '#f87171'],
-      legend: { position: 'bottom', labels: { colors: '#cbd5e1' } },
-      stroke: { colors: ['#020617'] },
-      dataLabels: { enabled: true },
-      tooltip: { theme: 'dark' },
-    }),
-    [statusLabels]
-  );
-
-  const metrics = [
-    {
-      label: 'Total Projects',
-      value: metricsData?.totalProjects ?? metricsData?.total_projects ?? '24',
-      icon: GitMerge,
-      color: 'text-indigo-400',
-    },
-    {
-      label: 'Active Candidates',
-      value: metricsData?.activeCandidates ?? metricsData?.active_candidates ?? '142',
-      icon: Users,
-      color: 'text-emerald-400',
-    },
-    {
-      label: 'Successful Allocations',
-      value: metricsData?.allocationRate ?? metricsData?.allocation_rate ?? '89%',
-      icon: CheckCircle,
-      color: 'text-amber-400',
-    },
-    {
-      label: 'Pending Approvals',
-      value: metricsData?.pendingApprovals ?? metricsData?.pending_approvals ?? '3',
-      icon: AlertTriangle,
-      color: 'text-rose-400',
-    },
-  ];
+  const maxTrendValue = Math.max(...allocations_trend.series[0].data, ...allocations_trend.series[1].data, 10);
+  const totalEntityHours = entity_allocation_breakdown.series.reduce((a, b) => a + b, 0) || 1;
 
   return (
-    <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div style={styles.dashboardLayout}>
+      {/* HEADER */}
+      <div style={styles.headerRow}>
         <div>
-          <h1 className="text-2xl font-bold text-white">System Analytics & Overview</h1>
-          <p className="text-slate-400 text-sm">High-level metrics across active projects, candidate availability, and match rates.</p>
+          <h1 style={styles.title}>Resource & Allocation Overview</h1>
+          <p style={styles.subtitle}>Real-time telemetry across projects, candidates, AI engine, and engagements</p>
         </div>
-
-        {selectedMonth && (
-          <button
-            onClick={() => setSelectedMonth(null)}
-            className="self-start sm:self-auto text-xs px-3 py-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20 transition-colors flex items-center gap-1.5"
-          >
-            Filtered Month: <span className="font-semibold">{selectedMonth}</span> ✕
-          </button>
-        )}
+        <button onClick={fetchDashboardData} style={styles.refreshBtn}>
+          <RefreshCw size={16} /> Sync Live Data
+        </button>
       </div>
 
-      {/* Top Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {metrics.map((m, i) => {
-          const Icon = m.icon;
-          return (
-            <Card key={i}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-xs text-slate-400">{m.label}</span>
-                  <h3 className="text-2xl font-black text-white mt-1">{m.value}</h3>
-                </div>
-                <div className={`p-3 bg-slate-950 rounded-xl border border-slate-800 ${m.color}`}>
-                  <Icon className="w-6 h-6" />
-                </div>
-              </div>
-            </Card>
-          );
-        })}
+      {/* KPI CARDS */}
+      <div style={styles.kpiGrid}>
+        <MetricCard
+          title="Active Projects"
+          value={`${kpis.active_projects} / ${kpis.total_projects}`}
+          subtext="Total Tracked Projects"
+          icon={<Briefcase color="#3b82f6" />}
+          badgeColor="rgba(59, 130, 246, 0.15)"
+        />
+        <MetricCard
+          title="Resource Utilization"
+          value={`${kpis.utilization_rate}%`}
+          subtext={`${kpis.allocated_hours} hrs / ${kpis.capacity_hours} hrs capacity`}
+          icon={<Clock color="#10b981" />}
+          badgeColor="rgba(16, 185, 129, 0.15)"
+        />
+        <MetricCard
+          title="AI Match Quality"
+          value={`${kpis.avg_ai_match_score}%`}
+          subtext="Avg Suitability Rating"
+          icon={<Zap color="#8b5cf6" />}
+          badgeColor="rgba(139, 92, 246, 0.15)"
+        />
+        <MetricCard
+          title="Talent Pool"
+          value={`${kpis.total_employees} Emps | ${kpis.total_interns} Interns`}
+          subtext={`${kpis.pending_intern_reviews} Pending Reviews`}
+          icon={<Users color="#f59e0b" />}
+          badgeColor="rgba(245, 158, 11, 0.15)"
+        />
       </div>
 
-      {/* ApexCharts Visualizations */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Allocations Bar Chart */}
-        <div className="lg:col-span-2">
-          <Card>
-            <div className="p-1">
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <h3 className="text-base font-semibold text-white">Allocation Trends</h3>
-                  <p className="text-xs text-slate-400">Monthly breakdown of assigned vs proposed candidates</p>
-                </div>
-              </div>
+      {/* CHARTS GRID */}
+      <div style={styles.twoColumnGrid}>
+        {/* ALLOCATION TRENDS */}
+        <div style={styles.card}>
+          <div style={styles.cardHeader}>
+            <TrendingUp size={20} color="#3b82f6" />
+            <h3 style={styles.cardTitle}>Monthly Allocation Hours Trend</h3>
+          </div>
+          <div style={styles.chartLegend}>
+            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ width: 12, height: 12, borderRadius: 2, backgroundColor: "#3b82f6" }}></span> Assigned Hours
+            </span>
+            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ width: 12, height: 12, borderRadius: 2, backgroundColor: "var(--border-color, #64748b)" }}></span> Proposed Hours
+            </span>
+          </div>
+          <div style={styles.barChartContainer}>
+            {allocations_trend.categories.map((cat, idx) => {
+              const assignedVal = allocations_trend.series[0].data[idx];
+              const proposedVal = allocations_trend.series[1].data[idx];
+              const assignedHeight = (assignedVal / maxTrendValue) * 140;
+              const proposedHeight = (proposedVal / maxTrendValue) * 140;
 
-              {isClient && trendSeries.length > 0 ? (
-                <Chart
-                  options={barChartOptions}
-                  series={trendSeries}
-                  type="bar"
-                  height={320}
-                />
-              ) : (
-                <div className="h-[320px] flex items-center justify-center text-slate-500 text-sm">Loading chart data...</div>
-              )}
-            </div>
-          </Card>
+              return (
+                <div key={cat} style={styles.barGroup}>
+                  <div style={styles.barTrack}>
+                    <div
+                      title={`Assigned: ${assignedVal} hrs`}
+                      style={{ ...styles.bar, height: `${assignedHeight}px`, backgroundColor: "#3b82f6" }}
+                    />
+                    <div
+                      title={`Proposed: ${proposedVal} hrs`}
+                      style={{ ...styles.bar, height: `${proposedHeight}px`, backgroundColor: "var(--border-color, #64748b)" }}
+                    />
+                  </div>
+                  <span style={styles.barLabel}>{cat}</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
-        {/* Project Status Donut Chart */}
-        <div>
-          <Card>
-            <div className="p-1">
-              <div className="mb-2">
-                <h3 className="text-base font-semibold text-white">Project Breakdown</h3>
-                <p className="text-xs text-slate-400">Distribution across active project statuses</p>
-              </div>
+        {/* WORKLOAD BREAKDOWN */}
+        <div style={styles.card}>
+          <div style={styles.cardHeader}>
+            <PieChart size={20} color="#10b981" />
+            <h3 style={styles.cardTitle}>Assigned Hours by Work Type</h3>
+          </div>
+          <div style={{ marginTop: 16 }}>
+            {entity_allocation_breakdown.series.map((hours, idx) => {
+              const label = `Work Type ${idx + 1}`;
+              const pct = Math.round((hours / totalEntityHours) * 100);
+              const colors = ["#3b82f6", "#10b981", "#f59e0b"];
 
-              {isClient && statusSeries.length > 0 ? (
-                <Chart
-                  options={donutChartOptions}
-                  series={statusSeries}
-                  type="donut"
-                  height={320}
-                />
-              ) : (
-                <div className="h-[320px] flex items-center justify-center text-slate-500 text-sm">Loading chart data...</div>
-              )}
-            </div>
-          </Card>
+              return (
+                <div key={label} style={{ marginBottom: 16 }}>
+                  <div style={styles.progressHeader}>
+                    <span style={{ fontWeight: 600, color: "var(--text-main, currentColor)" }}>{label}</span>
+                    <span style={{ color: "var(--text-muted, #64748b)" }}>{hours} hrs ({pct}%)</span>
+                  </div>
+                  <div style={styles.progressTrack}>
+                    <div
+                      style={{
+                        height: "100%",
+                        width: `${pct}%`,
+                        backgroundColor: colors[idx % colors.length],
+                        borderRadius: 4,
+                        transition: "width 0.4s ease",
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* BOTTOM SECTION */}
+      <div style={styles.twoColumnGrid}>
+        {/* SKILL DEMAND VS SUPPLY */}
+        <div style={styles.card}>
+          <div style={styles.cardHeader}>
+            <UserCheck size={20} color="#8b5cf6" />
+            <h3 style={styles.cardTitle}>Top Demanded Skills & Supply Coverage</h3>
+          </div>
+          <div style={{ marginTop: 12 }}>
+            {skill_coverage.length === 0 ? (
+              <p style={{ color: "var(--text-muted, #94a3b8)", fontSize: 14 }}>No project skill requirements calculated yet.</p>
+            ) : (
+              skill_coverage.map((item) => (
+                <div key={item.skill_name} style={{ marginBottom: 14 }}>
+                  <div style={styles.progressHeader}>
+                    <span style={{ fontWeight: 600, color: "var(--text-main, currentColor)" }}>{item.skill_name}</span>
+                    <span style={{ fontSize: 13, color: "var(--text-muted, #64748b)" }}>
+                      Demand: {item.demand} reqs | Supply: {item.supply} ({item.coverage_pct}%)
+                    </span>
+                  </div>
+                  <div style={styles.progressTrack}>
+                    <div
+                      style={{
+                        height: "100%",
+                        width: `${item.coverage_pct}%`,
+                        backgroundColor: item.coverage_pct >= 80 ? "#10b981" : item.coverage_pct >= 50 ? "#f59e0b" : "#ef4444",
+                        borderRadius: 4,
+                      }}
+                    />
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* AUDIT LOGS */}
+        <div style={styles.card}>
+          <div style={styles.cardHeader}>
+            <CheckCircle2 size={20} color="#6366f1" />
+            <h3 style={styles.cardTitle}>Recent Allocation Audit Trail</h3>
+          </div>
+          <div style={{ marginTop: 10 }}>
+            {recent_logs.length === 0 ? (
+              <p style={{ color: "var(--text-muted, #94a3b8)", fontSize: 14 }}>No recent logs recorded.</p>
+            ) : (
+              <div style={styles.logList}>
+                {recent_logs.map((log) => (
+                  <div key={log.id} style={styles.logItem}>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text-main, currentColor)" }}>{log.action}</div>
+                      <div style={{ fontSize: 12, color: "var(--text-muted, #64748b)" }}>
+                        Target: {log.target} | By: {log.changed_by}
+                      </div>
+                    </div>
+                    <span style={{ fontSize: 12, color: "var(--text-muted, #94a3b8)", whiteSpace: "nowrap" }}>{log.timestamp}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
   );
+}
+
+function MetricCard({
+  title,
+  value,
+  subtext,
+  icon,
+  badgeColor,
+}: {
+  title: string;
+  value: React.ReactNode;
+  subtext: React.ReactNode;
+  icon: React.ReactNode;
+  badgeColor: string;
+}) {
+  return (
+    <div style={styles.kpiCard}>
+      <div style={styles.kpiHeader}>
+        <span style={styles.kpiTitle}>{title}</span>
+        <div style={{ ...styles.iconBadge, backgroundColor: badgeColor }}>{icon}</div>
+      </div>
+      <div style={styles.kpiValue}>{value}</div>
+      <div style={styles.kpiSubtext}>{subtext}</div>
+    </div>
+  );
+}
+
+const styles: Record<string, React.CSSProperties> = {
+  dashboardLayout: {
+    padding: "24px",
+    backgroundColor: "transparent",
+    minHeight: "100vh",
+    fontFamily: "inherit",
+    color: "var(--text-main, currentColor)",
+  },
+  headerRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "24px",
+  },
+  title: {
+    fontSize: "24px",
+    fontWeight: "700",
+    color: "var(--text-main, currentColor)",
+    margin: 0,
+  },
+  subtitle: {
+    fontSize: "14px",
+    color: "var(--text-muted, #64748b)",
+    margin: "4px 0 0 0",
+  },
+  refreshBtn: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "8px 16px",
+    backgroundColor: "var(--bg-card, rgba(255, 255, 255, 0.05))",
+    border: "1px solid var(--border-color, rgba(255, 255, 255, 0.1))",
+    borderRadius: "6px",
+    fontWeight: "600",
+    color: "var(--text-main, currentColor)",
+    cursor: "pointer",
+  },
+  kpiGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: "16px",
+    marginBottom: "24px",
+  },
+  kpiCard: {
+    backgroundColor: "var(--bg-card, rgba(255, 255, 255, 0.03))",
+    borderRadius: "8px",
+    padding: "16px",
+    border: "1px solid var(--border-color, rgba(255, 255, 255, 0.1))",
+  },
+  kpiHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  kpiTitle: {
+    fontSize: "13px",
+    fontWeight: "600",
+    color: "var(--text-muted, #64748b)",
+  },
+  iconBadge: {
+    padding: "8px",
+    borderRadius: "8px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  kpiValue: {
+    fontSize: "20px",
+    fontWeight: "700",
+    color: "var(--text-main, currentColor)",
+    marginTop: "12px",
+  },
+  kpiSubtext: {
+    fontSize: "12px",
+    color: "var(--text-muted, #64748b)",
+    marginTop: "4px",
+  },
+  twoColumnGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+    gap: "20px",
+    marginBottom: "24px",
+  },
+  card: {
+    backgroundColor: "var(--bg-card, rgba(255, 255, 255, 0.03))",
+    borderRadius: "8px",
+    padding: "20px",
+    border: "1px solid var(--border-color, rgba(255, 255, 255, 0.1))",
+  },
+  cardHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+  },
+  cardTitle: {
+    fontSize: "16px",
+    fontWeight: "600",
+    color: "var(--text-main, currentColor)",
+    margin: 0,
+  },
+  chartLegend: {
+    display: "flex",
+    gap: "16px",
+    fontSize: "12px",
+    color: "var(--text-muted, #64748b)",
+    marginTop: "12px",
+    marginBottom: "12px",
+  },
+  barChartContainer: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    height: "170px",
+    paddingTop: "20px",
+  },
+  barGroup: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    flex: 1,
+  },
+  barTrack: {
+    display: "flex",
+    alignItems: "flex-end",
+    gap: "4px",
+    height: "140px",
+  },
+  bar: {
+    width: "12px",
+    borderRadius: "4px 4px 0 0",
+    transition: "height 0.3s ease",
+  },
+  barLabel: {
+    fontSize: "12px",
+    color: "var(--text-muted, #64748b)",
+    marginTop: "8px",
+  },
+  progressHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    fontSize: "13px",
+    marginBottom: "6px",
+  },
+  progressTrack: {
+    height: "8px",
+    backgroundColor: "var(--bg-track, rgba(255, 255, 255, 0.1))",
+    borderRadius: "4px",
+    overflow: "hidden",
+  },
+  logList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+  },
+  logItem: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "8px 12px",
+    backgroundColor: "var(--bg-item, rgba(255, 255, 255, 0.02))",
+    borderRadius: "6px",
+    borderLeft: "3px solid #6366f1",
+  },
+  centerContainer: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    height: "60vh",
+  },
+  retryButton: {
+    marginTop: "12px",
+    padding: "8px 16px",
+    backgroundColor: "#3b82f6",
+    color: "#ffffff",
+    border: "none",
+    borderRadius: "6px",
+    cursor: "pointer",
+  },
 };

@@ -4,7 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppLayout } from './components/layout/AppLayout';
 import { Login } from './pages/auth/Login';
 import { ActivateAccount } from './pages/auth/ActivateAccount';
-import { OverviewDashboard } from './pages/admin/OverviewDashboard';
+import DashboardOverview from './pages/admin/OverviewDashboard';
 import { UserManagement } from './pages/admin/UserManagement';
 import { TrainingManagement } from './pages/admin/WebinarManagement';
 import { EmployeeDashboard } from './pages/employee/EmployeeDashboard';
@@ -55,7 +55,7 @@ export default function App() {
                 path="/admin/overview"
                 element={
                   <ProtectedRoute allowedRoles={['ADMIN']}>
-                    <OverviewDashboard />
+                    <DashboardOverview />
                   </ProtectedRoute>
                 }
               />
