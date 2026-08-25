@@ -136,16 +136,40 @@ async def fetch_recommendations(
             detail=f"Engine execution error: {str(e)}"
         )
 
-def get_or_create_skill(db: Session, skill_name: str) -> Skill:
-    """Look up skill in 'skills' table by name (case-insensitive) or insert a new entry."""
-    normalized_name = skill_name.strip().title()
-    existing_skill = db.query(Skill).filter(Skill.skill_name.ilike(normalized_name)).first()
+def get_or_create_skill(db: Session, skill_name: str, default_category: str = "General") -> Skill:
+    clean_name = skill_name.strip()
+
+    # 1. Check if skill already exists (case-insensitive)
+    existing_skill = (
+        db.query(Skill)
+        .filter(func.lower(Skill.skill_name) == clean_name.lower())
+        .first()
+    )
     if existing_skill:
         return existing_skill
 
-    new_skill = Skill(skill_name=normalized_name)
+    # 2. Generate Skill Embedding (if embedding function exists)
+    embedding = None
+    if generate_embedding:
+        try:
+            embedding = generate_embedding(clean_name)
+        except Exception as e:
+            logger.warning(f"Failed to generate embedding for skill '{clean_name}': {e}")
+
+    # 3. Auto-generate skills_id (Format: rp2-skl-0001)
+    total_skills = db.query(func.count(Skill.skill_id)).scalar() or 0
+    next_id = f"rp2-skl-{(total_skills + 1):04d}"
+
+    # 4. Create and insert new Skill record
+    new_skill = Skill(
+        skill_id=next_id,
+        skill_name=clean_name,
+        skill_embedding=embedding,
+        category=default_category
+    )
     db.add(new_skill)
-    db.flush()
+    db.flush()  # Flushes to obtain skills_id without committing transaction
+
     return new_skill
 
 
@@ -252,8 +276,6 @@ def get_projects(
     return db.query(Project).all()
 
 
- # create a new project with auto-generated ID, deduplicated skills, and AI-driven vector embeddings
-
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 def create_project(
     project_in: ProjectCreate, 
@@ -262,14 +284,15 @@ def create_project(
 ):
     """
     Create a new project with auto-generated ID (rp2-proj-XXXX),
-    deduplicated skills, and AI-driven vector embeddings.
+    deduplicated skills, auto-populated skills table, vector embeddings,
+    and returns requirement details including skill_name.
     """
     raw_skills_input = getattr(project_in, "raw_skills", []) or []
     project_data = project_in.model_dump(exclude={"requirements", "raw_skills"})
 
     try:
         # -------------------------------------------------------------
-        # 1. AUTO ID GENERATION (Format: rp2-proj-0001)
+        # 1. AUTO PROJECT ID GENERATION
         # -------------------------------------------------------------
         if not project_data.get("project_id"):
             total_count = db.query(func.count(Project.project_id)).scalar() or 0
@@ -277,109 +300,126 @@ def create_project(
 
         new_project = Project(**project_data, status="open")
         db.add(new_project)
-        db.flush()  # Ensures project_id is bound for requirements
+        db.flush()
 
         # -------------------------------------------------------------
-        # 2. PROCESS REQUIREMENTS
+        # 2. PROCESS & DEDUPLICATE REQUIREMENTS
         # -------------------------------------------------------------
         raw_requirements: List[Dict[str, Any]] = []
 
-        # Case A: Explicit requirements passed in payload
+        # Case A: Explicit requirements
         explicit_reqs = getattr(project_in, "requirements", None)
         if explicit_reqs:
             for req in explicit_reqs:
                 s_name = getattr(req, "skill_name", None) or getattr(req, "skill_id", "General")
                 raw_requirements.append({
-                    "skill_name": s_name,
+                    "skill_name": str(s_name),
                     "min_proficiency": getattr(req, "min_proficiency", 3),
                     "is_mandatory": getattr(req, "is_mandatory", True)
                 })
 
-        # Case B: AI Skill Extraction from description + raw_skills
+        # Case B: AI Skill Extraction
         if not raw_requirements and extract_skills_from_text:
             if new_project.description or raw_skills_input:
                 try:
                     extracted = extract_skills_from_text(
-                        description=new_project.description or "",
-                        raw_skills=raw_skills_input
+                        new_project.description or "",
+                        raw_skills_input
                     )
                     for item in extracted:
+                        s_name = getattr(item, "skill_name", str(item))
                         raw_requirements.append({
-                            "skill_name": getattr(item, "skill_name", str(item)),
+                            "skill_name": str(s_name),
                             "min_proficiency": getattr(item, "min_proficiency", 3),
                             "is_mandatory": getattr(item, "is_mandatory", True)
                         })
                 except Exception as e:
                     logger.warning(f"AI skill extraction failed: {e}. Falling back to raw skills.")
 
-        # Case C: Fallback to raw_skills list
+        # Case C: Fallback raw skills list
         if not raw_requirements and raw_skills_input:
             for sk_name in raw_skills_input:
                 raw_requirements.append({
-                    "skill_name": sk_name,
+                    "skill_name": str(sk_name),
                     "min_proficiency": 3,
                     "is_mandatory": True
                 })
 
-        # -------------------------------------------------------------
-        # 3. DEDUPLICATION BY SKILL NAME
-        # -------------------------------------------------------------
+        # Case-insensitive deduplication
         seen_skills = set()
         deduped_requirements = []
-
         for req in raw_requirements:
             normalized_name = req["skill_name"].strip().lower()
-            if normalized_name not in seen_skills:
+            if normalized_name and normalized_name not in seen_skills:
                 seen_skills.add(normalized_name)
                 deduped_requirements.append(req)
 
         # -------------------------------------------------------------
-        # 4. RESOLVE SKILL IDs, EMBEDDINGS & SAVE REQUIREMENTS
+        # 3. POPULATE SKILLS & REQUIREMENTS TABLE
         # -------------------------------------------------------------
-        for req_data in deduped_requirements:
-            skill_name = req_data["skill_name"].strip()
-            skill_obj = get_or_create_skill(db, skill_name)
+        project_category = getattr(new_project, "category", "General") or "General"
+        total_req_count = db.query(func.count(ProjectRequirement.requirement_id)).scalar() or 0
 
-            embedding_vector = None
-            if generate_embedding:
+        # List to hold response structure with skill_name included
+        formatted_requirements_output = []
+
+        for idx, req_data in enumerate(deduped_requirements, start=1):
+            clean_skill_name = req_data["skill_name"].strip()
+
+            # Ensure skill exists in DB
+            skill_obj = get_or_create_skill(db, clean_skill_name, default_category=project_category)
+
+            # Resolve skill ID safely
+            resolved_skill_id = (
+                getattr(skill_obj, "skills_id", None) 
+                or getattr(skill_obj, "skill_id", None)
+            )
+
+            # Resolve embedding safely
+            req_embedding = getattr(skill_obj, "skill_embedding", None)
+            if not req_embedding and generate_embedding:
                 try:
-                    embedding_vector = generate_embedding(skill_name)
+                    req_embedding = generate_embedding(clean_skill_name)
                 except Exception as e:
-                    logger.warning(f"Embedding generation failed for skill '{skill_name}': {e}")
+                    logger.warning(f"Embedding generation failed for '{clean_skill_name}': {e}")
+
+            # Generate unique requirement ID
+            req_id = f"rp2-req-{(total_req_count + idx):04d}"
 
             db_req = ProjectRequirement(
+                requirement_id=req_id,
                 project_id=new_project.project_id,
-                skill_id=skill_obj.skill_id,
+                skill_id=resolved_skill_id,
                 min_proficiency=req_data["min_proficiency"],
                 is_mandatory=req_data["is_mandatory"],
-                requirement_embedding=embedding_vector
+                requirement_embedding=req_embedding
             )
             db.add(db_req)
 
+            # Collect formatted dict including skill_name for frontend
+            formatted_requirements_output.append({
+                "skill_id": resolved_skill_id,
+                "skill_name": skill_obj.skill_name,  # <-- Added skill_name
+                "min_proficiency": req_data["min_proficiency"],
+                "is_mandatory": req_data["is_mandatory"],
+            })
+
         db.commit()
         db.refresh(new_project)
-        # Safely fetch requirements relationship regardless of ORM property name
-        req_list = getattr(new_project, "requirements", None) or getattr(new_project, "project_requirements", None) or []
 
         return {
             "project_id": new_project.project_id,
             "title": new_project.title,
             "description": new_project.description or "",
-            "category": getattr(new_project, "category", "General"),
+            "category": project_category,
             "project_type": getattr(new_project, "project_type", "internal_project"),
             "status": str(new_project.status.value if hasattr(new_project.status, 'value') else new_project.status),
             "start_date": str(new_project.start_date) if new_project.start_date else None,
             "end_date": str(new_project.end_date) if new_project.end_date else None,
             "required_hours_per_week": new_project.required_hours_per_week,
             "priority_level": new_project.priority_level,
-            "requirements": [
-                {
-                    "skill_id": req.skill_id,
-                    "min_proficiency": req.min_proficiency,
-                    "is_mandatory": req.is_mandatory,
-                }
-                for req in req_list
-            ],
+            "requiredSkills": [req["skill_name"] for req in formatted_requirements_output], # <-- String array of names for frontend direct rendering
+            "requirements": formatted_requirements_output  # <-- Returns list with skill_name
         }
 
     except Exception as e:
@@ -389,6 +429,7 @@ def create_project(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create project: {str(e)}"
         )
+
 
 @router.get("/{project_id}", response_model=ProjectResponse)
 def get_project_by_id(

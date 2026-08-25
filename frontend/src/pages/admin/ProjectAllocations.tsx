@@ -51,6 +51,7 @@ export interface Project {
   allocatedStudentIds?: string[];
   allocatedStudentsname?: string[];
   proposedMentorStatus?: AllocatedStatus;
+  isSubstituting?: boolean;
 }
 
 // --- Mock Data ---
@@ -367,6 +368,7 @@ export const ProjectAllocation: React.FC = () => {
 
 // 2. Confirm Mentor Assignment (Admin Action)
   // Confirm Mentor Assignment (Admin Action)
+  // Confirm Mentor Assignment (Admin Action)
   const handleConfirmMentor = async (
     itemOrId: string | { allocationId?: string; reference_id?: string; project_id?: string; id?: string }
   ) => {
@@ -394,7 +396,13 @@ export const ProjectAllocation: React.FC = () => {
             p.id === targetId ||
             p.allocationId === targetId ||
             p.reference_id === targetId
-              ? { ...p, status: 'in_progress', allocationStatus: 'assigned' }
+              ? {
+                  ...p,
+                  status: 'in_progress',
+                  allocationStatus: 'assigned',
+                  proposedMentorStatus: 'assigned', // Updates UI from 'accepted' to 'assigned'
+                  isSubstituting: false            // Resets substitution tracking state
+                }
               : p
           )
         );
@@ -550,7 +558,12 @@ export const ProjectAllocation: React.FC = () => {
               <XCircle className="w-3 h-3" /> Mentor Declined (Unassigned)
             </span>
           );
-
+        case 'substituted':
+          return (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-purple-500/10 text-purple-400 border border-purple-500/20">
+              <RefreshCw className="w-3 h-3" /> Mentor Substituted
+            </span>
+          );
         
         case 'unassigned':
         default:
@@ -685,12 +698,12 @@ export const ProjectAllocation: React.FC = () => {
                     </div>
                     
                     <div className="flex flex-wrap gap-1.5 pt-1">
-                      {(project.requiredSkills ?? []).map((skill, index) => (
-                        <span key={index} className="text-[11px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded-md border border-slate-800">
-                          {skill}
-                        </span>
-                      ))}
-                    </div>
+  {(project.requiredSkills ?? []).map((skill, index) => (
+    <span key={index} className="text-[11px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded-md border border-slate-800">
+      {typeof skill === 'object' ? (skill.skill_name || skill.skill_id) : skill}
+    </span>
+  ))}
+</div>
                   </div>
 
                   <div className="flex flex-col md:items-end gap-3 border-t md:border-t-0 border-slate-800 pt-3 md:pt-0">
@@ -827,6 +840,7 @@ export const ProjectAllocation: React.FC = () => {
                     {recommendedMentors.map((mentor, idx) => {
                       const isThisMentorProposed = selectedProject.proposedMentorId === mentor.id;
                       const hasAnyMentorProposed = Boolean(selectedProject.proposedMentorId);
+                      const isRejected = selectedProject.proposedMentorStatus === 'rejected';
                       const isTopMentor = idx === 0;
 
                       return (
@@ -863,86 +877,87 @@ export const ProjectAllocation: React.FC = () => {
                           </div>
 
                           <div className="flex items-center gap-2">
-                            {isThisMentorProposed && selectedProject.proposedMentorStatus === 'proposed' && (
-                              <div className="flex flex-col items-end gap-1">
-                                <button
-                                  disabled
-                                  className="bg-slate-800 text-slate-400 cursor-not-allowed text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 border border-slate-700 opacity-80"
-                                >
-                                  <Send className="w-3.5 h-3.5 text-amber-400" /> Proposed
-                                </button>
-                                <span className="text-[10px] text-amber-400 font-medium italic">
-                                  Waiting for acceptance...
+                          {/* 1. Proposed State: Waiting for Mentor Acceptance */}
+                          {isThisMentorProposed && selectedProject.proposedMentorStatus === 'proposed' && (
+                            <div className="flex flex-col items-end gap-1">
+                              <button
+                                disabled
+                                className="bg-slate-800 text-slate-400 cursor-not-allowed text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 border border-slate-700 opacity-80"
+                              >
+                                <Send className="w-3.5 h-3.5 text-amber-400" /> Proposed
+                              </button>
+                              <span className="text-[10px] text-amber-400 font-medium italic">
+                                Waiting for acceptance...
+                              </span>
+                            </div>
+                          )}
+
+                          {/* 2. Accepted State: Confirm Button (Handles Initial Allocation vs. Substitution) */}
+                          {isThisMentorProposed && selectedProject.proposedMentorStatus === 'accepted' && (
+                            <div className="flex flex-col items-end gap-1">
+                              <button
+                                onClick={() => handleConfirmMentor(selectedProject.id)}
+                                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-lg animate-pulse flex items-center gap-1.5"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                {selectedProject.isSubstituting || selectedProject.status === 'open'
+                                  ? 'Confirm Substitution'
+                                  : 'Confirm Allocation'}
+                              </button>
+                              <span className="text-[10px] text-emerald-400 font-medium">
+                                {selectedProject.isSubstituting || selectedProject.status === 'open'
+                                  ? 'Substituted mentor accepted proposal!'
+                                  : 'Mentor accepted proposal!'}
                                 </span>
                               </div>
                             )}
-                          </div>
 
-                          <div className="flex items-center gap-2">
-                            {/* Confirm Allocation Button - Hides once assigned or in progress */}
-                            {isThisMentorProposed &&
-                              selectedProject.proposedMentorStatus === 'accepted' &&
-                              selectedProject.status !== 'in_progress' && (
-                                <div className="flex flex-col items-end gap-1">
-                                  <button
-                                    onClick={() => handleConfirmMentor(selectedProject.id)}
-                                    className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-lg animate-pulse"
-                                  >
-                                    Confirm Allocation
-                                  </button>
-                                  <span className="text-[10px] text-emerald-400 font-medium">
-                                    Mentor accepted proposal!
-                                  </span>
-                                </div>
-                              )}
+                            {/* 3. Assigned State: Active Mentor */}
+                            {isThisMentorProposed && selectedProject.proposedMentorStatus === 'assigned' && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-emerald-400 font-bold flex items-center gap-1.5 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/20">
+                                  <CheckCircle2 className="w-3.5 h-3.5" /> Assigned Mentor
+                                </span>
+                                <button
+                                  onClick={() => handleResetMentorProposal(selectedProject.id)}
+                                  className="text-xs text-slate-400 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800 transition-all flex items-center gap-1"
+                                  title="Substitute Mentor"
+                                >
+                                  <RefreshCw className="w-3.5 h-3.5" /> Substitute
+                                </button>
+                              </div>
+                            )}
 
-                            {/* Assigned Mentor Badge - Shown when project is assigned / in progress */}
-                            {isThisMentorProposed &&
-                              (selectedProject.status === 'in_progress' ||
-                                selectedProject.proposedMentorStatus === 'assigned') && (
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xs text-emerald-400 font-bold flex items-center gap-1.5 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/20">
-                                    <CheckCircle2 className="w-3.5 h-3.5" /> Assigned Mentor
-                                  </span>
-                                  <button
-                                    onClick={() => handleResetMentorProposal(selectedProject.id)}
-                                    className="text-xs text-slate-400 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800 transition-all"
-                                    title="Reassign Mentor"
-                                  >
-                                    <RefreshCw className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              )}
-                          </div>
-
-                          {!isThisMentorProposed && (
-                            <button
-                              onClick={() => handleProposeMentor(selectedProject.id, mentor)}
-                              disabled={
-                                hasAnyMentorProposed &&
-                                selectedProject.proposedMentorStatus !== 'rejected'
-                              }
-                              className={`text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all ${
-                                hasAnyMentorProposed &&
-                                selectedProject.proposedMentorStatus !== 'rejected'
-                                  ? 'bg-slate-800/60 text-slate-500 border border-slate-800 cursor-not-allowed'
-                                  : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md'
-                              }`}
-                              title={
-                                hasAnyMentorProposed &&
-                                selectedProject.proposedMentorStatus !== 'rejected'
-                                  ? 'Another mentor is already proposed or assigned'
-                                  : selectedProject.proposedMentorStatus === 'rejected'
-                                    ? 'Substitute and repropose this mentor'
-                                    : 'Propose this mentor'
-                              }
-                            >
-                              <UserPlus className="w-3.5 h-3.5" />
-                              {selectedProject.proposedMentorStatus === 'rejected'
-                                ? 'Substitute Mentor'
-                                : 'Propose as Mentor'}
-                            </button>
-                          )}
+                            {/* 4. Unproposed State: Propose / Substitute Action */}
+                            {!isThisMentorProposed && (
+                              <button
+                                onClick={() => handleProposeMentor(selectedProject.id, mentor)}
+                                disabled={
+                                  hasAnyMentorProposed &&
+                                  !['rejected', 'reset'].includes(selectedProject.proposedMentorStatus ?? '')
+                                }
+                                className={`text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all ${
+                                  hasAnyMentorProposed &&
+                                  !['rejected', 'reset'].includes(selectedProject.proposedMentorStatus ?? '')
+                                    ? 'bg-slate-800/60 text-slate-500 border border-slate-800 cursor-not-allowed'
+                                    : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md'
+                                }`}
+                                title={
+                                  hasAnyMentorProposed &&
+                                  !['rejected', 'reset'].includes(selectedProject.proposedMentorStatus ?? '')
+                                    ? 'Another mentor is already proposed or assigned'
+                                    : ['rejected', 'reset'].includes(selectedProject.proposedMentorStatus ?? '')
+                                      ? 'Propose as substituted mentor'
+                                      : 'Propose this mentor'
+                                }
+                              >
+                                <UserPlus className="w-3.5 h-3.5" />
+                                {['rejected', 'reset'].includes(selectedProject.proposedMentorStatus  ?? '')
+                                  ? 'Substitute Mentor'
+                                  : 'Propose as Mentor'}
+                              </button>
+                            )}
+                        </div>
                         </div>
                       );
                     })}

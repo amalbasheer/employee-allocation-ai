@@ -70,35 +70,84 @@ def check_and_update_completed_engagements(db: Session):
     if expired_engagements:
         db.commit()
 
+def get_next_round_robin_mentor(
+    db: Session, 
+    department: str
+) -> Optional[CompanyEmployee]:
+    """
+    Selects a mentor from the given department in round-robin sequence.
+    Each mentor handles 2 consecutive batches before rotating to the next.
+    """
+    
+    # -----------------------------------------------------------------
+    # 1. FETCH ALL ACTIVE EMPLOYEES IN THIS DEPARTMENT
+    # -----------------------------------------------------------------
+    active_department_mentors = (
+        db.query(CompanyEmployee)
+        .filter(
+            CompanyEmployee.is_active == True,
+            func.lower(CompanyEmployee.department) == department.strip().lower()
+        )
+        .order_by(CompanyEmployee.employee_id)  # Standard deterministic order
+        .all()
+    )
 
-def get_next_round_robin_mentor(db: Session) -> Optional[CompanyEmployee]:
-    """Round-robin mentor rotation cycling mentors across batches."""
-    mentors = db.query(CompanyEmployee).filter(CompanyEmployee.is_active == True).all()
-    if not mentors:
+    if not active_department_mentors:
         return None
 
-    last_batch = db.query(StudentBatch).filter(
-        StudentBatch.mentor_id.isnot(None)
-    ).order_by(desc(StudentBatch.created_at)).first()
+    if len(active_department_mentors) == 1:
+        return active_department_mentors[0]
 
-    if not last_batch or not last_batch.mentor_id:
-        return mentors[0]
+    dept_employee_ids = [m.employee_id for m in active_department_mentors]
 
-    current_idx = 0
-    for idx, m in enumerate(mentors):
-        if m.employee_id == last_batch.mentor_id:
-            current_idx = idx
-            break
+    # -----------------------------------------------------------------
+    # 2. FETCH THE LAST 2 BATCH ALLOCATIONS FOR THIS DEPARTMENT
+    # -----------------------------------------------------------------
+    recent_allocations = (
+        db.query(Allocation)
+        .filter(
+            Allocation.reference_type == "batch",
+            Allocation.employee_id.in_(dept_employee_ids)
+        )
+        .order_by(desc(Allocation.assigned_time))  # Most recent first
+        .limit(2)
+        .all()
+    )
 
-    consecutive_batches = db.query(func.count(StudentBatch.batch_id)).filter(
-        StudentBatch.mentor_id == last_batch.mentor_id
-    ).scalar() or 0
-
-    if consecutive_batches % 2 == 0:
-        next_index = (current_idx + 1) % len(mentors)
-        return mentors[next_index]
+    # -----------------------------------------------------------------
+    # 3. ROTATION LOGIC (2 CONSECUTIVE BATCHES PER MENTOR)
+    # -----------------------------------------------------------------
     
-    return mentors[current_idx]
+    # Case A: No prior batch allocations in this department -> start with 1st mentor
+    if not recent_allocations:
+        return active_department_mentors[0]
+
+    latest_mentor_id = recent_allocations[0].employee_id
+
+    # Locate latest assigned mentor index in current active mentors list
+    try:
+        current_idx = next(
+            idx for idx, m in enumerate(active_department_mentors) 
+            if m.employee_id == latest_mentor_id
+        )
+    except StopIteration:
+        # Fallback if the last assigned mentor is no longer active
+        return active_department_mentors[0]
+
+    # Case B: Only 1 allocation recorded so far -> Give 2nd batch to SAME mentor
+    if len(recent_allocations) == 1:
+        return active_department_mentors[current_idx]
+
+    # Case C: Compare last 2 allocations
+    prev_mentor_id = recent_allocations[1].employee_id
+
+    if latest_mentor_id == prev_mentor_id:
+        # Mentor has completed 2 consecutive batches -> ROTATE TO NEXT MENTOR
+        next_idx = (current_idx + 1) % len(active_department_mentors)
+        return active_department_mentors[next_idx]
+    else:
+        # Mentor has only done 1 batch so far -> KEEP SAME MENTOR
+        return active_department_mentors[current_idx]
 
 
 # ==================== API ENDPOINTS ====================

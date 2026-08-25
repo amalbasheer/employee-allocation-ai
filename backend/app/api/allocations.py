@@ -238,7 +238,7 @@ def assign_student(
     return new_allocation
 
 # -------------------------------------------------------------------
-# CONFIRMATION BY ADMIN
+# CONFIRMATION BY ADMIN (Updated for Substitution Support)
 # -------------------------------------------------------------------
 @router.patch("/{identifier}/assign", response_model=AllocationResponse)
 def assign_allocation(
@@ -255,46 +255,63 @@ def assign_allocation(
         .first()
     )
 
-    # 2. If identifier is a reference_id (Project ID), target the employee/mentor allocation record specifically
+    # 2. If identifier is a reference_id (Project ID), look specifically for pending proposals ('accepted' or 'proposed')
     if not allocation:
         allocation = (
             db.query(Allocation)
             .filter(
                 func.lower(Allocation.reference_id) == clean_id.lower(),
-                func.lower(Allocation.resource_type).in_(["employee", "mentor"])  # Ignore student allocations
+                func.lower(Allocation.resource_type).in_(["employee", "mentor"]),
+                Allocation.status.in_(["accepted", "proposed"])  # FIX 1: Filter only pending proposals
             )
-            .order_by(Allocation.allocation_id.desc())  # Gets latest employee proposal
+            .order_by(Allocation.allocation_id.desc())
             .first()
         )
 
     if not allocation:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Employee allocation matching ID or Reference '{clean_id}' not found."
+            detail=f"No pending employee/mentor allocation found for matching ID or Reference '{clean_id}'."
         )
 
     prev_status = str(allocation.status).lower().strip()
 
-    # 3. Validation for Employee / Mentor assignment: MUST be 'accepted' or 'proposed'
+    # 3. Validation for Employee / Mentor assignment
     valid_statuses = ["accepted", "proposed"]
     if prev_status not in valid_statuses:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot confirm mentor assignment for allocation '{allocation.allocation_id}'. Current mentor proposal status is '{prev_status}', but it must be 'accepted' or 'proposed'."
+            detail=f"Cannot confirm mentor assignment for allocation '{allocation.allocation_id}'. Current status is '{prev_status}', expected 'accepted' or 'proposed'."
         )
-
-    # 4. Transition allocation status
-    allocation.status = "assigned"
 
     ref_type = str(getattr(allocation, "reference_type", "project") or "project").lower().strip()
     ref_id = getattr(allocation, "reference_id", None) or getattr(allocation, "project_id", None)
     resource_type = str(getattr(allocation, "resource_type", "employee")).lower().strip()
 
-    # 5. Update linked target entity (Project / Batch / Training)
+    # 4. FIX 2: Deactivate any previous active allocations for this project (Substitution Handling)
+    if ref_id:
+        previous_active_allocations = (
+            db.query(Allocation)
+            .filter(
+                func.lower(Allocation.reference_id) == clean_id.lower(),
+                Allocation.allocation_id != allocation.allocation_id,
+                Allocation.status == "assigned"
+            )
+            .all()
+        )
+        for old_alloc in previous_active_allocations:
+            old_alloc.status = "replaced"  # Or "revoked" / "cancelled"
+
+    # 5. Transition target allocation status to assigned
+    allocation.status = "assigned"
+
+    # 6. Update linked target entity (Project / Batch / Training)
     if ref_type == "project" and ref_id:
         project = db.query(Project).filter(Project.project_id == ref_id).first()
         if project:
             project.status = "in_progress"
+            if hasattr(project, "mentor_id"):
+                project.mentor_id = str(allocation.resource_id)  # Updates project mentor link if column exists
 
     elif ref_type in ["batch", "student_batch", "studentbatch"] and ref_id:
         batch_obj = db.query(StudentBatch).filter(StudentBatch.batch_id == ref_id).first()
@@ -306,7 +323,7 @@ def assign_allocation(
         if training_obj:
             training_obj.status = "in_progress"
 
-    # 6. Create Audit Log
+    # 7. Create Audit Log
     log = AllocationLog(
         log_id=generate_next_log_id(db),
         allocation_id=allocation.allocation_id,
@@ -431,39 +448,55 @@ def update_allocation_status(
     return allocation
 
 # -------------------------------------------------------------------
-# EMPLOYEE ACCEPTING THE PROPOSAL
+# 1. EMPLOYEE ACCEPTING THE PROPOSAL
 # -------------------------------------------------------------------
 class AllocationRespondRequest(BaseModel):
     status: str          # "accepted" or "rejected_by_employee"
     employee_id: str
 
+
 @router.patch("/{allocation_id}/respond")
-def respond_to_allocation(
+def accept_allocation(
     allocation_id: str,
     payload: AllocationRespondRequest,
     db: Session = Depends(get_db)
 ):
-    # 1. Fetch allocation record
-    allocation = db.query(Allocation).filter(Allocation.allocation_id == allocation_id).first()
+    # 1. Fetch allocation record specifically for resource_type = 'employee'
+    allocation = (
+        db.query(Allocation)
+        .filter(
+            Allocation.allocation_id == allocation_id,
+            func.lower(Allocation.resource_type) == "employee"
+        )
+        .first()
+    )
     if not allocation:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, 
-            detail=f"Allocation '{allocation_id}' not found"
+            detail=f"Employee allocation '{allocation_id}' not found."
         )
 
     # 2. Update allocation status
     formatted_status = payload.status.lower()
     allocation.status = formatted_status
 
-    # 3. Sync status with training_engagements table if reference_type is training
-    if allocation.reference_type == "training":
-        engagement = db.query(TrainingEngagement).filter(
-            TrainingEngagement.engagement_id == allocation.reference_id
-        ).first()
+    # 3. Reference Type Differentiation & Status Syncing
+    ref_type = (allocation.reference_type or '').lower()
+
+    if ref_type in ['training_engagement', 'training', 'webinar', 'workshop']:
+        engagement = (
+            db.query(TrainingEngagement)
+            .filter(func.lower(TrainingEngagement.engagement_id) == allocation.reference_id.lower())
+            .first()
+        )
         if engagement:
             engagement.status = formatted_status
 
-    # 4. Create Audit Log entry for Admin review
+    elif ref_type == 'project':
+        # Project lifecycle status is independent of single resource acceptance
+        pass
+
+    # 4. Create Audit Log entry
     new_log_id = generate_next_log_id(db)
     
     log = AllocationLog(
@@ -484,21 +517,30 @@ def respond_to_allocation(
         "allocation_id": allocation.allocation_id,
         "current_status": allocation.status
     }
+
+
 # -------------------------------------------------------------------
-# EMPLOYEE REJECTING THE PROPOSAL
+# 2. EMPLOYEE REJECTING THE PROPOSAL
 # -------------------------------------------------------------------
 @router.patch("/{allocation_id}/reject")
-def respond_to_allocation(
+def reject_allocation(
     allocation_id: str,
     payload: AllocationRespondRequest,
     db: Session = Depends(get_db)
 ):
-    # 1. Fetch allocation record
-    allocation = db.query(Allocation).filter(Allocation.allocation_id == allocation_id).first()
+    # 1. Fetch allocation record specifically for resource_type = 'employee'
+    allocation = (
+        db.query(Allocation)
+        .filter(
+            Allocation.allocation_id == allocation_id,
+            func.lower(Allocation.resource_type) == "employee"
+        )
+        .first()
+    )
     if not allocation:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, 
-            detail=f"Allocation '{allocation_id}' not found"
+            detail=f"Employee allocation '{allocation_id}' not found."
         )
 
     # 2. Update allocation status
@@ -509,26 +551,19 @@ def respond_to_allocation(
     ref_type = (allocation.reference_type or '').lower()
 
     if ref_type in ['training_engagement', 'training', 'webinar', 'workshop']:
-        # Fetch and update target Training Engagement record
         training_item = (
             db.query(TrainingEngagement)
             .filter(func.lower(TrainingEngagement.engagement_id) == allocation.reference_id.lower())
             .first()
         )
         if training_item:
-            training_item.status = formatted_status  # e.g., 'rejected_by_employee'
+            training_item.status = formatted_status
 
     elif ref_type == 'project':
-        # Fetch and update target Project record (if applicable)
-        project_item = (
-            db.query(Project)
-            .filter(func.lower(Project.project_id) == allocation.reference_id.lower())
-            .first()
-        )
-        if project_item:
-            project_item.status = formatted_status
+        # Project lifecycle status remains unchanged on individual resource rejection
+        pass
 
-    # 4. Create Audit Log entry for Admin review
+    # 4. Create Audit Log entry
     new_log_id = generate_next_log_id(db)
     
     log = AllocationLog(
@@ -552,7 +587,7 @@ def respond_to_allocation(
 
 
 # -------------------------------------------------------------------
-# SUBSTITUTE REJECTED ALLOCATION (ADMIN)
+# 3. SUBSTITUTE REJECTED ALLOCATION (ADMIN)
 # -------------------------------------------------------------------
 def generate_next_sub_id(db: Session) -> str:
     sub_ids = db.scalars(
@@ -577,10 +612,13 @@ def substitute_allocation(
 ):
     clean_ref_id = reference_id.strip()
 
-    # 1. Fetch latest original allocation record
+    # 1. Fetch latest allocation for this reference_id ONLY where resource_type = 'employee'
     orig_allocation = (
         db.query(Allocation)
-        .filter(func.lower(Allocation.reference_id) == clean_ref_id.lower())
+        .filter(
+            func.lower(Allocation.reference_id) == clean_ref_id.lower(),
+            func.lower(Allocation.resource_type) == "employee"
+        )
         .order_by(Allocation.allocation_id.desc())
         .first()
     )
@@ -588,7 +626,7 @@ def substitute_allocation(
     if not orig_allocation:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, 
-            detail=f"Original allocation record for reference_id '{clean_ref_id}' not found."
+            detail=f"Original employee allocation record for reference_id '{clean_ref_id}' not found."
         )
 
     # 2. Mark original allocation as SUBSTITUTED
@@ -604,16 +642,11 @@ def substitute_allocation(
             .first()
         )
         if training_item:
-            training_item.status = "proposed"  # Reset status for the substitute trainer
+            training_item.status = "proposed"
 
     elif ref_type == 'project':
-        project_item = (
-            db.query(Project)
-            .filter(func.lower(Project.project_id) == clean_ref_id.lower())
-            .first()
-        )
-        if project_item:
-            project_item.status = "proposed"
+        # Project entity lifecycle status remains independent of individual resource substitutions
+        pass
 
     # 4. Record substitution details
     sub_record = Substitution(
@@ -626,11 +659,11 @@ def substitute_allocation(
     )
     db.add(sub_record)
 
-    # 5. Create replacement allocation in PROPOSED state (Preserving orig_allocation.reference_type)
+    # 5. Create replacement allocation in PROPOSED state
     new_allocation = Allocation(
         allocation_id=generate_next_allocation_id(db),
         reference_id=orig_allocation.reference_id,
-        reference_type=orig_allocation.reference_type,  # Dynamically preserves project or training_engagement
+        reference_type=orig_allocation.reference_type,
         resource_type=payload.substitute_resource_type,
         resource_id=payload.substitute_resource_id,
         role_on_project=orig_allocation.role_on_project,

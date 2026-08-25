@@ -12,7 +12,7 @@ class Skill(Base):
     __tablename__ = "skills"
 
     skill_id = Column(String(20), primary_key=True)
-    name: Mapped[str] = mapped_column("skill_name", String(100), unique=True, nullable=False)
+    skill_name: Mapped[str] = mapped_column("skill_name", String(100), unique=True, nullable=False)
     category: Mapped[Optional[str]] = mapped_column("category", String(50), nullable=True, default=None)
     skill_embedding = mapped_column(Vector(768), nullable=True)
 
