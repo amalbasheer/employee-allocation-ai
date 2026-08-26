@@ -40,9 +40,9 @@ interface DashboardData {
     pending_intern_reviews: number;
   };
   allocations_trend: { categories: string[]; series: Array<{ data: number[] }> };
-  entity_allocation_breakdown: { series: number[] };
+  entity_allocation_breakdown: { labels: string[]; series: number[] };
   skill_coverage: SkillCoverageItem[];
-  recent_logs: AuditLog[];
+  recent_logs: AuditLog[]; 
 }
 
 export default function DashboardOverview() {
@@ -194,7 +194,7 @@ export default function DashboardOverview() {
           </div>
           <div style={{ marginTop: 16 }}>
             {entity_allocation_breakdown.series.map((hours, idx) => {
-              const label = `Work Type ${idx + 1}`;
+              const label = entity_allocation_breakdown.labels?.[idx] || `Work Type ${idx + 1}`;
               const pct = Math.round((hours / totalEntityHours) * 100);
               const colors = ["#3b82f6", "#10b981", "#f59e0b"];
 
