@@ -976,6 +976,40 @@ export const ProjectAllocation: React.FC = () => {
                                   : 'Propose as Mentor'}
                               </button>
                             )}
+                            {/* 1. Proposed State: Waiting for Mentor Acceptance */}
+                          {isThisMentorProposed && selectedProject.proposedMentorStatus === 'substituted' && (
+                            <div className="flex flex-col items-end gap-1">
+                              <button
+                                disabled
+                                className="bg-slate-800 text-slate-400 cursor-not-allowed text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 border border-slate-700 opacity-80"
+                              >
+                                <Send className="w-3.5 h-3.5 text-amber-400" /> Substituted
+                              </button>
+                              <span className="text-[10px] text-amber-400 font-medium italic">
+                                Waiting for acceptance...
+                              </span>
+                            </div>
+                          )}
+                            {/* 2. Accepted State: Confirm Button (Handles Initial Allocation vs. Substitution) */}
+                          {isThisMentorProposed && selectedProject.proposedMentorStatus === 'accepted' && (
+                            <div className="flex flex-col items-end gap-1">
+                              <button
+                                onClick={() => handleConfirmMentor(selectedProject.id)}
+                                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-lg animate-pulse flex items-center gap-1.5"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                {selectedProject.isSubstituting || selectedProject.status === 'open'
+                                  ? 'Confirm Substitution'
+                                  : 'Confirm Allocation'}
+                              </button>
+                              <span className="text-[10px] text-emerald-400 font-medium">
+                                {selectedProject.isSubstituting || selectedProject.status === 'open'
+                                  ? 'Substituted mentor accepted proposal!'
+                                  : 'Mentor accepted proposal!'}
+                                </span>
+                              </div>
+                            )}
+
                         </div>
                         </div>
                       );
