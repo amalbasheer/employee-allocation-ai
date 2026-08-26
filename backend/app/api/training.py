@@ -166,7 +166,16 @@ def list_engagements(
 
 @router.post("/engagements", status_code=status.HTTP_201_CREATED)
 async def schedule_engagement(payload: CreateEngagementSchema, db: Session = Depends(get_db)):
+    last_id = db.query(TrainingEngagement.engagement_id).order_by(TrainingEngagement.engagement_id.desc()).limit(1).scalar()
+    if last_id:
+      prefix, num_str = last_id.rsplit('-', 1)  # Splits 'rp2-train-0005' -> ['rp2-train', '0005']
+      next_num = int(num_str) + 1
+      new_id = f"{prefix}-{next_num:04d}"       # Formats back to 'rp2-train-0006'
+    else:
+      new_id = "rp2-train-0001"
+
     new_engagement = TrainingEngagement(
+        engagement_id=new_id,
         title=payload.title,
         engagement_type=payload.engagement_type.lower(),
         description=payload.description,
@@ -181,16 +190,53 @@ async def schedule_engagement(payload: CreateEngagementSchema, db: Session = Dep
     req_text = f"{payload.title} {payload.description or ''}"
 
     # 1. Extract skills automatically from text
+    # 1. Extract skills automatically from text
     extracted_skill_ids = []
     if extract_skills_from_text and callable(extract_skills_from_text):
         try:
-            extracted_skill_ids = extract_skills_from_text(req_text)
+            raw_extracted = extract_skills_from_text(req_text)
+            
+            if isinstance(raw_extracted, dict):
+                # Unpack list values from standard wrapper keys
+                for key in ("skills", "skill_ids", "extracted_skills", "skill_id", "data"):
+                    val = raw_extracted.get(key)
+                    if isinstance(val, list):
+                        extracted_skill_ids = val
+                        break
+                    elif isinstance(val, str):
+                        extracted_skill_ids = [val]
+                        break
+                else:
+                    # Fallback for key-value skill maps (e.g., {"sk-001": 0.95})
+                    extracted_skill_ids = [
+                        k for k in raw_extracted.keys() 
+                        if k not in ("skills", "skill_ids", "skill_id", "status", "message")
+                    ]
+            elif isinstance(raw_extracted, list):
+                extracted_skill_ids = raw_extracted
+            elif isinstance(raw_extracted, str):
+                extracted_skill_ids = [raw_extracted]
+
         except Exception as e:
             logger.warning(f"Skill extraction failed: {e}")
 
     # 2. Merge explicit payload skills with extracted skills (deduplicated)
-    final_skill_ids = list(set((payload.required_skill_ids or []) + extracted_skill_ids))
+    # 1. Combine raw payload and extracted skill items
+    raw_skills = (payload.required_skill_ids or []) + extracted_skill_ids
 
+    # 2. Extract string IDs safely (handles both raw strings and dict objects)
+    clean_skill_ids = []
+    for item in raw_skills:
+        if isinstance(item, str):
+            clean_skill_ids.append(item)
+        elif isinstance(item, dict):
+            # Unpack standard ID keys if the extractor returned dict objects
+            sid = item.get("skill_id") or item.get("id") or item.get("code")
+            if sid and isinstance(sid, str):
+                clean_skill_ids.append(sid)
+
+    # 3. Deduplicate clean string IDs
+    final_skill_ids = list(set(clean_skill_ids))
     # 3. Generate embedding using clean, extracted skill keywords (fallback to raw text if empty)
     embedding_input = ", ".join(final_skill_ids) if final_skill_ids else req_text
     req_embedding = None
