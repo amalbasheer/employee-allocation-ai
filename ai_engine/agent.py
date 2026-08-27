@@ -17,10 +17,12 @@ from .db import (
     get_batch,
     get_training_engagement,
     get_next_mentor_for_batch,
+    search_project_by_title,
+    get_intern_details,
+    get_employee_details,
 )
 from .recommend import recommend_candidates_for_project
 from sqlalchemy import text
-
 
 def get_project_assignments(project_id: str) -> list[dict]:
     """Who is currently assigned (proposed/accepted/assigned) to a project."""
@@ -92,6 +94,9 @@ def chat_query(user_message: str) -> str:
         get_mentor_availability_for_week,
         get_best_mentor_for_domain,
         recommend_candidates_for_project,
+        search_project_by_title,
+        get_intern_details,
+        get_employee_details,
     ]
 
     response = client.models.generate_content(
@@ -114,3 +119,4 @@ if __name__ == "__main__":
     ]:
         print(f"\nQ: {q}")
         print(chat_query(q))
+

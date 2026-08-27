@@ -49,7 +49,7 @@ def recommend_candidates_for_project(project_id: str) -> dict:
 
     result = {"project_title": project["title"], "roles_needed": roles_needed}
 
-    mentors = get_available_mentors(domain=domain)
+    mentors = get_available_mentors(domain=domain, exclude_reference_type="project")
     for m in mentors:
         m["skills"] = get_person_skills(m["id"], "employee")
     result["mentors"] = _strip_embeddings(rank_candidates(mentors, requirements))
@@ -132,10 +132,10 @@ def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
         for r in requirements_rows
     ]
 
-    mentors = get_available_mentors()
+    mentors = get_available_mentors(domain=None, exclude_reference_type="training")
     team_leads = [
-        m for m in mentors
-        if m.get("is_team_lead") and m["id"] not in conflicting_ids
+       m for m in mentors
+       if m.get("is_team_lead") and m["id"] not in conflicting_ids
     ]
 
     for tl in team_leads:

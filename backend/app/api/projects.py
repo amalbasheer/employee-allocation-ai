@@ -126,6 +126,8 @@ async def fetch_recommendations(
                     "university": univ_val,
                 })
 
+        print(f"DEBUG: req_type={req_type}, candidates_count={len(candidates)}, candidates={candidates}")
+        print(f"DEBUG: cleaned_candidates_count={len(cleaned_candidates)}")
         return JSONResponse(content=cleaned_candidates)
 
     except ValueError as ve:

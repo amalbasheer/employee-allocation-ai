@@ -63,40 +63,28 @@ def get_project_requirements(project_id: str) -> list[dict]:
     ]
 
 
-def get_available_mentors(domain: str = None) -> list[dict]:
+def get_available_mentors(domain: str = None, exclude_reference_type: str = "project") -> list[dict]:
     """
-    Mentors not already excluded by active allocations, with remaining
-    hours calculated from this week's availability entry (if one exists).
-    If no availability row exists for this week, falls back to their
-    full weekly_capacity_hours (assumes fully free).
+    Excludes anyone with an active allocation of the SAME reference_type
+    as what's being recommended for. A project recommendation only
+    excludes people busy on other PROJECTS — training/batch commitments
+    don't block project eligibility, since those are ongoing monitoring
+    roles, not full-time presence, and vice versa.
     """
     query = """
-        SELECT
-            ce.employee_id AS id,
-            ce.name,
-            ce.designation_id,
-            ce.weekly_capacity_hours,
-            ce.is_team_lead,
-            COALESCE(av.available_hours, ce.weekly_capacity_hours) AS remaining_hours,
-            COALESCE(av.is_on_leave, FALSE) AS is_on_leave
-        FROM company_employees ce
-        LEFT JOIN availability av
-            ON av.resource_id = ce.employee_id
-            AND av.resource_type = 'employee'
-            AND av.week_start_date = date_trunc('week', CURRENT_DATE)::date
+        SELECT employee_id AS id, name, weekly_capacity_hours, is_team_lead
+        FROM company_employees
         WHERE NOT EXISTS (
             SELECT 1 FROM allocations a
-            WHERE a.resource_id = ce.employee_id
+            WHERE a.resource_id = employee_id
             AND a.status IN ('proposed', 'assigned')
+            AND a.reference_type = :ref_type
         )
     """
-    params = {}
+    params = {"ref_type": exclude_reference_type}
     if domain:
-        query += " AND ce.department = :domain"
+        query += " AND department = :domain"
         params["domain"] = domain
-
-    query += " AND COALESCE(av.is_on_leave, FALSE) = FALSE"
-    query += " AND COALESCE(av.available_hours, ce.weekly_capacity_hours) > 0"
 
     with engine.connect() as conn:
         rows = conn.execute(text(query), params).mappings().fetchall()
@@ -243,3 +231,45 @@ def get_allocation_target(allocation: dict) -> dict:
         return get_training_engagement(ref_id)
     else:
         raise ValueError(f"Unknown reference_type: {ref_type}")
+
+def search_project_by_title(title_keyword: str) -> list[dict]:
+    """Finds projects whose title contains the given keyword — lets the
+    chatbot resolve a project name into its actual project_id."""
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT project_id, title, project_type, status
+                FROM projects
+                WHERE title ILIKE :keyword
+            """),
+            {"keyword": f"%{title_keyword}%"},
+        ).mappings().fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_intern_details(intern_id: str) -> dict:
+    """Full details for one intern, including basic profile info."""
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("""
+                SELECT intern_id, name, email, college_institution, degree_program,
+                       current_status, department, review_status
+                FROM interns_and_students WHERE intern_id = :id
+            """),
+            {"id": intern_id},
+        ).mappings().fetchone()
+    return dict(row) if row else None
+
+
+def get_employee_details(employee_id: str) -> dict:
+    """Full details for one employee, including basic profile info."""
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("""
+                SELECT employee_id, name, email, department, designation_id,
+                       weekly_capacity_hours, is_team_lead
+                FROM company_employees WHERE employee_id = :id
+            """),
+            {"id": employee_id},
+        ).mappings().fetchone()
+    return dict(row) if row else None
