@@ -79,6 +79,7 @@ def get_designation_titles_map(db : Session) -> dict:
         print(f"[DEBUG] Failed to fetch designations map: {e}")
     return title_map
 
+
 @router.post("/{project_id}/recommendations")
 async def fetch_recommendations(
     project_id: str, 
@@ -86,39 +87,48 @@ async def fetch_recommendations(
     db: Session = Depends(get_db)
 ):
     try:
-        result_dict = recommend_candidates_for_project(project_id)
-        req_type = payload.type.lower() if payload.type else "mentors"
-        is_student_req = req_type in ["students", "interns", "intern"]
+        result_dict = recommend_candidates_for_project(project_id) or {}
+        req_type = payload.type.lower().strip() if payload.type else "mentors"
+        is_student_req = req_type in ["students", "interns", "intern", "student"]
 
-        # Select candidate list based on requested type
+        # 1. Flexible key lookup for result_dict
         if is_student_req:
-            candidates = result_dict.get("interns") or []
-        elif req_type in ["team_leads", "team_lead"]:
-            candidates = result_dict.get("eligible_team_leads") or []
+            candidates = result_dict.get("interns") or result_dict.get("students") or []
+        elif req_type in ["team_leads", "team_lead", "lead"]:
+            candidates = result_dict.get("eligible_team_leads") or result_dict.get("team_leads") or []
         else:
-            candidates = result_dict.get("mentors") or []
+            candidates= (
+                 result_dict.get("mentors") 
+                or result_dict.get("recommended_mentors") 
+                or result_dict.get("eligible_mentors")
+                or result_dict.get("candidates")
+                or []
+            )
 
-        # Fetch designation map ONLY for mentors / employees
         designation_map = get_designation_titles_map(db) if not is_student_req else {}
-
         cleaned_candidates = []
+
         for c in candidates:
+            # 2. Convert SQLAlchemy / Pydantic objects to dict if needed
+            if hasattr(c, "__dict__"):
+                c = {k: v for k, v in c.__dict__.items() if not k.startswith("_")}
+            elif hasattr(c, "dict") and callable(c.dict):
+                c = c.dict()
+
             if isinstance(c, dict):
                 raw_skills = c.get("skills")
                 skills_list = [str(s) for s in raw_skills] if isinstance(raw_skills, list) else []
 
                 if is_student_req:
-                    # Role is fixed/unmapped for students; university is extracted
                     role_val = "Intern"
                     univ_val = str(c.get("university") or c.get("college_institution") or "Intern")
                 else:
-                    # Role is mapped via designation_id for mentors; university is N/A
                     desig_id = str(c.get("designation_id") or "")
-                    role_val = designation_map.get(desig_id) or c.get("role") or "Mentor"
+                    role_val = designation_map.get(desig_id) or c.get("role") or c.get("designation") or "Mentor"
                     univ_val = "N/A"
 
                 cleaned_candidates.append({
-                    "id": str(c.get("id") or c.get("_id") or "unknown"),
+                    "id": str(c.get("id") or c.get("employee_id") or c.get("_id") or "unknown"),
                     "name": str(c.get("name") or c.get("full_name") or "Unnamed Candidate"),
                     "matchScore": float(c.get("suitability_score") or c.get("score") or c.get("match_score") or 0),
                     "skills": skills_list,
