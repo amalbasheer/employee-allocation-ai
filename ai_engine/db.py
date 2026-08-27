@@ -17,6 +17,18 @@ if not DATABASE_URL:
 
 engine = create_engine(DATABASE_URL)
 
+CATEGORY_TO_DEPARTMENT = {
+    "Machine Learning": "Data Science",
+    "Data Science": "Data Science",
+    "Data Analytics": "Data Analytics",
+}
+
+def category_to_department(category: str) -> str | None:
+    """Maps a project's subject category to the department used for
+    mentor/intern filtering. Returns None for unmapped categories,
+    so recommendations fall back to showing everyone rather than
+    coming back empty."""
+    return CATEGORY_TO_DEPARTMENT.get(category)
 
 def _parse_embedding(val):
     """

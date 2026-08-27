@@ -15,6 +15,7 @@ from ai_engine.db import (
     get_person_skills,
     get_next_mentor_for_batch,
     _parse_embedding,
+    category_to_department,
 )
 from ai_engine.matching import rank_candidates
 from ai_engine.project_taxonomy import get_required_roles
@@ -45,7 +46,7 @@ def recommend_candidates_for_project(project_id: str) -> dict:
 
     requirements = get_project_requirements(project_id)
     roles_needed = get_required_roles(project["project_type"])
-    domain = project.get("category")  # 'Data Analytics' or 'Data Science'
+    domain = category_to_department(project.get("category"))  # 'Data Analytics' or 'Data Science'
 
     result = {"project_title": project["title"], "roles_needed": roles_needed}
 
