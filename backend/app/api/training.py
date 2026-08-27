@@ -284,7 +284,6 @@ def parse_skill_label(skill_item, skill_map: dict) -> str | None:
         return skill_map[s_id]
     return s_name or s_id
 
-
 @router.get("/engagements/{engagement_id}/recommendations")
 def get_recommendations(engagement_id: str, db: Session = Depends(get_db)):
     engagement = db.query(TrainingEngagement).filter(TrainingEngagement.engagement_id == engagement_id).first()
@@ -297,7 +296,39 @@ def get_recommendations(engagement_id: str, db: Session = Depends(get_db)):
     except Exception as e:
         logger.warning(f"AI Mentor Recommendation failed: {e}")
 
-    # Build skill_id -> skill_name lookup dictionary from DB
+    # 1. Collect all recommended employee IDs
+    emp_ids = [
+        item.get("employee_id") or item.get("id")
+        for item in raw_recommendations
+        if item.get("employee_id") or item.get("id")
+    ]
+
+    # 2. Fetch CompanyEmployee records & lookup Designation table by designation_id
+    emp_map = {}
+    designation_map = {}
+    if emp_ids:
+        emp_records = db.query(CompanyEmployee).filter(CompanyEmployee.employee_id.in_(emp_ids)).all()
+        emp_map = {emp.employee_id: emp for emp in emp_records}
+        
+        # Extract unique non-null designation_ids
+        desig_ids = list({
+            getattr(emp, "designation_id") 
+            for emp in emp_records 
+            if getattr(emp, "designation_id", None) is not None
+        })
+        
+        # Load designation names from designations table
+        if desig_ids:
+            try:
+                desig_rows = db.execute(
+                    text("SELECT designation_id, title FROM designations WHERE designation_id = ANY(:ids)"),
+                    {"ids": desig_ids}
+                ).fetchall()
+                designation_map = {row[0]: row[1] for row in desig_rows}
+            except Exception as e:
+                logger.warning(f"Could not load designations from DB: {e}")
+
+    # 3. Build skill_id -> skill_name lookup dictionary from DB
     skill_map = {}
     try:
         skill_rows = db.execute(text("SELECT skill_id, skill_name FROM skills")).fetchall()
@@ -307,6 +338,9 @@ def get_recommendations(engagement_id: str, db: Session = Depends(get_db)):
 
     formatted_recommendations = []
     for idx, item in enumerate(raw_recommendations):
+        emp_id = item.get("employee_id") or item.get("id")
+        emp_obj = emp_map.get(emp_id)
+
         raw_skills = item.get("skills", [])
         
         # Translate skill IDs to skill names
@@ -316,10 +350,25 @@ def get_recommendations(engagement_id: str, db: Session = Depends(get_db)):
 
         score = item.get("score") if item.get("score") is not None else item.get("match_score", 0.0)
 
+        # Retrieve employee full name from CompanyEmployee table
+        emp_name = (
+            getattr(emp_obj, "full_name", None) or getattr(emp_obj, "name", None) 
+            or item.get("name") or item.get("full_name") or f"Mentor {idx+1}"
+        )
+
+        # Map designation_id from CompanyEmployee to designation_name in designations table
+        desig_id = getattr(emp_obj, "designation_id", None) if emp_obj else None
+        emp_designation = (
+            designation_map.get(desig_id)
+            or item.get("designation") 
+            or item.get("role") 
+            or "Technical Specialist"
+        )
+
         formatted_recommendations.append({
-            "employee_id": item.get("id") or item.get("employee_id"),
-            "name": item.get("name") or item.get("full_name", f"Mentor {idx+1}"),
-            "designation": item.get("designation") or item.get("role", "Team Lead"),
+            "employee_id": emp_id,
+            "name": emp_name,
+            "designation": emp_designation,
             "match_score": round(float(score) * 100 if float(score) <= 1.0 else float(score), 1),
             "skills": extracted_skills
         })
@@ -327,11 +376,28 @@ def get_recommendations(engagement_id: str, db: Session = Depends(get_db)):
     # Fallback if recommendations list is empty
     if not formatted_recommendations:
         employees = db.query(CompanyEmployee).limit(5).all()
+        
+        fallback_desig_ids = list({
+            getattr(e, "designation_id") 
+            for e in employees 
+            if getattr(e, "designation_id", None) is not None
+        })
+        fallback_desig_map = {}
+        if fallback_desig_ids:
+            try:
+                desig_rows = db.execute(
+                    text("SELECT designation_id, designation_name FROM designations WHERE designation_id = ANY(:ids)"),
+                    {"ids": fallback_desig_ids}
+                ).fetchall()
+                fallback_desig_map = {row[0]: row[1] for row in desig_rows}
+            except Exception:
+                pass
+
         formatted_recommendations = [
             {
                 "employee_id": getattr(e, "employee_id", f"emp-10{idx}"),
-                "name": getattr(e, "full_name", f"Mentor {idx+1}"),
-                "designation": getattr(e, "designation", "Technical Specialist"),
+                "name": getattr(e, "full_name", getattr(e, "name", f"Mentor {idx+1}")),
+                "designation": fallback_desig_map.get(getattr(e, "designation_id", None), "Technical Specialist"),
                 "match_score": round(95.0 - (idx * 4), 1),
                 "skills": ["Python", "Machine Learning", "System Design"]
             }
