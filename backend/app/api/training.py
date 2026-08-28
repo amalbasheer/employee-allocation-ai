@@ -348,7 +348,7 @@ def get_recommendations(engagement_id: str, db: Session = Depends(get_db)):
             label for label in (parse_skill_label(s, skill_map) for s in raw_skills) if label is not None
         ]
 
-        score = item.get("score") if item.get("score") is not None else item.get("match_score", 0.0)
+        score = item.get("suitability_score") or item.get("score") or item.get("match_score") or 0.0
 
         # Retrieve employee full name from CompanyEmployee table
         emp_name = (
