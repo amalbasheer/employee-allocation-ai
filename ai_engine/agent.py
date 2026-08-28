@@ -70,6 +70,15 @@ DOMAIN INFERENCE FOR HYPOTHETICAL TOPICS:
   belong to Data Science. "Business Intelligence," "Reporting," and "Dashboards"
   belong to Data Analytics.
 
+DISTINGUISHING COMMITMENT TYPES:
+- If asked specifically about "projects," only report project-type commitments in
+  your answer — do not mention batch or training commitments.
+- If asked specifically about "training," "workshops," or "webinars," only report
+  training-type commitments.
+- If asked specifically about "batches," only report batch-type commitments.
+- Only combine all types together if the question is general and doesn't specify
+  a particular type.
+  
 OUTPUT FORMATTING:
 - Format lists as plain comma-separated text, not markdown bullets or asterisks, since the
   chat display doesn't render markdown formatting.
