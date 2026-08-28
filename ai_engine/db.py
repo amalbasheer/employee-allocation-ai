@@ -297,3 +297,53 @@ def get_employee_details(employee_id: str) -> dict:
             {"id": employee_id},
         ).mappings().fetchone()
     return dict(row) if row else None
+
+def search_training_by_title(title_keyword: str) -> list[dict]:
+    """Finds training engagements whose title contains the given keyword —
+    lets the chatbot resolve a training name into its actual engagement_id."""
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT engagement_id, title, engagement_type, status
+                FROM training_engagements
+                WHERE title ILIKE :keyword
+            """),
+            {"keyword": f"%{title_keyword}%"},
+        ).mappings().fetchall()
+    return [dict(r) for r in rows]
+
+def get_best_mentor_for_domain(domain: str) -> list[dict]:
+    """
+    General 'who's the best mentor for X domain' — no specific project
+    to score against, so this ranks team leads first (more senior/capable
+    role), then by available capacity as a tiebreaker.
+    """
+    mentors = get_available_mentors(domain=domain)
+    return sorted(
+        mentors,
+        key=lambda m: (not m.get("is_team_lead", False), -m.get("weekly_capacity_hours", 0))
+    )[:5]
+
+def get_mentor_workload_summary(domain: str = None) -> list[dict]:
+    """
+    Shows each mentor's current active commitment count across
+    projects, batches, and trainings — lets the assistant reason
+    about who's genuinely least busy, not just binary available/not.
+    """
+    query = """
+        SELECT ce.employee_id, ce.name, ce.department, ce.is_team_lead,
+               COUNT(a.allocation_id) AS active_commitments
+        FROM company_employees ce
+        LEFT JOIN allocations a ON a.resource_id = ce.employee_id
+            AND a.status IN ('proposed', 'assigned')
+        WHERE 1=1
+    """
+    params = {}
+    if domain:
+        query += " AND ce.department = :domain"
+        params["domain"] = domain
+    query += " GROUP BY ce.employee_id, ce.name, ce.department, ce.is_team_lead ORDER BY active_commitments ASC"
+
+    with engine.connect() as conn:
+        rows = conn.execute(text(query), params).mappings().fetchall()
+    return [dict(r) for r in rows]

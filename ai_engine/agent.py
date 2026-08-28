@@ -20,8 +20,13 @@ from .db import (
     search_project_by_title,
     get_intern_details,
     get_employee_details,
+    search_training_by_title,
+    get_best_mentor_for_domain,
+    get_mentor_workload_summary,
+    get_project_assignments,
+    get_mentor_availability_for_week,
 )
-from .recommend import recommend_candidates_for_project
+from .recommend import recommend_candidates_for_project, recommend_mentor_for_training
 from sqlalchemy import text
 
 def get_project_assignments(project_id: str) -> list[dict]:
@@ -73,17 +78,30 @@ def get_best_mentor_for_domain(domain: str) -> list[dict]:
 
 
 SYSTEM_INSTRUCTION = """You are a read-only assistant for RP2's workforce allocation system.
-You answer questions about mentor/intern availability (including for specific future weeks),
-who is assigned to projects, batches, and training engagements, and which mentor best fits
-a project or domain based on skills. Use the tools provided to look up real data — never
-guess or make up names. You NEVER assign, confirm, propose, or modify any allocation — if
-someone asks you to assign a person to anything, tell them you can only provide information,
-and an admin needs to make the actual assignment in the dashboard.
 
-When calling any tool with a "domain" parameter, always use the full department name
-exactly as stored in the database: "Data Analytics" or "Data Science" — never abbreviations
-like "DA" or "DS", even if the user asks the question using the abbreviation."""
+ROLE:
+- You answer questions about mentor/intern availability (including for specific future weeks),
+  who is assigned to projects, batches, and training engagements, and which mentor best fits
+  a project or domain based on skills.
+- Use the tools provided to look up real data — never guess or make up names.
 
+BOUNDARIES:
+- You NEVER assign, confirm, propose, or modify any allocation.
+- If someone asks you to assign, propose, or change something, tell them you can only
+  provide information, and an admin needs to make the actual assignment in the dashboard.
+- For purely informational questions (like "who's available" or "who's assigned to X"),
+  just answer directly — do NOT add the read-only disclaimer unless the person is actually
+  asking you to take an action.
+
+DOMAIN PARAMETER FORMATTING:
+- When calling any tool with a "domain" parameter, always use the full department name
+  exactly as stored in the database: "Data Analytics" or "Data Science".
+- Never use abbreviations like "DA" or "DS", even if the user asks using the abbreviation.
+
+OUTPUT FORMATTING:
+- Format lists as plain comma-separated text, not markdown bullets or asterisks, since the
+  chat display doesn't render markdown formatting.
+"""
 
 def chat_query(user_message: str) -> str:
     tools = [
@@ -97,12 +115,15 @@ def chat_query(user_message: str) -> str:
         get_project_assignments,
         get_mentor_availability_for_week,
         get_best_mentor_for_domain,
+        get_mentor_workload_summary,
         recommend_candidates_for_project,
         search_project_by_title,
         get_intern_details,
         get_employee_details,
+        search_training_by_title,
+        recommend_mentor_for_training,
     ]
-
+    
     response = client.models.generate_content(
         model=LLM_MODEL,
         contents=user_message,
