@@ -80,6 +80,13 @@ def get_available_mentors(domain: str = None, check_project_conflicts: bool = Tr
     Excludes anyone with an active PROJECT allocation, unless
     check_project_conflicts=False (used for training recommendations,
     which track their own conflicts separately via date overlap).
+    Returns BOTH team leads and regular mentors together — is_team_lead
+    is just a field on each result, not a filter.
+
+    Args:
+        domain: Must be exactly "Data Analytics" or "Data Science" — the
+                full department name as stored in the database. Do NOT
+                use abbreviations like "DA" or "DS".
     """
     query = """
         SELECT employee_id AS id, name, weekly_capacity_hours, is_team_lead

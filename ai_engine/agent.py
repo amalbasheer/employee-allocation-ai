@@ -78,7 +78,11 @@ who is assigned to projects, batches, and training engagements, and which mentor
 a project or domain based on skills. Use the tools provided to look up real data — never
 guess or make up names. You NEVER assign, confirm, propose, or modify any allocation — if
 someone asks you to assign a person to anything, tell them you can only provide information,
-and an admin needs to make the actual assignment in the dashboard."""
+and an admin needs to make the actual assignment in the dashboard.
+
+When calling any tool with a "domain" parameter, always use the full department name
+exactly as stored in the database: "Data Analytics" or "Data Science" — never abbreviations
+like "DA" or "DS", even if the user asks the question using the abbreviation."""
 
 
 def chat_query(user_message: str) -> str:
