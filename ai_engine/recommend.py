@@ -50,7 +50,7 @@ def recommend_candidates_for_project(project_id: str) -> dict:
 
     result = {"project_title": project["title"], "roles_needed": roles_needed}
 
-    mentors = get_available_mentors(domain=domain, exclude_reference_type="project")
+    mentors = get_available_mentors(domain=domain)
     for m in mentors:
         m["skills"] = get_person_skills(m["id"], "employee")
     result["mentors"] = _strip_embeddings(rank_candidates(mentors, requirements))
@@ -85,9 +85,9 @@ def recommend_projects_for_person(person_id: str, person_type: str, open_project
 
 def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
     """
-    Skill-based ranking for webinars/demos/workshops — TEAM LEADS ONLY.
-    Excludes anyone with a date-overlapping training engagement already
-    scheduled (batch commitments do NOT block them, only other trainings).
+    Skill-based ranking for webinars/demos/workshops — TEAM LEADS ONLY,
+    filtered to the training's inferred domain (DA or DS, based on
+    which domain's skills the training actually requires).
     """
     with engine.connect() as conn:
         engagement = conn.execute(
@@ -107,7 +107,23 @@ def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
             {"eid": engagement_id},
         ).mappings().fetchall()
 
-        # Team leads with a DATE-OVERLAPPING training conflict — excluded
+        # Infer domain: which department's employees most commonly have
+        # these required skills — majority vote across the required skill_ids
+        skill_ids = [r["skill_id"] for r in requirements_rows]
+        domain_row = conn.execute(
+            text("""
+                SELECT ce.department, COUNT(*) as cnt
+                FROM employee_skills es
+                JOIN company_employees ce ON ce.employee_id = es.employee_id
+                WHERE es.skill_id = ANY(:skill_ids)
+                GROUP BY ce.department
+                ORDER BY cnt DESC
+                LIMIT 1
+            """),
+            {"skill_ids": skill_ids},
+        ).mappings().fetchone()
+        inferred_domain = domain_row["department"] if domain_row else None
+
         conflicting_leads = conn.execute(
             text("""
                 SELECT DISTINCT a.resource_id
@@ -133,17 +149,16 @@ def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
         for r in requirements_rows
     ]
 
-    mentors = get_available_mentors(domain=None, exclude_reference_type="training")
+    mentors = get_available_mentors(domain=inferred_domain, check_project_conflicts=False)
     team_leads = [
-       m for m in mentors
-       if m.get("is_team_lead") and m["id"] not in conflicting_ids
+        m for m in mentors
+        if m.get("is_team_lead") and m["id"] not in conflicting_ids
     ]
 
     for tl in team_leads:
         tl["skills"] = get_person_skills(tl["id"], "employee")
 
     return rank_candidates(team_leads, requirements)
-
 
 if __name__ == "__main__":
     print("Import recommend_candidates_for_project, recommend_projects_for_person,")

@@ -75,33 +75,38 @@ def get_project_requirements(project_id: str) -> list[dict]:
     ]
 
 
-def get_available_mentors(domain: str = None, exclude_reference_type: str = "project") -> list[dict]:
+def get_available_mentors(domain: str = None, check_project_conflicts: bool = True) -> list[dict]:
     """
-    Excludes anyone with an active allocation of the SAME reference_type
-    as what's being recommended for. A project recommendation only
-    excludes people busy on other PROJECTS — training/batch commitments
-    don't block project eligibility, since those are ongoing monitoring
-    roles, not full-time presence, and vice versa.
+    Excludes anyone with an active PROJECT allocation, unless
+    check_project_conflicts=False (used for training recommendations,
+    which track their own conflicts separately via date overlap).
     """
     query = """
         SELECT employee_id AS id, name, weekly_capacity_hours, is_team_lead
         FROM company_employees
-        WHERE NOT EXISTS (
-            SELECT 1 FROM allocations a
-            WHERE a.resource_id = employee_id
-            AND a.status IN ('proposed', 'assigned')
-            AND a.reference_type = :ref_type
-        )
     """
-    params = {"ref_type": exclude_reference_type}
+    conditions = []
+    params = {}
+
+    if check_project_conflicts:
+        conditions.append("""
+            NOT EXISTS (
+                SELECT 1 FROM allocations a
+                WHERE a.resource_id = employee_id
+                AND a.status IN ('proposed', 'assigned')
+                AND a.reference_type = 'project'
+            )
+        """)
     if domain:
-        query += " AND department = :domain"
+        conditions.append("department = :domain")
         params["domain"] = domain
+
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
 
     with engine.connect() as conn:
         rows = conn.execute(text(query), params).mappings().fetchall()
     return [dict(r) for r in rows]
-
 
 def get_available_interns(domain: str = None) -> list[dict]:
     """
