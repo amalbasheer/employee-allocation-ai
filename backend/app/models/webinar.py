@@ -38,6 +38,12 @@ class TrainingEngagement(Base):
     mentor_id = Column(String(20), ForeignKey("company_employees.employee_id"), nullable=True,)
     status = Column(String(20), nullable=False, server_default=text("'open'"))
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(),)
+    institution_name = Column(String(150), nullable=True)
+    location = Column(String(100), nullable=True)
+    region = Column(String(50), nullable=True)
+    audience = Column(String(50), nullable=True)
+    mode = Column(String(20), default="offline", nullable=False)
+    domain = Column(String(50), nullable=True)
 
     __table_args__ = (CheckConstraint(r"engagement_id ~ '^rp2-train-\d{4}$'", name="check_engagement_id_format",),)
 

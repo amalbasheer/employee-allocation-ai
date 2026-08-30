@@ -75,22 +75,15 @@ def get_project_requirements(project_id: str) -> list[dict]:
     ]
 
 
-def get_available_mentors(domain: str = None, check_project_conflicts: bool = True) -> list[dict]:
+def get_available_mentors(domain: str = None, region: str = None, check_project_conflicts: bool = True) -> list[dict]:
     """
     Excludes anyone with an active PROJECT allocation, unless
-    check_project_conflicts=False (used for training recommendations,
-    which track their own conflicts separately via date overlap).
-    Returns BOTH team leads and regular mentors together — is_team_lead
-    is just a field on each result, not a filter.
-
-    Args:
-        domain: Must be exactly "Data Analytics" or "Data Science" — the
-                full department name as stored in the database. Do NOT
-                use abbreviations like "DA" or "DS".
+    check_project_conflicts=False. Optionally filters by department
+    and/or preferred_region.
     """
     query = """
-        SELECT employee_id AS id, name, weekly_capacity_hours, is_team_lead
-        FROM company_employees
+    SELECT employee_id AS id, name, weekly_capacity_hours, is_team_lead, preferred_region, preferred_audience
+    FROM company_employees
     """
     conditions = []
     params = {}
@@ -107,6 +100,9 @@ def get_available_mentors(domain: str = None, check_project_conflicts: bool = Tr
     if domain:
         conditions.append("department = :domain")
         params["domain"] = domain
+    if region:
+        conditions.append("preferred_region LIKE :region")
+        params["region"] = f"%{region}%"
 
     if conditions:
         query += " WHERE " + " AND ".join(conditions)

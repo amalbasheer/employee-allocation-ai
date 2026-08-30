@@ -1,5 +1,5 @@
 # app/api/deps.py
-from typing import Generator
+from typing import Generator, Optional, List
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -61,10 +61,31 @@ def get_current_user(
             detail=f"Authentication error: {str(e)}"
         )
 
+def get_current_user_id_optional(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False))
+) -> Optional[str]:
+    """
+    Same idea as get_current_user, but returns None instead of raising
+    an error if no valid token is present — used for endpoints like chat
+    that should still work even if the user isn't logged in.
+    """
+    if not credentials:
+        return None
+
+    try:
+        token = credentials.credentials
+        user_res = supabase.auth.get_user(token)
+        if not user_res or not user_res.user:
+            return None
+        return user_res.user.id
+    except Exception:
+        return None
+
 def require_admin(current_user: UserProfile = Depends(get_current_user)) -> UserProfile:
     """Restricts operation strictly to Admin users."""
     if current_user.role.lower() not in ["admin", "superadmin"]:
         raise HTTPException(
+
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin privileges required."
         )

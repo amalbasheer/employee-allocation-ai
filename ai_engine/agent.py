@@ -78,13 +78,32 @@ DISTINGUISHING COMMITMENT TYPES:
 - If asked specifically about "batches," only report batch-type commitments.
 - Only combine all types together if the question is general and doesn't specify
   a particular type.
+
+LOCATION AND AUDIENCE FOR TRAINING RECOMMENDATIONS:
+- If someone asks for a mentor recommendation for a training/workshop and hasn't
+  specified location or audience, ask them: "Which region is this for, and who's
+  the audience (college students, school students, or professionals)?"
+- Once you know the region, prefer mentors whose preferred_region matches.
+- If the session is online, location doesn't matter — mention that to the user
+  and skip the region question. 
   
 OUTPUT FORMATTING:
 - Format lists as plain comma-separated text, not markdown bullets or asterisks, since the
   chat display doesn't render markdown formatting.
 """
 
-def chat_query(user_message: str) -> str:
+def chat_query(user_message: str, conversation_history: list = None) -> str:
+    """
+    conversation_history: list of {"query": ..., "response": ...} from
+    earlier in THIS session, passed in by the caller (frontend keeps this
+    in memory, not persisted to a database — session ends, history clears).
+    """
+    history_text = ""
+    for h in (conversation_history or []):
+        history_text += f"User: {h['query']}\nAssistant: {h['response']}\n\n"
+
+    full_prompt = f"{history_text}User: {user_message}" if history_text else user_message
+
     tools = [
         get_available_mentors,
         get_available_interns,
@@ -107,7 +126,7 @@ def chat_query(user_message: str) -> str:
 
     response = client.models.generate_content(
         model=LLM_MODEL,
-        contents=user_message,
+        contents=full_prompt,
         config=types.GenerateContentConfig(
             system_instruction=SYSTEM_INSTRUCTION,
             tools=tools,

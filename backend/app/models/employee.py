@@ -23,6 +23,7 @@ class CompanyEmployee(Base):
     weekly_capacity_hours: Mapped[int] = mapped_column(Integer, default=40)
     is_team_lead: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    preferred_region: Mapped[Optional[str]] = mapped_column(String(50))
 
     __table_args__ = (
             # Ensures employee_id must start with 'rp2-emp-' followed by exactly 4 digits

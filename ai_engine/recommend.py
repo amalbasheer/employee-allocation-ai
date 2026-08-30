@@ -82,13 +82,26 @@ def recommend_projects_for_person(person_id: str, person_type: str, open_project
 
     return sorted(scored, key=lambda p: p["suitability_score"], reverse=True)
 
+def score_with_audience_preference(skill_score: float, candidate_audience: str, training_audience: str) -> float:
+    """
+    Combines skill match with audience preference into one weighted
+    score. Treats preferred_audience as a comma-separated list and
+    checks genuine membership, not just substring matching.
+    """
+    if not training_audience:
+        return skill_score  # nothing to compare against, leave score untouched
+
+    if not candidate_audience:
+        multiplier = 0.85  # no preference set at all, treat as mismatch
+    else:
+        candidate_list = [a.strip().lower() for a in candidate_audience.split(",")]
+        training_value = training_audience.strip().lower()
+        audience_matches = training_value in candidate_list
+        multiplier = 1.0 if audience_matches else 0.85
+
+    return round(skill_score * multiplier, 2)
 
 def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
-    """
-    Skill-based ranking for webinars/demos/workshops — TEAM LEADS ONLY,
-    filtered to the training's inferred domain (DA or DS, based on
-    which domain's skills the training actually requires).
-    """
     with engine.connect() as conn:
         engagement = conn.execute(
             text("SELECT * FROM training_engagements WHERE engagement_id = :eid"),
@@ -106,23 +119,6 @@ def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
             """),
             {"eid": engagement_id},
         ).mappings().fetchall()
-
-        # Infer domain: which department's employees most commonly have
-        # these required skills — majority vote across the required skill_ids
-        skill_ids = [r["skill_id"] for r in requirements_rows]
-        domain_row = conn.execute(
-            text("""
-                SELECT ce.department, COUNT(*) as cnt
-                FROM employee_skills es
-                JOIN company_employees ce ON ce.employee_id = es.employee_id
-                WHERE es.skill_id = ANY(:skill_ids)
-                GROUP BY ce.department
-                ORDER BY cnt DESC
-                LIMIT 1
-            """),
-            {"skill_ids": skill_ids},
-        ).mappings().fetchone()
-        inferred_domain = domain_row["department"] if domain_row else None
 
         conflicting_leads = conn.execute(
             text("""
@@ -149,7 +145,11 @@ def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
         for r in requirements_rows
     ]
 
-    mentors = get_available_mentors(domain=inferred_domain, check_project_conflicts=False)
+    # Online sessions: no region filtering, anyone eligible.
+    # Offline sessions: filter to mentors whose preferred_region matches.
+    region_filter = None if engagement.get("mode") == "online" else engagement.get("region")
+
+    mentors = get_available_mentors(domain=engagement.get("domain"), region=region_filter, check_project_conflicts=False)
     team_leads = [
         m for m in mentors
         if m.get("is_team_lead") and m["id"] not in conflicting_ids
@@ -158,8 +158,19 @@ def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
     for tl in team_leads:
         tl["skills"] = get_person_skills(tl["id"], "employee")
 
-    return rank_candidates(team_leads, requirements)
+    ranked = rank_candidates(team_leads, requirements)
 
+    training_audience = engagement.get("audience")
+    for candidate in ranked:
+        raw_skill_score = candidate["suitability_score"]
+        print(f"DEBUG: {candidate['name']}, candidate_audience={candidate.get('preferred_audience')!r}, training_audience={training_audience!r}")
+        candidate["suitability_score"] = score_with_audience_preference(
+            raw_skill_score, candidate.get("preferred_audience"), training_audience
+        )
+
+    ranked.sort(key=lambda c: c["suitability_score"], reverse=True)
+
+    return ranked
 if __name__ == "__main__":
     print("Import recommend_candidates_for_project, recommend_projects_for_person,")
     print("recommend_mentor_for_training, or get_next_mentor_for_batch to use.")
