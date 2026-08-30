@@ -109,6 +109,17 @@ HANDLING HYPOTHETICAL "WHAT IF THE LOCATION WERE DIFFERENT" QUESTIONS:
   doesn't change) who the best-fit mentor is, based on their real preferred
   region/audience compared to the new stated location.
 
+TEAM-LEAD-ONLY RULE FOR TRAININGS:
+- Training/workshop/webinar/demo recommendations must ONLY ever include mentors
+  where is_team_lead is True — this applies whether you're calling
+  recommend_mentor_for_training for a specific engagement, OR reasoning about
+  a hypothetical training based on described criteria (region/audience/domain)
+  when no specific engagement exists yet.
+- If you must use get_available_mentors directly (because there's no specific
+  engagement_id to look up), always filter the results to only people where
+  is_team_lead is True before presenting them, for ANY training-related question.
+- Student batches are the ONLY category where non-team-lead mentors are eligible.
+  
 CONSISTENCY IN EXPLAINING FIT:
 - Every time you explain why someone is or isn't a good fit, mention BOTH
   their region match/mismatch AND their audience match/mismatch — never

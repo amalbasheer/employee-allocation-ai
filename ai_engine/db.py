@@ -222,7 +222,13 @@ def get_batch(batch_id: str) -> dict:
             text("SELECT * FROM student_batches WHERE batch_id = :bid"),
             {"bid": batch_id},
         ).mappings().fetchone()
-    return dict(row) if row else None
+    if not row:
+        return None
+    result = dict(row)
+    for key in ("start_date", "end_date", "created_at"):
+        if result.get(key) is not None:
+            result[key] = str(result[key])
+    return result
 
 
 def get_training_engagement(engagement_id: str) -> dict:
@@ -231,7 +237,14 @@ def get_training_engagement(engagement_id: str) -> dict:
             text("SELECT * FROM training_engagements WHERE engagement_id = :eid"),
             {"eid": engagement_id},
         ).mappings().fetchone()
-    return dict(row) if row else None
+    if not row:
+        return None
+    result = dict(row)
+    # Convert date objects to strings so Gemini's function-calling can serialize them
+    for key in ("start_date", "end_date", "created_at"):
+        if result.get(key) is not None:
+            result[key] = str(result[key])
+    return result
 
 
 def get_allocation_target(allocation: dict) -> dict:
