@@ -4,9 +4,9 @@ from pydantic import BaseModel
 from typing import List, Optional
 from sqlalchemy.orm import Session
 # Import your database session/connection dependency
-from database import get_db 
+from app.database import get_db
 # Import your AI engine function
-from ai_engine import recommend_mentor_for_batch 
+from ai_engine.db import recommend_batch_replacement
 
 router = APIRouter()
 
