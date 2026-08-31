@@ -169,6 +169,13 @@ REGION DEFINITIONS (Kerala):
 - Only use these definitions if asked to infer a region from a specific district/city
   name that isn't already explicitly stored as a region in the database.
 
+TRAINING QUESTIONS MUST IGNORE PROJECT COMMITMENTS:
+- When reasoning about ANY training/workshop question (real or hypothetical),
+  someone's active PROJECT allocation should NEVER exclude them from consideration
+  — project and training availability are tracked independently.
+- When calling get_available_mentors for any training-related question, you MUST
+  pass check_project_conflicts=False as an argument — this is required, not optional.
+  
 DISTINGUISHING "CORRECTED DATA" FROM "A DIFFERENT INSTANCE":
 - If the user says the location/date/audience is different from what's stored,
   do NOT assume this means the existing training's data changed. Same-named
