@@ -110,6 +110,7 @@ class CompanyEmployeeBase(BaseModel):
     experience_years: float = 0.0
     weekly_capacity_hours: int = 40
     is_team_lead: bool = False
+    location: Optional[str] = 'Kochi'
 
 
 class CompanyEmployeeCreate(CompanyEmployeeBase):
@@ -125,6 +126,7 @@ class CompanyEmployeeUpdate(BaseModel):
     experience_years: Optional[float] = None
     weekly_capacity_hours: Optional[int] = None
     is_team_lead: Optional[bool] = None
+    location: Optional[str] = 'Kochi'
 
 
 class CompanyEmployeeResponse(CompanyEmployeeBase):

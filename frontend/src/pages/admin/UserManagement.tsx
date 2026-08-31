@@ -17,7 +17,9 @@ import {
   FileText,
   Clock,
   Award,
-  Crown
+  Crown,
+  Globe2,
+  Globe
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -38,6 +40,8 @@ export interface CompanyEmployee {
   weekly_capacity_hours: number;
   is_team_lead: boolean;
   created_at?: string;
+  location?: string;
+  preferred_region?:string;
 }
 
 export interface StudentIntern {
@@ -84,6 +88,7 @@ export const UserManagement: React.FC = () => {
     experience_years: 0,
     weekly_capacity_hours: 40,
     is_team_lead: false,
+    location:'',
   });
 
   // Student Form State
@@ -149,6 +154,7 @@ export const UserManagement: React.FC = () => {
             experience_years: 6.5,
             weekly_capacity_hours: 40,
             is_team_lead: true,
+            location: 'kochi',
           },
           {
             employee_id: 'e2',
@@ -159,6 +165,7 @@ export const UserManagement: React.FC = () => {
             experience_years: 3.0,
             weekly_capacity_hours: 35,
             is_team_lead: false,
+            location: 'calicut'
           },
         ]);
       } else {
@@ -213,6 +220,7 @@ export const UserManagement: React.FC = () => {
       experience_years: 0,
       weekly_capacity_hours: 40,
       is_team_lead: false,
+      location: '',
     });
 
     setStudentForm({
@@ -248,6 +256,7 @@ export const UserManagement: React.FC = () => {
         experience_years: emp.experience_years,
         weekly_capacity_hours: emp.weekly_capacity_hours,
         is_team_lead: emp.is_team_lead,
+        location: emp.location || '',
       });
     } else {
       const std = item as StudentIntern;
@@ -482,6 +491,7 @@ export const UserManagement: React.FC = () => {
                   <th className="p-3">Experience</th>
                   <th className="p-3">Weekly Capacity</th>
                   <th className="p-3">Role Type</th>
+                  <th className="p-3">Location</th>
                   <th className="p-3 text-right">Actions</th>
                 </tr>
               </thead>
@@ -528,6 +538,12 @@ export const UserManagement: React.FC = () => {
                         ) : (
                           <Badge label="EMPLOYEE" variant="emerald" />
                         )}
+                      </td>
+                      <td className="p-3">
+                        <div className="flex items-center gap-1.5 text-slate-300">
+                          <Globe className="w-3.5 h-3.5 text-slate-500" />
+                          {emp.location}
+                        </div>
                       </td>
                       <td className="p-3 text-right">
                         <div className="flex items-center justify-end gap-2">
@@ -785,6 +801,17 @@ export const UserManagement: React.FC = () => {
                         onChange={(e) =>
                           setEmployeeForm({ ...employeeForm, experience_years: parseFloat(e.target.value) || 0 })
                         }
+                        className="w-full bg-slate-950 border border-slate-800 text-xs text-white px-3 py-2.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">Location</label>
+                      <input
+                        type="text"
+                        required
+                        value={employeeForm.location}
+                        onChange={(e) => setEmployeeForm({ ...employeeForm, location: e.target.value })}
+                        placeholder="e.g. Kochi"
                         className="w-full bg-slate-950 border border-slate-800 text-xs text-white px-3 py-2.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       />
                     </div>
