@@ -2,23 +2,30 @@
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel
 from typing import List, Optional
+from sqlalchemy import text
 from sqlalchemy.orm import Session
-# Import your database session/connection dependency
+
+# Import your database session dependency
 from app.database import get_db
 # Import your AI engine function
 from ai_engine.db import recommend_batch_replacement
 
 router = APIRouter()
 
+
 # --- Pydantic Schemas ---
 class AssignMentorRequest(BaseModel):
     mentor_id: str
+
 
 class MentorResponse(BaseModel):
     id: str
     name: str
     designation: Optional[str] = "Mentor"
-    match_score: Optional[float] = None
+    match_score: Optional[float] = 90.0
+    is_team_lead: Optional[bool] = False
+    batch_count: Optional[int] = 0
+
 
 class BatchResponse(BaseModel):
     batch_id: str
@@ -33,26 +40,22 @@ class BatchResponse(BaseModel):
 
 
 # -------------------------------------------------------------------------
-# 1. GET ALL BATCHES (Joins with companyemployee to map mentor_id to name)
+# 1. GET ALL BATCHES
 # -------------------------------------------------------------------------
 @router.get("", response_model=List[BatchResponse])
 def get_student_batches(db: Session = Depends(get_db)):
     """
-    Fetches student batches joining 'companyemployee' table to return employee name instead of ID.
-    SQL equivalent:
-    SELECT b.*, e.name as trainer_name 
-    FROM student_batches b 
-    LEFT JOIN company_employees e ON b.mentor_id = e.employee_id
+    Fetches student batches joining 'company_employees' table to return employee name instead of ID.
     """
-    query = """
+    query = text("""
         SELECT 
             b.batch_id, b.batch_name, b.domain, b.status, 
             b.start_date, b.end_date, b.delivery_mode, b.mentor_id,
             e.name AS trainer_name
         FROM student_batches b
-        LEFT JOIN companyemployee e ON b.mentor_id = e.employee_id
-    """
-    results = db.execute(query).fetchall()
+        LEFT JOIN company_employees e ON b.mentor_id = e.employee_id
+    """)
+    results = db.execute(query).mappings().fetchall()
     return [dict(r) for r in results]
 
 
@@ -60,42 +63,39 @@ def get_student_batches(db: Session = Depends(get_db)):
 # 2. GET RECOMMENDED MENTORS FOR A BATCH
 # -------------------------------------------------------------------------
 @router.get("/{batch_id}/recommended-mentors", response_model=List[MentorResponse])
-def get_recommended_mentors(batch_id: str, db: Session = Depends(get_db)):
+def get_recommended_mentors(batch_id: str):
+    """
+    Fetches recommended replacement mentors for a batch directly from the AI Engine.
+    Leverages round-robin ranking (fewest active batch commitments first).
+    """
     try:
-        # Call AI Engine function to get recommended mentor IDs / data
-        # Example output from AI Engine: [{"mentor_id": "EMP101", "score": 95.0}, ...]
-        ai_recommendations = recommend_mentor_for_batch(batch_id)
-        
-        if not ai_recommendations:
-            return []
+        # Call AI Engine function (returns dict with keys: id, name, is_team_lead, batch_count)
+        ai_recommendations = recommend_batch_replacement(batch_id)
 
-        # Extract mentor IDs
-        if isinstance(ai_recommendations[0], dict):
-            recommended_ids = [m["mentor_id"] for m in ai_recommendations]
-            scores_map = {m["mentor_id"]: m.get("score", 0) for m in ai_recommendations}
-        else:
-            recommended_ids = ai_recommendations
-            scores_map = {}
+        formatted_mentors = []
+        for rec in ai_recommendations:
+            # Map batch count to a friendly match score for the frontend (0 batches = 100%, 1 = 90%, etc.)
+            batch_count = rec.get("batch_count", 0)
+            calculated_score = max(50.0, 100.0 - (batch_count * 10))
 
-        # Fetch names and designations from companyemployee table
-        query = """
-            SELECT employee_id, name as name, designation_id 
-            FROM company_employees 
-            WHERE employee_id IN :ids
-        """
-        employees = db.execute(query, {"ids": tuple(recommended_ids)}).fetchall()
+            designation = "Team Lead" if rec.get("is_team_lead") else "Mentor"
 
-        # Format final recommendation payload
-        recommended_mentors = []
-        for emp in employees:
-            emp_dict = dict(emp)
-            emp_dict["match_score"] = scores_map.get(emp_dict["employee_id"], 90.0)
-            recommended_mentors.append(emp_dict)
+            formatted_mentors.append({
+                "id": rec["id"],
+                "name": rec["name"],
+                "designation": designation,
+                "match_score": calculated_score,
+                "is_team_lead": bool(rec.get("is_team_lead")),
+                "batch_count": batch_count
+            })
 
-        # Sort by highest score
-        recommended_mentors.sort(key=lambda x: x["match_score"], reverse=True)
-        return recommended_mentors
+        return formatted_mentors
 
+    except ValueError as ve:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(ve)
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -108,19 +108,22 @@ def get_recommended_mentors(batch_id: str, db: Session = Depends(get_db)):
 # -------------------------------------------------------------------------
 @router.put("/{batch_id}/assign-mentor")
 def assign_mentor(batch_id: str, payload: AssignMentorRequest, db: Session = Depends(get_db)):
+    """
+    Assigns or updates the mentor for a specific student batch.
+    """
     try:
-        # 1. Update mentor_id in student_batch / training engagement table
-        update_query = """
+        # 1. Update mentor_id in student_batches table
+        update_query = text("""
             UPDATE student_batches
             SET mentor_id = :mentor_id 
             WHERE batch_id = :batch_id
-        """
+        """)
         db.execute(update_query, {"mentor_id": payload.mentor_id, "batch_id": batch_id})
         db.commit()
 
-        # 2. Fetch updated mentor's name from companyemployee table
-        emp_query = "SELECT name FROM company_employees WHERE employee_id = :id"
-        emp = db.execute(emp_query, {"id": payload.mentor_id}).fetchone()
+        # 2. Fetch updated mentor's name from company_employees table
+        emp_query = text("SELECT name FROM company_employees WHERE employee_id = :id")
+        emp = db.execute(emp_query, {"id": payload.mentor_id}).mappings().fetchone()
         trainer_name = emp["name"] if emp else payload.mentor_id
 
         return {

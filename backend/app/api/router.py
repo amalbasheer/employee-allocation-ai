@@ -17,4 +17,4 @@ api_router.include_router(chat_queries.router, prefix="/chat-queries", tags=["Ch
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
 api_router.include_router(training.router, prefix="/training", tags=["Training Management"])
 api_router.include_router(ai_project_helper.router, prefix="/ai-projects", tags=["AI Project Generator"])
-api_router.include_router(batches.router, prefix="/api/batches", tags=["Batches"])
+api_router.include_router(batches.router, prefix="/batches", tags=["Batches"])
