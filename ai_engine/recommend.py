@@ -172,17 +172,6 @@ def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
 
     return ranked
 
-def recommend_mentor_for_batch(batch_id: str):
-    """
-    Analyzes batch requirements and returns list of recommended mentor IDs from companyemployee table.
-    """
-    # Your recommendation logic here...
-    return [
-        {"mentor_id": "EMP001", "score": 98.5},
-        {"mentor_id": "EMP005", "score": 91.2},
-        {"mentor_id": "EMP012", "score": 84.0},
-    ]
-
 if __name__ == "__main__":
     print("Import recommend_candidates_for_project, recommend_projects_for_person,")
     print("recommend_mentor_for_training, or get_next_mentor_for_batch to use.")

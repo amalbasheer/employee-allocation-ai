@@ -215,6 +215,35 @@ def get_next_mentor_for_batch(domain: str, month_num: int, year: int = 2026) -> 
 
     return dict(row) if row else None
 
+def recommend_batch_replacement(batch_id: str) -> list[dict]:
+    """
+    For a batch whose mentor is leaving mid-cycle — returns ALL eligible
+    mentors (any mentor, not just team leads) in the batch's domain,
+    ranked by fewest recent batch commitments first (round-robin order),
+    excluding whoever's currently assigned.
+    """
+    with engine.connect() as conn:
+        batch = conn.execute(
+            text("SELECT * FROM student_batches WHERE batch_id = :bid"),
+            {"bid": batch_id},
+        ).mappings().fetchone()
+        if not batch:
+            raise ValueError(f"No batch found with id {batch_id}")
+
+        rows = conn.execute(
+            text("""
+                SELECT ce.employee_id AS id, ce.name, ce.is_team_lead,
+                       COUNT(a.allocation_id) AS batch_count
+                FROM company_employees ce
+                LEFT JOIN allocations a ON a.resource_id = ce.employee_id
+                    AND a.reference_type = 'batch' AND a.status IN ('proposed', 'accepted', 'assigned')
+                WHERE ce.department = :domain AND ce.employee_id != :current_mentor
+                GROUP BY ce.employee_id, ce.name, ce.is_team_lead
+                ORDER BY batch_count ASC, ce.employee_id ASC
+            """),
+            {"domain": batch["domain"], "current_mentor": batch.get("mentor_id") or ""},
+        ).mappings().fetchall()
+    return [dict(r) for r in rows]
 
 def get_batch(batch_id: str) -> dict:
     with engine.connect() as conn:

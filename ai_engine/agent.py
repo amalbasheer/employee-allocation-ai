@@ -26,6 +26,7 @@ from .db import (
     get_project_assignments,
     get_mentor_availability_for_week,
     get_available_mentors_for_training,
+    recommend_batch_replacement,
 )
 from .recommend import recommend_candidates_for_project, recommend_mentor_for_training
 from sqlalchemy import text
@@ -236,6 +237,7 @@ def chat_query(user_message: str, conversation_history: list = None) -> str:
         search_training_by_title,
         recommend_mentor_for_training,
         get_available_mentors_for_training,
+        recommend_batch_replacement,
     ]
 
     response = client.models.generate_content(
