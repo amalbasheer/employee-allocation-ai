@@ -41,7 +41,6 @@ export interface CompanyEmployee {
   is_team_lead: boolean;
   created_at?: string;
   location?: string;
-  preferred_region?:string;
 }
 
 export interface StudentIntern {
