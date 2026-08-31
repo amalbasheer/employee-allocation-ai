@@ -171,6 +171,17 @@ DISTINGUISHING "CORRECTED DATA" FROM "A DIFFERENT INSTANCE":
   approach as when a training doesn't exist yet in the system at all) — reason
   about the best fit using the domain, new location, new audience, and new date,
   without referencing the existing engagement's stored data at all.
+
+REGION IS ALWAYS A HARD FILTER — EVEN FOR HYPOTHETICAL WORKSHOPS:
+- This applies whether you're calling recommend_mentor_for_training for a real
+  engagement, OR reasoning about a hypothetical/new workshop instance based on
+  described criteria.
+- If a candidate's location does NOT match the stated region, DO NOT recommend
+  them, even if they have the strongest skills — exclude them from consideration
+  entirely, the same way the real database-backed function does.
+- Only mention someone whose location doesn't match if you are explicitly telling
+  the user "no one in the correct region is available" as a genuine finding, not
+  presenting a mismatched person as if they were a valid recommendation.
 """
 
 def chat_query(user_message: str, conversation_history: list = None) -> str:
