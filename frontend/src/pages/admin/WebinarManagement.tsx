@@ -45,8 +45,8 @@ export interface StudentBatch {
   domain: string;
   start_date: string;
   end_date: string;
-  mentor_id?: string;
-  mentor_name?: string;
+  trainer_ids?: string;
+  trainer_name?: string;
   status: string;
   delivery_mode?: string;
 }
@@ -83,8 +83,8 @@ const initialBatches: StudentBatch[] = [
     domain: 'Data Analytics',
     start_date: '2026-06-15',
     end_date: '2026-07-15',
-    mentor_id: 'emp-101',
-    mentor_name: 'Dr. Sarah Jenkins',
+    trainer_ids: 'emp-101',
+    trainer_name: 'Dr. Sarah Jenkins',
     status: 'open',
     delivery_mode: 'online'
   },
@@ -94,21 +94,10 @@ const initialBatches: StudentBatch[] = [
     domain: 'Data Science',
     start_date: '2026-07-15',
     end_date: '2026-08-15',
-    mentor_id: 'emp-101',
-    mentor_name: 'Dr. Sarah Jenkins',
+    trainer_ids: 'emp-101',
+    trainer_name: 'Dr. Sarah Jenkins',
     status: 'open',
     delivery_mode: 'hybrid'
-  },
-  {
-    batch_id: 'rp2-batch-0003',
-    batch_name: 'Batch-Aug-Sep-2026',
-    domain: 'Data Analytics',
-    start_date: '2026-08-15',
-    end_date: '2026-09-15',
-    mentor_id: 'emp-102',
-    mentor_name: 'Alex Morgan',
-    status: 'open',
-    delivery_mode: 'online'
   }
 ];
 
@@ -254,6 +243,44 @@ export const TrainingManagement: React.FC = () => {
       console.warn('Backend creation fallback to state update', err);
     }
   };
+  
+  const fetchStudentBatches = async () => {
+  try {
+    const res = await fetch('/api/training/student-batches', {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    if (res.ok) {
+      const data: StudentBatch[] = await res.json();
+      setBatches(data);
+      return;
+    }
+  } catch (e) {
+    console.warn('Fallback to local state batch list', e);
+  }
+
+  // Fallback initial state if API endpoint is unreachable
+  const defaultBatches: StudentBatch[] = [
+    {
+      batch_id: 'rp2-batch-0100',
+      batch_name: 'Batch-Sep-Oct-2026',
+      domain: 'Data Analytics',
+      start_date: '2026-09-15',
+      end_date: '2026-10-15',
+      trainer_ids: 'emp-102',
+      trainer_name: 'Alex Morgan',
+    
+      status: 'open',
+      delivery_mode: 'online'
+    },
+  ];
+  setBatches(defaultBatches);
+};
+
+useEffect(() => {
+  fetchStudentBatches();
+}, []);
 
   const handleAutoGenerateBatch = async () => {
     try {
@@ -274,8 +301,8 @@ export const TrainingManagement: React.FC = () => {
       domain: 'Data Analytics',
       start_date: '2026-09-15',
       end_date: '2026-10-15',
-      mentor_id: 'emp-102',
-      mentor_name: 'Alex Morgan',
+      trainer_ids: 'emp-102',
+      trainer_name: 'Alex Morgan',
       status: 'open',
       delivery_mode: 'online'
     };
@@ -576,49 +603,87 @@ export const TrainingManagement: React.FC = () => {
       )}
 
       {mainTab === 'student_batch' && (
-        <Card title="Student Batches">
-          <div className="p-4 bg-indigo-950/20 border border-indigo-500/30 rounded-xl mb-4 flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-indigo-400 mt-0.5 shrink-0" />
-            <div className="text-xs text-slate-300 leading-relaxed">
-              <span className="font-bold text-indigo-300">Round-Robin Allocation:</span> Student batches use round-robin rotation to assign mentors sequentially across monthly cycles without skill requirement matching tables.
+  <Card title="Student Batches">
+    {/* Header / Action Bar */}
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+      <div className="p-4 bg-indigo-950/20 border border-indigo-500/30 rounded-xl flex items-start gap-3 flex-1">
+        <AlertCircle className="w-5 h-5 text-indigo-400 mt-0.5 shrink-0" />
+        <div className="text-xs text-slate-300 leading-relaxed">
+          <span className="font-bold text-indigo-300">Round-Robin Allocation:</span> Student batches use round-robin rotation to assign mentors sequentially across monthly cycles without skill requirement matching tables.
+        </div>
+      </div>
+
+      {typeof handleAutoGenerateBatch === 'function' && (
+        <button
+          onClick={handleAutoGenerateBatch}
+          className="shrink-0 px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl flex items-center justify-center gap-2 transition-all shadow-sm"
+        >
+          <Plus className="w-4 h-4" />
+          Auto-Generate Batch
+        </button>
+      )}
+    </div>
+
+    {/* Batches List */}
+    <div className="space-y-3">
+      {batches.length === 0 ? (
+        <div className="p-8 text-center text-xs text-slate-400 bg-slate-950 border border-slate-800 rounded-xl">
+          No student batches found.
+        </div>
+      ) : (
+        batches.map((batch) => (
+          <div
+            key={batch.batch_id}
+            className="p-4 bg-slate-950 border border-slate-800 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all hover:border-slate-700"
+          >
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-400">
+                <GraduationCap className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  
+                  <h4 className="font-bold text-white text-sm">{batch.batch_name}</h4>
+                  
+                  {batch.domain && (
+                    <span className="text-[10px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded border border-slate-700">
+                      {batch.domain}
+                    </span>
+                  )}
+                  
+                  {batch.status && (
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded border capitalize ${
+                        batch.status === 'open' || batch.status === 'active'
+                          ? 'bg-emerald-950/40 text-emerald-400 border-emerald-500/30'
+                          : 'bg-slate-900 text-slate-400 border-slate-700'
+                      }`}
+                    >
+                      {batch.status}
+                    </span>
+                  )}
+                </div>
+                
+                <p className="text-xs text-slate-400 mt-1">
+                  Duration: <span className="text-slate-200">{batch.start_date || 'N/A'}</span> to <span className="text-slate-200">{batch.end_date || 'N/A'}</span> • Mode: <span className="text-slate-300 capitalize">{batch.delivery_mode || 'online'}</span>
+                </p>
+              </div>
+            </div>
+
+            {/* Mentor & Designation Card */}
+            <div className="flex flex-col items-start md:items-end bg-slate-900 border border-slate-800 px-3.5 py-2 rounded-lg shrink-0">
+              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">Assigned Mentor</span>
+              <span className="text-xs font-bold text-indigo-400 mt-0.5">
+                {batch.trainer_name || batch.trainer_ids || 'Unassigned'}
+              </span>
+              
             </div>
           </div>
-
-          <div className="space-y-3">
-            {batches.map((batch) => (
-              <div
-                key={batch.batch_id}
-                className="p-4 bg-slate-950 border border-slate-800 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all hover:border-slate-700"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-400">
-                    <GraduationCap className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-mono bg-slate-900 border border-slate-700 px-2 py-0.5 rounded text-emerald-400">
-                        {batch.batch_id}
-                      </span>
-                      <h4 className="font-bold text-white text-sm">{batch.batch_name}</h4>
-                      <span className="text-[10px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded border border-slate-700">
-                        {batch.domain}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-400 mt-1">
-                      Duration: <span className="text-slate-200">{batch.start_date}</span> to <span className="text-slate-200">{batch.end_date}</span> • Mode: <span className="text-slate-300">{batch.delivery_mode || 'online'}</span>
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 bg-slate-900 border border-slate-800 px-3 py-2 rounded-lg">
-                  <span className="text-xs text-slate-400">Assigned Mentor:</span>
-                  <span className="text-xs font-bold text-indigo-400">{batch.mentor_name || batch.mentor_id || 'Unassigned'}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
+        ))
       )}
+    </div>
+  </Card>
+)}
 
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">

@@ -621,7 +621,67 @@ def employee_action(engagement_id: str, employee_id: str, payload: EmployeeActio
 
 @router.get("/student-batches")
 def list_student_batches(db: Session = Depends(get_db)):
-    return db.query(StudentBatch).order_by(desc(StudentBatch.start_date)).all()
+    batches = db.query(StudentBatch).order_by(desc(StudentBatch.start_date)).all()
+    if not batches:
+        return []
+
+    # 1. Collect all non-null trainer / instructor / mentor IDs across batches
+    trainer_ids = list({
+        getattr(b, "mentor_id", None) or getattr(b, "instructor_id", None) or getattr(b, "trainer_id", None)
+        for b in batches
+        if (getattr(b, "mentor_id", None) or getattr(b, "instructor_id", None) or getattr(b, "trainer_id", None)) is not None
+    })
+
+    # 2. Bulk fetch trainer details from CompanyEmployee & designations
+    trainer_map = {}
+    designation_map = {}
+    if trainer_ids:
+        employees = db.query(CompanyEmployee).filter(CompanyEmployee.employee_id.in_(trainer_ids)).all()
+        trainer_map = {emp.employee_id: emp for emp in employees}
+
+        desig_ids = list({
+            getattr(emp, "designation_id") 
+            for emp in employees 
+            if getattr(emp, "designation_id", None) is not None
+        })
+
+        if desig_ids:
+            try:
+                desig_rows = db.execute(
+                    text("SELECT designation_id, designation_name FROM designations WHERE designation_id = ANY(:ids)"),
+                    {"ids": desig_ids}
+                ).fetchall()
+                designation_map = {row[0]: row[1] for row in desig_rows}
+            except Exception as e:
+                logger.warning(f"Could not load designations for batch trainers: {e}")
+
+    # 3. Format batch records into front-end friendly payload
+    formatted_batches = []
+    for b in batches:
+        # Convert SQLAlchemy object to dictionary
+        batch_dict = {column.name: getattr(b, column.name) for column in b.__table__.columns}
+
+        # Resolve primary trainer / mentor ID
+        t_id = getattr(b, "trainer_id", None) or getattr(b, "instructor_id", None) or getattr(b, "mentor_id", None)
+        emp_obj = trainer_map.get(t_id)
+
+        trainer_name = (
+            getattr(emp_obj, "full_name", None) or getattr(emp_obj, "name", None)
+            if emp_obj else None
+        )
+        desig_id = getattr(emp_obj, "designation_id", None) if emp_obj else None
+        trainer_designation = designation_map.get(desig_id)
+
+        # Attach computed/mapped metadata for frontend consumption
+        batch_dict["trainer_name"] = trainer_name or "Unassigned"
+        batch_dict["trainer_designation"] = trainer_designation or "N/A"
+        
+        # Ensure fallback defaults for standard UI cards/tables
+        batch_dict["student_count"] = getattr(b, "student_count", None) or getattr(b, "total_students", 0)
+
+        formatted_batches.append(batch_dict)
+
+    return formatted_batches
 
 
 @router.post("/student-batches", status_code=status.HTTP_201_CREATED)
