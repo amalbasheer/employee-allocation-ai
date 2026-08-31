@@ -29,8 +29,14 @@ export interface TrainingEngagement {
   required_hours: number;
   mentor_id?: string;
   mentor_name?: string;
+  audience?: string;
+  region?: string;
+  institution_name?: string;
+  mode?: string;
+  domain?: string;
   status: EngagementStatus;
   created_at?: string;
+  location: string;
 }
 
 export interface StudentBatch {
@@ -45,42 +51,6 @@ export interface StudentBatch {
   delivery_mode?: string;
 }
 
-const initialEngagements: TrainingEngagement[] = [
-  {
-    engagement_id: 'rp2-train-0001',
-    title: 'Advanced PyTorch & CUDA Tuning',
-    engagement_type: 'webinar',
-    description: 'Deep dive into GPU acceleration and memory management.',
-    start_date: '2026-08-24',
-    end_date: '2026-08-25',
-    required_hours: 2,
-    status: 'accepted',
-    mentor_id: 'emp-101',
-    mentor_name: 'Dr. Sarah Jenkins'
-  },
-  {
-    engagement_id: 'rp2-train-0002',
-    title: 'Building Scalable Microservices with Go',
-    engagement_type: 'workshop',
-    description: 'Hands-on architectural patterns using Go and gRPC.',
-    start_date: '2026-09-02',
-    end_date: '2026-09-03',
-    required_hours: 4,
-    status: 'open'
-  },
-  {
-    engagement_id: 'rp2-train-0003',
-    title: 'Cloud Native Security Demo',
-    engagement_type: 'demo',
-    description: 'Live demonstration of Zero-Trust policies in Kubernetes.',
-    start_date: '2026-09-10',
-    end_date: '2026-09-11',
-    required_hours: 2,
-    status: 'proposed',
-    mentor_id: 'emp-103',
-    mentor_name: 'Elena Rostova'
-  }
-];
 
 const mockMentors: RecommendedMentor[] = [
   {
@@ -156,6 +126,12 @@ export const TrainingManagement: React.FC = () => {
   const [newEndDate, setNewEndDate] = useState('');
   const [newHours, setNewHours] = useState(2);
   const [newDesc, setNewDesc] = useState('');
+  const [newLoc, setNewLoc] = useState('');
+  const [newReg, setNewReg] = useState('');
+  const [newInst, setNewInst] = useState('');
+  const [newAud, setNewAud] = useState('');
+  const [newMode, setNewMode] = useState('');
+  const [newDom, setNewDom] = useState('');
 
   // Initialize with empty arrays instead of hardcoded mock records
   const [engagements, setEngagements] = useState<TrainingEngagement[]>([]);
@@ -246,7 +222,13 @@ export const TrainingManagement: React.FC = () => {
       end_date: newEndDate || '2026-09-02',
       required_hours: newHours,
       status: 'open',
-      description: newDesc
+      description: newDesc,
+      location: newLoc,
+      region: newReg,
+      audience: newAud,
+      institution_name: newInst,
+      mode: newMode,
+      domain: newDom,
     };
 
     setEngagements([newEntry, ...engagements]);
@@ -264,7 +246,8 @@ export const TrainingManagement: React.FC = () => {
           start_date: newStartDate,
           end_date: newEndDate,
           required_hours: newHours,
-          description: newDesc
+          description: newDesc,
+          location: newLoc,
         })
       });
     } catch (err) {
@@ -459,8 +442,9 @@ export const TrainingManagement: React.FC = () => {
                         </div>
                         <p className="text-xs text-slate-400 mt-1">{item.description}</p>
                         <p className="text-xs text-slate-400 mt-1">
-                          Speaker: <span className="text-slate-200 font-medium">{item.mentor_name || 'Unassigned'}</span> • Duration: <span className="text-slate-300">{item.required_hours} hrs</span> • Schedule: <span className="text-slate-300">{item.start_date}</span>
+                          Speaker: <span className="text-slate-200 font-medium">{item.mentor_name || 'Unassigned'}</span> • Location: <span className="text-slate-200 font-medium">{item.location || 'Unassigned'}</span> • Mode: <span className="text-slate-200 font-medium">{item.mode || 'Unassigned'}</span> • Duration: <span className="text-slate-300">{item.required_hours} hrs</span> • Schedule: <span className="text-slate-300">{item.start_date}</span>
                         </p>
+                      
                       </div>
                     </div>
 
@@ -699,6 +683,70 @@ export const TrainingManagement: React.FC = () => {
                     value={newEndDate}
                     onChange={(e) => setNewEndDate(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Domain</label>
+                  <select
+                    value={newDom}
+                    onChange={(e) => setNewDom(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="Data Science">Data Science</option>
+                    <option value="Data Analytics">Data Analytics</option>
+                    
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Location</label>
+                  <input
+                    type="string"
+                    value={newLoc}
+                    onChange={(e) => setNewLoc(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                    placeholder="Kochi"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Region</label>
+                  <input
+                    type="string"
+                    value={newReg}
+                    onChange={(e) => setNewReg(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                    placeholder="Kochi"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Institution</label>
+                  <input
+                    type="string"
+                    value={newInst}
+                    onChange={(e) => setNewInst(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                    placeholder="eg: CUSAT"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Mode</label>
+                  <select
+                  
+                    value={newMode}
+                    onChange={(e) => setNewMode(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="online">online</option>
+                    <option value="offline">offline</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Audience</label>
+                  <input
+                    type="string"
+                    value={newAud}
+                    onChange={(e) => setNewAud(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                    placeholder="college_students"
                   />
                 </div>
               </div>

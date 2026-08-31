@@ -162,7 +162,62 @@ def list_engagements(
     if type_filter and type_filter.lower() != "all":
         query = query.filter(TrainingEngagement.engagement_type == type_filter.lower())
     
-    return query.order_by(desc(TrainingEngagement.start_date)).all()
+    engagements = query.order_by(desc(TrainingEngagement.start_date)).all()
+
+    # 1. Collect all unique non-null mentor_ids from the engagements
+    mentor_ids = list({
+        eng.mentor_id for eng in engagements 
+        if getattr(eng, "mentor_id", None) is not None
+    })
+
+    # 2. Fetch mentor details from CompanyEmployee & designations table
+    mentor_map = {}
+    designation_map = {}
+    if mentor_ids:
+        employees = db.query(CompanyEmployee).filter(CompanyEmployee.employee_id.in_(mentor_ids)).all()
+        mentor_map = {emp.employee_id: emp for emp in employees}
+
+        # Extract designation IDs for these mentors
+        desig_ids = list({
+            getattr(emp, "designation_id") 
+            for emp in employees 
+            if getattr(emp, "designation_id", None) is not None
+        })
+
+        if desig_ids:
+            try:
+                desig_rows = db.execute(
+                    text("SELECT designation_id, designation_name FROM designations WHERE designation_id = ANY(:ids)"),
+                    {"ids": desig_ids}
+                ).fetchall()
+                designation_map = {row[0]: row[1] for row in desig_rows}
+            except Exception as e:
+                logger.warning(f"Could not load designations: {e}")
+
+    # 3. Build enriched response payload
+    formatted_engagements = []
+    for eng in engagements:
+        # Convert SQLAlchemy object to dictionary
+        eng_dict = {column.name: getattr(eng, column.name) for column in eng.__table__.columns}
+
+        # Resolve mentor details
+        mentor_id = getattr(eng, "mentor_id", None)
+        emp_obj = mentor_map.get(mentor_id)
+
+        mentor_name = (
+            getattr(emp_obj, "full_name", None) or getattr(emp_obj, "name", None)
+            if emp_obj else None
+        )
+        desig_id = getattr(emp_obj, "designation_id", None) if emp_obj else None
+        mentor_designation = designation_map.get(desig_id)
+
+        # Attach fields for the frontend
+        eng_dict["mentor_name"] = mentor_name or "Unassigned"
+        eng_dict["mentor_designation"] = mentor_designation or "N/A"
+
+        formatted_engagements.append(eng_dict)
+
+    return formatted_engagements
 
 @router.post("/engagements", status_code=status.HTTP_201_CREATED)
 async def schedule_engagement(payload: CreateEngagementSchema, db: Session = Depends(get_db)):
