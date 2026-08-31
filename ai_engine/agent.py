@@ -25,6 +25,7 @@ from .db import (
     get_mentor_workload_summary,
     get_project_assignments,
     get_mentor_availability_for_week,
+    get_available_mentors_for_training,
 )
 from .recommend import recommend_candidates_for_project, recommend_mentor_for_training
 from sqlalchemy import text
@@ -169,12 +170,13 @@ REGION DEFINITIONS (Kerala):
 - Only use these definitions if asked to infer a region from a specific district/city
   name that isn't already explicitly stored as a region in the database.
 
-TRAINING QUESTIONS MUST IGNORE PROJECT COMMITMENTS:
-- When reasoning about ANY training/workshop question (real or hypothetical),
-  someone's active PROJECT allocation should NEVER exclude them from consideration
-  — project and training availability are tracked independently.
-- When calling get_available_mentors for any training-related question, you MUST
-  pass check_project_conflicts=False as an argument — this is required, not optional.
+TRAINING QUESTIONS MUST USE THE TRAINING-SPECIFIC AVAILABILITY FUNCTION:
+- For ANY training/workshop availability question (real or hypothetical),
+  ALWAYS call get_available_mentors_for_training — NEVER call get_available_mentors
+  directly for training-related questions.
+- get_available_mentors_for_training already correctly ignores project
+  commitments — you do not need to specify any additional parameters
+  about project conflicts.
   
 DISTINGUISHING "CORRECTED DATA" FROM "A DIFFERENT INSTANCE":
 - If the user says the location/date/audience is different from what's stored,
@@ -233,6 +235,7 @@ def chat_query(user_message: str, conversation_history: list = None) -> str:
         get_employee_details,
         search_training_by_title,
         recommend_mentor_for_training,
+        get_available_mentors_for_training,
     ]
 
     response = client.models.generate_content(

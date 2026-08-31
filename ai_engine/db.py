@@ -394,3 +394,12 @@ def get_mentor_availability_for_week(week_start_date: str) -> list[dict]:
             {"week": week_start_date},
         ).mappings().fetchall()
     return [dict(r) for r in rows]
+
+def get_available_mentors_for_training(domain: str = None, region: str = None) -> list[dict]:
+    """
+    Specifically for training/workshop availability questions — always
+    ignores project commitments, since project and training availability
+    are tracked independently. Use this instead of get_available_mentors
+    for ANY training-related question.
+    """
+    return get_available_mentors(domain=domain, region=region, check_project_conflicts=False)
