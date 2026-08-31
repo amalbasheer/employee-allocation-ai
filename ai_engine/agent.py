@@ -132,6 +132,45 @@ WHEN A "BEST MENTOR" QUESTION NEEDS CLARIFICATION:
   own, even if only one training exists for that domain right now.
 - Only proceed to give a specific recommendation once you have a specific,
   named training engagement to look up.
+- NEVER state a region/location grouping (e.g. "X is part of Y region") unless
+  that exact information comes directly from the database. If you're unsure
+  whether a location belongs to a particular region, just state the location
+  as given by the user, without adding an unverified regional label.
+
+DATABASE FACTS ALWAYS OVERRIDE CONVERSATION HISTORY:
+- The actual stored data in the database is ALWAYS the source of truth for a
+  training's real location/region/audience — NEVER let something said in an
+  earlier message (yours or the user's) override or contradict what the
+  database actually says, unless the user is EXPLICITLY correcting it again
+  in THIS current message.
+- When a user says "it's the same" or "no change," this means "the CURRENTLY
+  STORED database values are accurate" — re-fetch and use those exact values,
+  do not reuse a value from earlier in the conversation that may have been a
+  hypothetical or a different correction.
+
+REGION DEFINITIONS (Kerala):
+- "Kochi region" includes: Ernakulam (EKM), Thrissur, and all districts south/below these.
+- "Calicut region" includes: Palakkad and all districts north/above these, including
+  Kozhikode (Calicut) itself, Malappuram, Kannur, Kasaragod, Wayanad.
+- These are two SEPARATE regions — never state that Calicut is "part of the Kochi
+  region," they are distinct.
+- Only use these definitions if asked to infer a region from a specific district/city
+  name that isn't already explicitly stored as a region in the database.
+
+DISTINGUISHING "CORRECTED DATA" FROM "A DIFFERENT INSTANCE":
+- If the user says the location/date/audience is different from what's stored,
+  do NOT assume this means the existing training's data changed. Same-named
+  workshops can genuinely happen multiple times, in different places.
+- Ask explicitly: "Is this a correction to the existing [training name]
+  scheduled for [stored date/location], or are you asking about a NEW,
+  separate instance of this workshop at a different time/place?"
+- If it's a correction: mention that the admin should update the actual record,
+  and give your recommendation based on the corrected details as a temporary
+  calculation, not by assuming the database itself has changed.
+- If it's a new/different instance: treat it as a hypothetical training (same
+  approach as when a training doesn't exist yet in the system at all) — reason
+  about the best fit using the domain, new location, new audience, and new date,
+  without referencing the existing engagement's stored data at all.
 """
 
 def chat_query(user_message: str, conversation_history: list = None) -> str:
