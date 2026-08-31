@@ -2,12 +2,22 @@ import React, { useState, useEffect } from 'react';
 import { Card } from '../../components/common/Card';
 import { 
   Video, Plus, Clock, CheckCircle2, XCircle, Send, 
-  UserCheck, Star, UserPlus, Sliders, ArrowRight,
-  GraduationCap, RefreshCw, Sparkles, Filter, AlertCircle
+  UserCheck, Star, UserPlus, Sliders, ArrowRight, Download,
+  GraduationCap, RefreshCw, Sparkles, Filter, AlertCircle, X, Loader2
 } from 'lucide-react';
 
 export type EngagementTypeFilter = 'all' | 'webinar' | 'demo' | 'workshop' | 'seminar';
 export type EngagementStatus = 'open' | 'proposed' | 'accepted' | 'rejected' | 'allocated' | 'completed';
+
+export interface WebinarIdea {
+  id: number;
+  title: string;
+  summary: string;
+  format_type: string;
+  duration_hours: number;
+  target_audience: string;
+  key_takeaways?: string[];
+}
 
 export interface RecommendedMentor {
   employee_id: string;
@@ -148,6 +158,16 @@ export const TrainingManagement: React.FC = () => {
   const [newMode, setNewMode] = useState('');
   const [newDom, setNewDom] = useState('');
 
+  // AI Webinar Generator Modal & State
+  const [isWebinarModalOpen, setIsWebinarModalOpen] = useState(false);
+  const [isGeneratingWebinars, setIsGeneratingWebinars] = useState(false);
+  const [downloadingPdfId, setDownloadingPdfId] = useState<number | null>(null);
+  const [webinarDomain, setWebinarDomain] = useState('AI & Machine Learning');
+  const [webinarFormat, setWebinarFormat] = useState('workshop');
+  const [webinarAudience, setWebinarAudience] = useState('Software Engineers');
+  const [webinarHours, setWebinarHours] = useState(2);
+  const [webinarDesc, setWebinarDesc] = useState('');
+  const [suggestedWebinars, setSuggestedWebinars] = useState<WebinarIdea[]>([]);
   // 1. Fetch Real Engagements from API
   useEffect(() => {
     fetch('/api/training/engagements')
@@ -367,6 +387,76 @@ export const TrainingManagement: React.FC = () => {
     }
   };
 
+
+  // Generate Webinar / Workshop Ideas Handler
+  const handleGenerateWebinarIdeas = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsGeneratingWebinars(true);
+
+    try {
+      const res = await fetch('/api/ai_events/suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          domain: webinarDomain,
+          format_type: webinarFormat,
+          target_audience: webinarAudience,
+          duration_hours: webinarHours,
+          description: webinarDesc,
+        }),
+      });
+
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+
+      const data = await res.json();
+      setSuggestedWebinars(data.webinars || []);
+      setIsWebinarModalOpen(false);
+    } catch (err) {
+      console.error('Failed to generate webinar ideas:', err);
+      alert('Failed to generate webinar ideas. Please verify backend server route.');
+    } finally {
+      setIsGeneratingWebinars(false);
+    }
+  };
+
+  // Download Webinar / Workshop Proposal PDF Handler
+  const handleDownloadWebinarPdf = async (idea: WebinarIdea) => {
+    setDownloadingPdfId(idea.id);
+
+    try {
+      const res = await fetch('/api/ai_events/generate-proposal-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: idea.title,
+          summary: idea.summary,
+          format_type: idea.format_type,
+          target_audience: idea.target_audience,
+          duration_hours: idea.duration_hours,
+        }),
+      });
+
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+
+      const blob = await res.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `Syllabus_${idea.title.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+      
+      document.body.appendChild(link);
+      link.click();
+      
+      link.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (err) {
+      console.error('PDF download error:', err);
+      alert('Failed to download proposal PDF.');
+    } finally {
+      setDownloadingPdfId(null);
+    }
+  };
+
   const renderStatusBadge = (status: EngagementStatus | string) => {
     switch (status) {
       case 'open':
@@ -423,12 +513,21 @@ export const TrainingManagement: React.FC = () => {
       </div>
       <div className="flex items-center gap-3">
         {mainTab === 'engagements' ? (
+          <>
           <button
             onClick={() => setIsModalOpen(true)}
             className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg transition-all"
           >
             <Plus className="w-4 h-4" /> Schedule Engagement
           </button>
+          
+            <button
+              onClick={() => setIsWebinarModalOpen(true)}
+              className="bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg transition-all"
+            >
+              <Sparkles className="w-4 h-4 text-amber-400" /> Generate Idea
+            </button>
+          </>
         ) : (
           <button
             onClick={handleAutoGenerateBatch}
@@ -835,6 +934,60 @@ export const TrainingManagement: React.FC = () => {
         </div>
       )}
 
+      {/* SUGGESTED AI WEBINARS GRID DISPLAY */}
+      {suggestedWebinars.length > 0 && (
+        <div className="pt-6 border-t border-slate-800 space-y-4">
+          <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-amber-400" /> Generated Workshop Ideas ({suggestedWebinars.length})
+          </h3>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {suggestedWebinars.map((idea) => {
+              const isDownloading = downloadingPdfId === idea.id;
+
+              return (
+                <Card key={idea.id} className="p-5 bg-slate-900 border-slate-800 flex flex-col justify-between">
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                        {idea.format_type}
+                      </span>
+                      <span className="text-xs text-slate-400 flex items-center gap-1">
+                        <Clock className="w-3 h-3" /> {idea.duration_hours} hrs
+                      </span>
+                    </div>
+
+                    <h4 className="font-bold text-white text-base leading-snug">{idea.title}</h4>
+                    <p className="text-xs text-slate-400 leading-relaxed">{idea.summary}</p>
+                  </div>
+
+                  <div className="pt-4 mt-4 border-t border-slate-800">
+                    <button
+                      onClick={() => handleDownloadWebinarPdf(idea)}
+                      disabled={isDownloading}
+                      className="w-full bg-slate-950 hover:bg-slate-800 text-slate-200 text-xs font-semibold py-2.5 rounded-lg border border-slate-700 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                    >
+                      {isDownloading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin text-indigo-400" /> Generating PDF...
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-4 h-4 text-indigo-400" /> Download Proposal PDF
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+
+
+
     {isModalOpen && (
       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
         <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl">
@@ -992,7 +1145,112 @@ export const TrainingManagement: React.FC = () => {
             </div>
           </form>
         </div>
-      </div>
+      </div>)}
+      
+      {/* AI WEBINAR REQUIREMENT FORM MODAL */}
+      {isWebinarModalOpen && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl relative">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-amber-400" /> AI Workshop Idea Generator
+              </h3>
+              <button onClick={() => setIsWebinarModalOpen(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleGenerateWebinarIdeas} className="space-y-4">
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Domain / Subject</label>
+                <input
+                  type="text"
+                  required
+                  value={webinarDomain}
+                  onChange={(e) => setWebinarDomain(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  placeholder="e.g. AI & Machine Learning, DevOps"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Format Type</label>
+                  <select
+                    value={webinarFormat}
+                    onChange={(e) => setWebinarFormat(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 capitalize"
+                  >
+                    <option value="workshop">Workshop</option>
+                    <option value="webinar">Webinar</option>
+                    <option value="demo">Demo</option>
+                    <option value="seminar">Seminar</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Duration (Hours)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={40}
+                    value={webinarHours}
+                    onChange={(e) => setWebinarHours(Number(e.target.value))}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Target Audience</label>
+                <input
+                  type="text"
+                  required
+                  value={webinarAudience}
+                  onChange={(e) => setWebinarAudience(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  placeholder="e.g. Software Engineers, Students"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Additional Notes (Optional)</label>
+                <textarea
+                  rows={3}
+                  value={webinarDesc}
+                  onChange={(e) => setWebinarDesc(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  placeholder="Specify focus areas..."
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsWebinarModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isGeneratingWebinars}
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2.5 rounded-lg flex items-center gap-2 transition-all disabled:opacity-50"
+                >
+                  {isGeneratingWebinars ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" /> Generating...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4 text-amber-400" /> Fetch Ideas
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
     )}
   </div>
 )};

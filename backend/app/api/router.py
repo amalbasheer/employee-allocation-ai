@@ -2,7 +2,7 @@
 from fastapi import APIRouter
 from app.api import (
     auth, taxonomy, employees, interns, projects, allocations,
-    chat_queries, dashboard, training, ai_project_helper, batches
+    chat_queries, dashboard, training, ai_project_helper, batches, ai_event_helper
 )
 
 api_router = APIRouter()
@@ -18,3 +18,4 @@ api_router.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboar
 api_router.include_router(training.router, prefix="/training", tags=["Training Management"])
 api_router.include_router(ai_project_helper.router, prefix="/ai-projects", tags=["AI Project Generator"])
 api_router.include_router(batches.router, prefix="/batches", tags=["Batches"])
+api_router.include_router(ai_event_helper.router,prefix="/ai_events", tags=["Webinars & Workshops"])
