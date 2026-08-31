@@ -146,7 +146,7 @@ def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
     ]
 
     # Online sessions: no region filtering, anyone eligible.
-    # Offline sessions: filter to mentors whose preferred_region matches.
+    # Offline sessions: filter to mentors whose location matches.
     region_filter = None if engagement.get("mode") == "online" else engagement.get("region")
 
     mentors = get_available_mentors(domain=engagement.get("domain"), region=region_filter, check_project_conflicts=False)

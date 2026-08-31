@@ -79,10 +79,10 @@ def get_available_mentors(domain: str = None, region: str = None, check_project_
     """
     Excludes anyone with an active PROJECT allocation, unless
     check_project_conflicts=False. Optionally filters by department
-    and/or preferred_region.
+    and/or location.
     """
     query = """
-    SELECT employee_id AS id, name, weekly_capacity_hours, is_team_lead, preferred_region, preferred_audience
+    SELECT employee_id AS id, name, weekly_capacity_hours, is_team_lead, location, preferred_audience
     FROM company_employees
     """
     conditions = []
@@ -101,7 +101,7 @@ def get_available_mentors(domain: str = None, region: str = None, check_project_
         conditions.append("department = :domain")
         params["domain"] = domain
     if region:
-        conditions.append("preferred_region LIKE :region")
+        conditions.append("location LIKE :region")
         params["region"] = f"%{region}%"
 
     if conditions:
