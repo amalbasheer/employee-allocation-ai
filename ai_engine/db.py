@@ -432,3 +432,34 @@ def get_available_mentors_for_training(domain: str = None, region: str = None) -
     for ANY training-related question.
     """
     return get_available_mentors(domain=domain, region=region, check_project_conflicts=False)
+
+def check_hypothetical_training_availability(domain: str, region: str, audience: str) -> dict:
+    """
+    THE ONLY function to use when checking mentor availability for a
+    training that does NOT exist yet in the system (a new/hypothetical
+    workshop instance). Takes domain, region, and audience — ALL THREE
+    are required — and returns a ranked list of eligible team leads,
+    correctly ignoring project commitments, correctly filtering by
+    domain and region, and flagging audience match/mismatch.
+
+    Args:
+        domain: "Data Analytics" or "Data Science" (full name, required)
+        region: the region name, e.g. "Kochi" (required)
+        audience: e.g. "college_students", "school_students", or "professionals" (required)
+
+    Returns:
+        {"available_mentors": [...], "count": N} — always this exact shape,
+        even if count is 0. Each mentor includes an "audience_match" field.
+    """
+    mentors = get_available_mentors(domain=domain, region=region, check_project_conflicts=False)
+    team_leads = [m for m in mentors if m.get("is_team_lead")]
+
+    for tl in team_leads:
+        candidate_audience = tl.get("preferred_audience")
+        if candidate_audience:
+            candidate_list = [a.strip().lower() for a in candidate_audience.split(",")]
+            tl["audience_match"] = audience.strip().lower() in candidate_list
+        else:
+            tl["audience_match"] = False
+
+    return {"available_mentors": team_leads, "count": len(team_leads)}

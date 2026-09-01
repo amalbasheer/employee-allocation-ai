@@ -171,13 +171,22 @@ REGION DEFINITIONS (Kerala):
 - Only use these definitions if asked to infer a region from a specific district/city
   name that isn't already explicitly stored as a region in the database.
 
-TRAINING QUESTIONS MUST USE THE TRAINING-SPECIFIC AVAILABILITY FUNCTION:
-- For ANY training/workshop availability question (real or hypothetical),
-  ALWAYS call get_available_mentors_for_training — NEVER call get_available_mentors
-  directly for training-related questions.
-- get_available_mentors_for_training already correctly ignores project
-  commitments — you do not need to specify any additional parameters
-  about project conflicts.
+TRAINING AVAILABILITY — WHICH FUNCTION TO USE:
+- If the question is about a REAL, EXISTING training engagement (one that has
+  an engagement_id you can find via search_training_by_title or was already
+  discussed with real stored details), call get_available_mentors_for_training
+  or recommend_mentor_for_training as appropriate.
+- If the question is about a NEW, HYPOTHETICAL training instance — a topic,
+  date, or location that does NOT match any existing engagement_id — you MUST
+  call check_hypothetical_training_availability instead. This is the ONLY
+  function allowed for hypothetical scenarios. Do NOT call
+  get_available_mentors_for_training or get_available_mentors directly for
+  a hypothetical scenario.
+- Both function families already correctly ignore project commitments — you
+  never need to worry about project conflicts blocking a training recommendation.
+- For check_hypothetical_training_availability specifically, domain, region,
+  and audience are all REQUIRED — always ask the user for all three before
+  calling it, if any are missing.
   
 DISTINGUISHING "CORRECTED DATA" FROM "A DIFFERENT INSTANCE":
 - If the user says the location/date/audience is different from what's stored,
