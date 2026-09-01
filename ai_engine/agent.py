@@ -22,11 +22,12 @@ from .db import (
     get_employee_details,
     search_training_by_title,
     get_best_mentor_for_domain,
-    get_mentor_workload_summary,
     get_project_assignments,
     get_mentor_availability_for_week,
     get_available_mentors_for_training,
     recommend_batch_replacement,
+    get_employee_workload_summary,
+    get_workload_extremes,
 )
 from .recommend import recommend_candidates_for_project, recommend_mentor_for_training
 from sqlalchemy import text
@@ -58,6 +59,13 @@ BOUNDARIES:
   just answer directly — do NOT add the read-only disclaimer unless the person is actually
   asking you to take an action.
 
+WORKLOAD SUMMARY:
+
+- When someone asks what a mentor or employee is currently working on,
+call get_employee_workload_summary.
+- Summarize projects, trainings and batches together unless the user
+specifically asks about only one commitment type.
+  
 DOMAIN PARAMETER FORMATTING:
 - When calling any tool with a "domain" parameter, always use the full department name
   exactly as stored in the database: "Data Analytics" or "Data Science".
@@ -238,7 +246,6 @@ def chat_query(user_message: str, conversation_history: list = None) -> str:
         get_project_assignments,
         get_mentor_availability_for_week,
         get_best_mentor_for_domain,
-        get_mentor_workload_summary,
         recommend_candidates_for_project,
         search_project_by_title,
         get_intern_details,
@@ -247,6 +254,8 @@ def chat_query(user_message: str, conversation_history: list = None) -> str:
         recommend_mentor_for_training,
         get_available_mentors_for_training,
         recommend_batch_replacement,
+        get_employee_workload_summary,
+        get_workload_extremes,
     ]
 
     response = client.models.generate_content(

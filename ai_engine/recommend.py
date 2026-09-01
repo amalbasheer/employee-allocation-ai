@@ -175,3 +175,62 @@ def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
 if __name__ == "__main__":
     print("Import recommend_candidates_for_project, recommend_projects_for_person,")
     print("recommend_mentor_for_training, or get_next_mentor_for_batch to use.")
+
+def compare_mentors_for_project(project_id: str, mentor_name_1: str, mentor_name_2: str) -> dict:
+    """
+    Compares two specific mentors for a project, using the same real
+    scoring as recommend_candidates_for_project — just filtered to
+    the two named people, with a direct verdict on who's the better fit.
+    """
+    from ai_engine.recommend import recommend_candidates_for_project
+    result = recommend_candidates_for_project(project_id)
+    all_candidates = result.get("mentors", []) + result.get("eligible_team_leads", [])
+
+    m1 = next((c for c in all_candidates if c["name"].lower() == mentor_name_1.lower()), None)
+    m2 = next((c for c in all_candidates if c["name"].lower() == mentor_name_2.lower()), None)
+
+    if not m1 or not m2:
+        return {"error": f"One or both mentors not found in the candidate pool for this project."}
+
+    winner = mentor_name_1 if m1["suitability_score"] > m2["suitability_score"] else mentor_name_2
+    return {
+        "mentor_1": {"name": m1["name"], "score": m1["suitability_score"], "skills": m1.get("skills", [])},
+        "mentor_2": {"name": m2["name"], "score": m2["suitability_score"], "skills": m2.get("skills", [])},
+        "recommended": winner,
+    }
+
+def explain_exclusion(project_id: str, mentor_name: str) -> dict:
+    """
+    Explains specifically why someone was NOT recommended for a project —
+    checks each real exclusion reason (busy elsewhere, wrong domain,
+    missing mandatory skills, low score) and reports which applied.
+    """
+    from ai_engine.recommend import recommend_candidates_for_project
+    project = get_project(project_id)
+    person = conn_lookup_by_name(mentor_name)  # you'd need a name->id lookup helper
+
+    reasons = []
+    # Check active project allocation
+    with engine.connect() as conn:
+        busy = conn.execute(
+            text("SELECT 1 FROM allocations WHERE resource_id = :id AND status IN ('proposed','assigned') AND reference_type = 'project'"),
+            {"id": person["id"]},
+        ).fetchone()
+    if busy:
+        reasons.append("Already assigned to another active project")
+
+    if person.get("department") != category_to_department(project.get("category")):
+        reasons.append(f"Wrong domain — project needs {project.get('category')}, this person is in {person.get('department')}")
+
+    # Check mandatory skills
+    requirements = get_project_requirements(project_id)
+    person_skills = {s["skill_id"] for s in get_person_skills(person["id"], "employee")}
+    missing_mandatory = [r["skill_name"] for r in requirements if r["is_mandatory"] and r["skill_id"] not in person_skills]
+    if missing_mandatory:
+        reasons.append(f"Missing mandatory skill(s): {', '.join(missing_mandatory)}")
+
+    if not reasons:
+        reasons.append("Eligible, but ranked lower than the selected candidate(s) on overall skill match")
+
+    return {"mentor": mentor_name, "project": project["title"], "reasons": reasons}
+

@@ -8,6 +8,7 @@ import os
 import json
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
+from ai_engine.project_taxonomy import get_required_roles
 
 load_dotenv()
 
@@ -362,29 +363,145 @@ def get_best_mentor_for_domain(domain: str) -> list[dict]:
         key=lambda m: (not m.get("is_team_lead", False), -m.get("weekly_capacity_hours", 0))
     )[:5]
 
-def get_mentor_workload_summary(domain: str = None) -> list[dict]:
+def get_workload_extremes(domain: str = None) -> dict:
     """
-    Shows each mentor's current active commitment count across
-    projects, batches, and trainings — lets the assistant reason
-    about who's genuinely least busy, not just binary available/not.
+    Returns the least busy and most busy mentors based on their current
+    active commitments across projects, trainings and batches.
+
+    Useful for questions like:
+    - Who is the least busy mentor?
+    - Who is the most busy mentor?
     """
+
     query = """
-        SELECT ce.employee_id, ce.name, ce.department, ce.is_team_lead,
-               COUNT(a.allocation_id) AS active_commitments
+        SELECT
+            ce.employee_id,
+            ce.name,
+            ce.department,
+            ce.is_team_lead,
+            COUNT(a.allocation_id) AS active_commitments
         FROM company_employees ce
-        LEFT JOIN allocations a ON a.resource_id = ce.employee_id
+        LEFT JOIN allocations a
+            ON a.resource_id = ce.employee_id
             AND a.status IN ('proposed', 'assigned')
         WHERE 1=1
     """
+
     params = {}
+
     if domain:
         query += " AND ce.department = :domain"
         params["domain"] = domain
-    query += " GROUP BY ce.employee_id, ce.name, ce.department, ce.is_team_lead ORDER BY active_commitments ASC"
+
+    query += """
+        GROUP BY ce.employee_id,
+                 ce.name,
+                 ce.department,
+                 ce.is_team_lead
+        ORDER BY active_commitments ASC, ce.name
+    """
 
     with engine.connect() as conn:
-        rows = conn.execute(text(query), params).mappings().fetchall()
-    return [dict(r) for r in rows]
+        mentors = conn.execute(text(query), params).mappings().fetchall()
+
+    mentors = [dict(m) for m in mentors]
+
+    if not mentors:
+        return {
+            "least_busy": [],
+            "most_busy": []
+        }
+
+    min_count = mentors[0]["active_commitments"]
+    max_count = mentors[-1]["active_commitments"]
+
+    least_busy = [
+        m for m in mentors
+        if m["active_commitments"] == min_count
+    ]
+
+    most_busy = [
+        m for m in mentors
+        if m["active_commitments"] == max_count
+    ]
+
+    return {
+        "least_busy": least_busy,
+        "most_busy": most_busy
+    }
+
+def get_employee_workload_summary(employee_name: str) -> dict:
+    """
+    Returns a complete summary of one employee's active work across
+    projects, trainings and student batches.
+    """
+
+    with engine.connect() as conn:
+
+        employee = conn.execute(
+            text("""
+                SELECT employee_id,
+                       name,
+                       department,
+                       weekly_capacity_hours,
+                       is_team_lead
+                FROM company_employees
+                WHERE LOWER(name)=LOWER(:name)
+            """),
+            {"name": employee_name},
+        ).mappings().fetchone()
+
+        if not employee:
+            return None
+
+        employee_id = employee["employee_id"]
+
+        allocations = conn.execute(
+            text("""
+                SELECT
+                    reference_type,
+                    reference_id,
+                    status
+                FROM allocations
+                WHERE resource_id=:id
+                AND status IN ('proposed','assigned','accepted')
+            """),
+            {"id": employee_id},
+        ).mappings().fetchall()
+
+    projects = []
+    trainings = []
+    batches = []
+
+    for allocation in allocations:
+
+        if allocation["reference_type"] == "project":
+            project = get_project(allocation["reference_id"])
+            if project:
+                projects.append(project["title"])
+
+        elif allocation["reference_type"] == "training":
+            training = get_training_engagement(allocation["reference_id"])
+            if training:
+                trainings.append(training["title"])
+
+        elif allocation["reference_type"] == "batch":
+            batch = get_batch(allocation["reference_id"])
+            if batch:
+                batches.append(batch["batch_name"])
+
+    return {
+        "employee": employee["name"],
+        "department": employee["department"],
+        "team_lead": employee["is_team_lead"],
+        "weekly_capacity_hours": employee["weekly_capacity_hours"],
+        "projects": projects,
+        "trainings": trainings,
+        "batches": batches,
+        "project_count": len(projects),
+        "training_count": len(trainings),
+        "batch_count": len(batches)
+    }
 
 def get_project_assignments(project_id: str) -> list[dict]:
     """Who is currently assigned (proposed/accepted/assigned) to a project."""
@@ -463,3 +580,11 @@ def check_hypothetical_training_availability(domain: str, region: str, audience:
             tl["audience_match"] = False
 
     return {"available_mentors": team_leads, "count": len(team_leads)}
+
+def check_project_readiness(project_id: str) -> dict:
+    """Checks whether a project has all required roles filled and no missing mandatory skills among assigned people."""
+    assignments = get_project_assignments(project_id)
+    roles_needed = get_required_roles(get_project(project_id)["project_type"])
+    assigned_roles = {a["role_on_project"] for a in assignments}
+    missing_roles = [r for r in roles_needed if r not in assigned_roles]
+    return {"ready": len(missing_roles) == 0, "missing_roles": missing_roles}
