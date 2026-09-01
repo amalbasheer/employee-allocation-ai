@@ -34,7 +34,6 @@ from .recommend import (
     recommend_mentor_for_training,
     compare_mentors_for_project,
     explain_exclusion,
-    check_project_readiness,
 )
 
 from sqlalchemy import text
