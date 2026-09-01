@@ -10,7 +10,7 @@ export type EngagementTypeFilter = 'all' | 'webinar' | 'demo' | 'workshop' | 'se
 export type EngagementStatus = 'open' | 'proposed' | 'accepted' | 'rejected' | 'allocated' | 'completed';
 
 export interface WebinarIdea {
-  id: number;
+  id: string | number;
   title: string;
   summary: string;
   format_type: string;
@@ -161,13 +161,15 @@ export const TrainingManagement: React.FC = () => {
   // AI Webinar Generator Modal & State
   const [isWebinarModalOpen, setIsWebinarModalOpen] = useState(false);
   const [isGeneratingWebinars, setIsGeneratingWebinars] = useState(false);
-  const [downloadingPdfId, setDownloadingPdfId] = useState<number | null>(null);
+  const [downloadingPdfId, setDownloadingPdfId] = useState<string | number | null>(null);
   const [webinarDomain, setWebinarDomain] = useState('AI & Machine Learning');
   const [webinarFormat, setWebinarFormat] = useState('workshop');
   const [webinarAudience, setWebinarAudience] = useState('Software Engineers');
   const [webinarHours, setWebinarHours] = useState(2);
   const [webinarDesc, setWebinarDesc] = useState('');
   const [suggestedWebinars, setSuggestedWebinars] = useState<WebinarIdea[]>([]);
+  
+  
   // 1. Fetch Real Engagements from API
   useEffect(() => {
     fetch('/api/training/engagements')
@@ -388,74 +390,78 @@ export const TrainingManagement: React.FC = () => {
   };
 
 
-  // Generate Webinar / Workshop Ideas Handler
   const handleGenerateWebinarIdeas = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsGeneratingWebinars(true);
+  e.preventDefault();
+  setIsGeneratingWebinars(true);
 
-    try {
-      const res = await fetch('/api/ai_events/suggest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          domain: webinarDomain,
-          format_type: webinarFormat,
-          target_audience: webinarAudience,
-          duration_hours: webinarHours,
-          description: webinarDesc,
-        }),
-      });
+  try {
+    const res = await fetch('/api/ai_events/suggest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        domain: webinarDomain,
+        format_type: webinarFormat,
+        target_audience: webinarAudience,
+        duration_hours: webinarHours,
+        description: webinarDesc,
+      }),
+    });
 
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
 
-      const data = await res.json();
-      setSuggestedWebinars(data.webinars || []);
-      setIsWebinarModalOpen(false);
-    } catch (err) {
-      console.error('Failed to generate webinar ideas:', err);
-      alert('Failed to generate webinar ideas. Please verify backend server route.');
-    } finally {
-      setIsGeneratingWebinars(false);
-    }
-  };
+    const data = await res.json();
+    const rawList = Array.isArray(data) ? data : (data.webinars || []);
+    
+    setSuggestedWebinars(rawList);
+    // REMOVED: setIsWebinarModalOpen(false); -> Keep modal open to display results inside
+  } catch (err) {
+    console.error('Failed to generate webinar ideas:', err);
+  } finally {
+    setIsGeneratingWebinars(false);
+  }
+};
 
-  // Download Webinar / Workshop Proposal PDF Handler
-  const handleDownloadWebinarPdf = async (idea: WebinarIdea) => {
-    setDownloadingPdfId(idea.id);
+// Download Webinar / Workshop Proposal PDF Handler
+const handleDownloadWebinarPdf = async (idea: WebinarIdea) => {
+  // Use idea.id or fallback to idea.title to isolate loading state per card
+  const targetId = idea.id || idea.title;
+  setDownloadingPdfId(targetId);
 
-    try {
-      const res = await fetch('/api/ai_events/generate-proposal-pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: idea.title,
-          summary: idea.summary,
-          format_type: idea.format_type,
-          target_audience: idea.target_audience,
-          duration_hours: idea.duration_hours,
-        }),
-      });
+  try {
+    const res = await fetch('/api/ai_events/generate-proposal-pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: idea.title,
+        summary: idea.summary,
+        format_type: idea.format_type,
+        target_audience: idea.target_audience,
+        duration_hours: idea.duration_hours,
+      }),
+    });
 
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
 
-      const blob = await res.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = `Syllabus_${idea.title.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
-      
-      document.body.appendChild(link);
-      link.click();
-      
-      link.remove();
-      window.URL.revokeObjectURL(downloadUrl);
-    } catch (err) {
-      console.error('PDF download error:', err);
-      alert('Failed to download proposal PDF.');
-    } finally {
-      setDownloadingPdfId(null);
-    }
-  };
+    const blob = await res.blob();
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    
+    const safeTitle = (idea.title || 'Proposal').replace(/[^a-zA-Z0-9]/g, '_');
+    link.download = `Syllabus_${safeTitle}.pdf`;
+    
+    document.body.appendChild(link);
+    link.click();
+    
+    link.remove();
+    window.URL.revokeObjectURL(downloadUrl);
+  } catch (err) {
+    console.error('PDF download error:', err);
+    alert('Failed to download proposal PDF.');
+  } finally {
+    setDownloadingPdfId(null);
+  }
+};
 
   const renderStatusBadge = (status: EngagementStatus | string) => {
     switch (status) {
@@ -934,57 +940,45 @@ export const TrainingManagement: React.FC = () => {
         </div>
       )}
 
-      {/* SUGGESTED AI WEBINARS GRID DISPLAY */}
-      {suggestedWebinars.length > 0 && (
-        <div className="pt-6 border-t border-slate-800 space-y-4">
-          <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-amber-400" /> Generated Workshop Ideas ({suggestedWebinars.length})
-          </h3>
+      {/* Ensure array check handles both direct arrays and potential state objects */}
+{Array.isArray(suggestedWebinars) && suggestedWebinars.length > 0 && (
+  <div className="pt-6 border-t border-slate-800 space-y-4">
+    <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+      <Sparkles className="w-4 h-4 text-amber-400" /> 
+      Generated Workshop Ideas ({suggestedWebinars.length})
+    </h3>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {suggestedWebinars.map((idea) => {
-              const isDownloading = downloadingPdfId === idea.id;
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {suggestedWebinars.map((idea) => (
+        <Card key={idea.id} className="p-5 bg-slate-900 border-slate-800 flex flex-col justify-between">
+          <div className="space-y-3">
+            <div className="flex items-start justify-between gap-2">
+              <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                {idea.format_type}
+              </span>
+              <span className="text-xs text-slate-400">
+                {idea.duration_hours} hrs
+              </span>
+            </div>
 
-              return (
-                <Card key={idea.id} className="p-5 bg-slate-900 border-slate-800 flex flex-col justify-between">
-                  <div className="space-y-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                        {idea.format_type}
-                      </span>
-                      <span className="text-xs text-slate-400 flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> {idea.duration_hours} hrs
-                      </span>
-                    </div>
-
-                    <h4 className="font-bold text-white text-base leading-snug">{idea.title}</h4>
-                    <p className="text-xs text-slate-400 leading-relaxed">{idea.summary}</p>
-                  </div>
-
-                  <div className="pt-4 mt-4 border-t border-slate-800">
-                    <button
-                      onClick={() => handleDownloadWebinarPdf(idea)}
-                      disabled={isDownloading}
-                      className="w-full bg-slate-950 hover:bg-slate-800 text-slate-200 text-xs font-semibold py-2.5 rounded-lg border border-slate-700 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
-                    >
-                      {isDownloading ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin text-indigo-400" /> Generating PDF...
-                        </>
-                      ) : (
-                        <>
-                          <Download className="w-4 h-4 text-indigo-400" /> Download Proposal PDF
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </Card>
-              );
-            })}
+            <h4 className="font-bold text-white text-base leading-snug">{idea.title}</h4>
+            <p className="text-xs text-slate-400 leading-relaxed">{idea.summary}</p>
           </div>
-        </div>
-      )}
 
+          <div className="pt-4 mt-4 border-t border-slate-800">
+            <button
+              onClick={() => handleDownloadWebinarPdf(idea)}
+              disabled={downloadingPdfId === idea.id}
+              className="w-full bg-slate-950 hover:bg-slate-800 text-slate-200 text-xs font-semibold py-2 rounded-lg border border-slate-700"
+            >
+              {downloadingPdfId === idea.id ? 'Generating PDF...' : 'Download Proposal PDF'}
+            </button>
+          </div>
+        </Card>
+      ))}
+    </div>
+  </div>
+)}
 
 
 
