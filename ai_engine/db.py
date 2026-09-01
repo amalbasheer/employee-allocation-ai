@@ -588,3 +588,28 @@ def check_project_readiness(project_id: str) -> dict:
     assigned_roles = {a["role_on_project"] for a in assignments}
     missing_roles = [r for r in roles_needed if r not in assigned_roles]
     return {"ready": len(missing_roles) == 0, "missing_roles": missing_roles}
+
+def get_all_mentors_with_project_count(domain: str = None) -> list[dict]:
+    """
+    Returns ALL mentors in the domain (no hard exclusion), each with
+    their current active project count — used for workload-penalized
+    project recommendations, so genuinely busy people are still shown,
+    just appropriately penalized rather than invisible.
+    """
+    query = """
+        SELECT ce.employee_id AS id, ce.name, ce.weekly_capacity_hours, ce.is_team_lead,
+               COUNT(a.allocation_id) AS active_project_count
+        FROM company_employees ce
+        LEFT JOIN allocations a ON a.resource_id = ce.employee_id
+            AND a.reference_type = 'project' AND a.status IN ('proposed', 'assigned')
+        WHERE 1=1
+    """
+    params = {}
+    if domain:
+        query += " AND ce.department = :domain"
+        params["domain"] = domain
+    query += " GROUP BY ce.employee_id, ce.name, ce.weekly_capacity_hours, ce.is_team_lead"
+
+    with engine.connect() as conn:
+        rows = conn.execute(text(query), params).mappings().fetchall()
+    return [dict(r) for r in rows]

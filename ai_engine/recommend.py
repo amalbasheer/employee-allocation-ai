@@ -16,8 +16,10 @@ from ai_engine.db import (
     get_next_mentor_for_batch,
     _parse_embedding,
     category_to_department,
+    get_all_mentors_with_project_count,
 )
-from ai_engine.matching import rank_candidates
+
+from ai_engine.matching import rank_candidates, score_with_workload_penalty
 from ai_engine.project_taxonomy import get_required_roles
 
 
@@ -46,14 +48,25 @@ def recommend_candidates_for_project(project_id: str) -> dict:
 
     requirements = get_project_requirements(project_id)
     roles_needed = get_required_roles(project["project_type"])
-    domain = category_to_department(project.get("category"))  # 'Data Analytics' or 'Data Science'
+    domain = category_to_department(project.get("category"))
 
     result = {"project_title": project["title"], "roles_needed": roles_needed}
 
-    mentors = get_available_mentors(domain=domain)
-    for m in mentors:
+    # Get ALL mentors (no hard exclusion), then rank by skill, then apply
+    # a workload penalty based on how many active projects they already have
+    all_mentors = get_all_mentors_with_project_count(domain=domain)
+    for m in all_mentors:
         m["skills"] = get_person_skills(m["id"], "employee")
-    result["mentors"] = _strip_embeddings(rank_candidates(mentors, requirements))
+
+    ranked_mentors = rank_candidates(all_mentors, requirements)
+    for candidate in ranked_mentors:
+        raw_skill_score = candidate["suitability_score"]
+        candidate["suitability_score"] = score_with_workload_penalty(
+            raw_skill_score, candidate.get("active_project_count", 0)
+        )
+    ranked_mentors.sort(key=lambda c: c["suitability_score"], reverse=True)
+
+    result["mentors"] = _strip_embeddings(ranked_mentors)
 
     if "intern" in roles_needed:
         interns = get_available_interns(domain=domain)

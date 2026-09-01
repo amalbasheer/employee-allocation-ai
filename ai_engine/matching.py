@@ -98,3 +98,20 @@ if __name__ == "__main__":
     ranked = rank_candidates(fake_candidates, fake_requirements)
     for r in ranked:
         print(f"{r['name']}: {r['suitability_score']}")
+
+def score_with_workload_penalty(skill_score: float, active_project_count: int) -> float:
+    """
+    Reduces the skill score slightly based on how many active projects
+    someone already has — more commitments means a bigger penalty, but
+    skill quality always remains the dominant factor. Someone with 0
+    active projects gets no penalty at all. Capped at 30% max reduction,
+    so a genuinely excellent skill match is never crushed just for
+    being popular/senior.
+    """
+    penalty_per_project = 0.05
+    max_penalty = 0.30
+
+    reduction = min(active_project_count * penalty_per_project, max_penalty)
+    multiplier = 1.0 - reduction
+
+    return round(skill_score * multiplier, 2)
