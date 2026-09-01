@@ -14,6 +14,7 @@ from app.models.employee import CompanyEmployee
 from ai_engine.extraction import extract_skills_from_text
 from ai_engine.embedding import generate_embedding
 from ai_engine.recommend import recommend_mentor_for_training
+from ai_engine.db import get_next_mentor_for_batch
 
 logger = logging.getLogger(__name__)
 
@@ -70,84 +71,6 @@ def check_and_update_completed_engagements(db: Session):
     if expired_engagements:
         db.commit()
 
-def get_next_round_robin_mentor(
-    db: Session, 
-    department: str
-) -> Optional[CompanyEmployee]:
-    """
-    Selects a mentor from the given department in round-robin sequence.
-    Each mentor handles 2 consecutive batches before rotating to the next.
-    """
-    
-    # -----------------------------------------------------------------
-    # 1. FETCH ALL ACTIVE EMPLOYEES IN THIS DEPARTMENT
-    # -----------------------------------------------------------------
-    active_department_mentors = (
-        db.query(CompanyEmployee)
-        .filter(
-            CompanyEmployee.is_active == True,
-            func.lower(CompanyEmployee.department) == department.strip().lower()
-        )
-        .order_by(CompanyEmployee.employee_id)  # Standard deterministic order
-        .all()
-    )
-
-    if not active_department_mentors:
-        return None
-
-    if len(active_department_mentors) == 1:
-        return active_department_mentors[0]
-
-    dept_employee_ids = [m.employee_id for m in active_department_mentors]
-
-    # -----------------------------------------------------------------
-    # 2. FETCH THE LAST 2 BATCH ALLOCATIONS FOR THIS DEPARTMENT
-    # -----------------------------------------------------------------
-    recent_allocations = (
-        db.query(Allocation)
-        .filter(
-            Allocation.reference_type == "batch",
-            Allocation.employee_id.in_(dept_employee_ids)
-        )
-        .order_by(desc(Allocation.assigned_time))  # Most recent first
-        .limit(2)
-        .all()
-    )
-
-    # -----------------------------------------------------------------
-    # 3. ROTATION LOGIC (2 CONSECUTIVE BATCHES PER MENTOR)
-    # -----------------------------------------------------------------
-    
-    # Case A: No prior batch allocations in this department -> start with 1st mentor
-    if not recent_allocations:
-        return active_department_mentors[0]
-
-    latest_mentor_id = recent_allocations[0].employee_id
-
-    # Locate latest assigned mentor index in current active mentors list
-    try:
-        current_idx = next(
-            idx for idx, m in enumerate(active_department_mentors) 
-            if m.employee_id == latest_mentor_id
-        )
-    except StopIteration:
-        # Fallback if the last assigned mentor is no longer active
-        return active_department_mentors[0]
-
-    # Case B: Only 1 allocation recorded so far -> Give 2nd batch to SAME mentor
-    if len(recent_allocations) == 1:
-        return active_department_mentors[current_idx]
-
-    # Case C: Compare last 2 allocations
-    prev_mentor_id = recent_allocations[1].employee_id
-
-    if latest_mentor_id == prev_mentor_id:
-        # Mentor has completed 2 consecutive batches -> ROTATE TO NEXT MENTOR
-        next_idx = (current_idx + 1) % len(active_department_mentors)
-        return active_department_mentors[next_idx]
-    else:
-        # Mentor has only done 1 batch so far -> KEEP SAME MENTOR
-        return active_department_mentors[current_idx]
 
 
 # ==================== API ENDPOINTS ====================
@@ -716,8 +639,17 @@ def create_student_batch(payload: CreateStudentBatchSchema, db: Session = Depend
 
 
 @router.post("/student-batches/auto-generate-next")
-def auto_generate_next_batch(db: Session = Depends(get_db)):
-    last_batch = db.query(StudentBatch).order_by(desc(StudentBatch.end_date)).first()
+def auto_generate_next_batch(
+    department: str = Query(default="Data Analytics"), 
+    db: Session = Depends(get_db)
+):
+    # 1. Fetch the last created batch for this domain to determine next dates
+    last_batch = (
+        db.query(StudentBatch)
+        .filter(func.lower(StudentBatch.domain) == department.strip().lower())
+        .order_by(desc(StudentBatch.end_date))
+        .first()
+    )
     
     if last_batch:
         start_dt = last_batch.end_date
@@ -730,12 +662,21 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
     end_dt = date(year, month, 15)
 
     batch_name = f"Batch-{start_dt.strftime('%b')}-{end_dt.strftime('%b')}-{end_dt.year}"
-    assigned_mentor = get_next_round_robin_mentor(db)
-    mentor_id = assigned_mentor.employee_id if assigned_mentor else None
+    
+    # 2. Call get_next_mentor_for_batch with domain, starting month, and year
+    assigned_mentor = get_next_mentor_for_batch(
+        domain=department,
+        month_num=start_dt.month,
+        year=start_dt.year
+    )
+    
+    # 3. Extract employee_id from returned dictionary safely
+    mentor_id = assigned_mentor.get("employee_id") if assigned_mentor else None
 
+    # 4. Create and save new batch
     new_batch = StudentBatch(
         batch_name=batch_name,
-        domain="Data Analytics",
+        domain=department,
         start_date=start_dt,
         end_date=end_dt,
         delivery_mode="online",
