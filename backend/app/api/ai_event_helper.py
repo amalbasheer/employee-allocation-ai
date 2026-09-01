@@ -41,7 +41,7 @@ def clean_text_for_latin1(text: str) -> str:
     replacements = {
         "“": '"', "”": '"', "‘": "'", "’": "'",
         "—": "-", "–": "-", "•": "-", "…": "...",
-        "\u200b": "", "\xa0": " "
+        "\u200b": "", "\xa0": " ", "\u2013": "-", "\u2014": "-"
     }
     for orig, repl in replacements.items():
         text = text.replace(orig, repl)
@@ -80,8 +80,11 @@ def suggest_webinars(req: WebinarPromptRequest):
                 temperature=0.7,
             ),
         )
+
+        raw_text = response.text.strip()
+        cleaned_json_text = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text, flags=re.MULTILINE)
         
-        webinars = json.loads(response.text)
+        webinars = json.loads(cleaned_json_text)
         return {"webinars": webinars}
         
     except Exception as e:
