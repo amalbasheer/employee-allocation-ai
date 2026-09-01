@@ -29,7 +29,14 @@ from .db import (
     get_employee_workload_summary,
     get_workload_extremes,
 )
-from .recommend import recommend_candidates_for_project, recommend_mentor_for_training
+from .recommend import (
+    recommend_candidates_for_project,
+    recommend_mentor_for_training,
+    compare_mentors_for_project,
+    explain_exclusion,
+    check_project_readiness,
+)
+
 from sqlalchemy import text
 
 
@@ -236,28 +243,30 @@ def chat_query(user_message: str, conversation_history: list = None) -> str:
     full_prompt = f"{history_text}User: {user_message}" if history_text else user_message
 
     tools = [
-        get_available_mentors,
-        get_available_interns,
-        get_project,
-        get_project_requirements,
-        get_batch,
-        get_training_engagement,
-        get_next_mentor_for_batch,
-        get_project_assignments,
-        get_mentor_availability_for_week,
-        get_best_mentor_for_domain,
-        recommend_candidates_for_project,
-        search_project_by_title,
-        get_intern_details,
-        get_employee_details,
-        search_training_by_title,
-        recommend_mentor_for_training,
-        get_available_mentors_for_training,
-        recommend_batch_replacement,
-        get_employee_workload_summary,
-        get_workload_extremes,
-    ]
-
+    get_available_mentors,
+    get_available_interns,
+    get_project,
+    get_project_requirements,
+    get_batch,
+    get_training_engagement,
+    get_next_mentor_for_batch,
+    get_project_assignments,
+    get_mentor_availability_for_week,
+    get_best_mentor_for_domain,
+    recommend_candidates_for_project,
+    search_project_by_title,
+    get_intern_details,
+    get_employee_details,
+    search_training_by_title,
+    recommend_mentor_for_training,
+    get_available_mentors_for_training,
+    recommend_batch_replacement,
+    get_employee_workload_summary,
+    get_workload_extremes,
+    compare_mentors_for_project,
+    explain_exclusion,
+    check_project_readiness,
+]
     response = client.models.generate_content(
         model=LLM_MODEL,
         contents=full_prompt,
