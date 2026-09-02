@@ -29,6 +29,7 @@ from .db import (
     get_employee_workload_summary,
     get_workload_extremes,
     check_project_readiness,
+    check_hypothetical_training_availability
 )
 
 from .recommend import (
@@ -292,6 +293,7 @@ def chat_query(user_message: str, conversation_history: list = None) -> str:
     explain_exclusion,
     check_project_readiness,
     recommend_backup_for_project,
+    check_hypothetical_training_availability
 ]
     response = client.models.generate_content(
         model=LLM_MODEL,
