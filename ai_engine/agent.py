@@ -36,6 +36,7 @@ from .recommend import (
     recommend_mentor_for_training,
     compare_mentors_for_project,
     explain_exclusion,
+    recommend_backup_for_project,
 )
 
 from sqlalchemy import text
@@ -179,6 +180,16 @@ NEVER USE CONVERSATION HISTORY TO DETERMINE AVAILABILITY:
 - If unsure whether someone is available, call the tool again — do not assume
   based on what was true or discussed earlier in the conversation.
 
+NAMING PEOPLE EXPLICITLY IN ANSWERS:
+- Whenever explaining why someone wasn't recommended, ALWAYS state the actual
+  name of the top-ranked candidate they were compared against — the data
+  already includes this name, never omit it or just say "the top candidate."
+- Whenever discussing a project's current mentor or a replacement
+  recommendation, ALWAYS name both people explicitly.
+- Whenever reporting project readiness, ALWAYS name who is currently assigned
+  to each role (or explicitly say "no one assigned" if a role is empty) —
+  never just say "ready" or "not ready" without naming the actual people.
+
 REGION DEFINITIONS (Kerala):
 - "Kochi region" includes: Ernakulam (EKM), Thrissur, and all districts south/below these.
 - "Calicut region" includes: Palakkad and all districts north/above these, including
@@ -280,6 +291,7 @@ def chat_query(user_message: str, conversation_history: list = None) -> str:
     compare_mentors_for_project,
     explain_exclusion,
     check_project_readiness,
+    recommend_backup_for_project,
 ]
     response = client.models.generate_content(
         model=LLM_MODEL,

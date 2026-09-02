@@ -582,20 +582,25 @@ def check_hypothetical_training_availability(domain: str, region: str, audience:
     return {"available_mentors": team_leads, "count": len(team_leads)}
 
 def check_project_readiness(project_id: str) -> dict:
-    """Checks whether a project has all required roles filled, based on
-    resource_type (employee/intern) rather than role_on_project's free-text
-    descriptive titles, which don't match exact role keywords."""
+    """Checks readiness AND names who's assigned to each role, or flags what's missing."""
     assignments = get_project_assignments(project_id)
     roles_needed = get_required_roles(get_project(project_id)["project_type"])
 
-    assigned_types = {a["resource_type"] for a in assignments}
+    assigned_employees = [a["name"] for a in assignments if a["resource_type"] == "employee"]
+    assigned_interns = [a["name"] for a in assignments if a["resource_type"] == "intern"]
+
     missing_roles = []
-    if "team_lead" in roles_needed and "employee" not in assigned_types:
+    if "team_lead" in roles_needed and not assigned_employees:
         missing_roles.append("team_lead")
-    if "intern" in roles_needed and "intern" not in assigned_types:
+    if "intern" in roles_needed and not assigned_interns:
         missing_roles.append("intern")
 
-    return {"ready": len(missing_roles) == 0, "missing_roles": missing_roles}
+    return {
+        "ready": len(missing_roles) == 0,
+        "missing_roles": missing_roles,
+        "assigned_team_lead": assigned_employees[0] if assigned_employees else None,
+        "assigned_interns": assigned_interns,
+    }
 
 def get_all_mentors_with_project_count(domain: str = None) -> list[dict]:
     """

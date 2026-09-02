@@ -18,6 +18,8 @@ from ai_engine.db import (
     category_to_department,
     get_all_mentors_with_project_count,
     check_project_readiness,
+    get_project_assignments,
+
 )
 
 from ai_engine.matching import rank_candidates, score_with_workload_penalty
@@ -258,3 +260,21 @@ def explain_exclusion(project_id: str, mentor_name: str) -> dict:
             reasons.append("Eligible, but ranked lower than the selected candidate(s) on overall skill match.")
 
     return {"mentor": mentor_name, "project": project["title"], "reasons": reasons}
+
+def recommend_backup_for_project(project_id: str) -> dict:
+    """
+    Given a project, finds who's currently the team lead, and recommends
+    the next best replacement, explicitly naming both people.
+    """
+    assignments = get_project_assignments(project_id)
+    current_lead = next((a for a in assignments if a["resource_type"] == "employee"), None)
+
+    result = recommend_candidates_for_project(project_id)
+    candidates = result.get("eligible_team_leads", [])
+    replacement = next((c for c in candidates if not current_lead or c["name"] != current_lead["name"]), None)
+
+    return {
+        "current_mentor": current_lead["name"] if current_lead else "No one currently assigned",
+        "recommended_replacement": replacement["name"] if replacement else None,
+        "replacement_score": replacement["suitability_score"] if replacement else None,
+    }
