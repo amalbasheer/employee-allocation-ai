@@ -582,11 +582,19 @@ def check_hypothetical_training_availability(domain: str, region: str, audience:
     return {"available_mentors": team_leads, "count": len(team_leads)}
 
 def check_project_readiness(project_id: str) -> dict:
-    """Checks whether a project has all required roles filled and no missing mandatory skills among assigned people."""
+    """Checks whether a project has all required roles filled, based on
+    resource_type (employee/intern) rather than role_on_project's free-text
+    descriptive titles, which don't match exact role keywords."""
     assignments = get_project_assignments(project_id)
     roles_needed = get_required_roles(get_project(project_id)["project_type"])
-    assigned_roles = {a["role_on_project"] for a in assignments}
-    missing_roles = [r for r in roles_needed if r not in assigned_roles]
+
+    assigned_types = {a["resource_type"] for a in assignments}
+    missing_roles = []
+    if "team_lead" in roles_needed and "employee" not in assigned_types:
+        missing_roles.append("team_lead")
+    if "intern" in roles_needed and "intern" not in assigned_types:
+        missing_roles.append("intern")
+
     return {"ready": len(missing_roles) == 0, "missing_roles": missing_roles}
 
 def get_all_mentors_with_project_count(domain: str = None) -> list[dict]:
@@ -613,3 +621,12 @@ def get_all_mentors_with_project_count(domain: str = None) -> list[dict]:
     with engine.connect() as conn:
         rows = conn.execute(text(query), params).mappings().fetchall()
     return [dict(r) for r in rows]
+
+def get_employee_by_name(name: str) -> dict:
+    """Looks up an employee's full record by name (case-insensitive)."""
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT * FROM company_employees WHERE LOWER(name) = LOWER(:name)"),
+            {"name": name},
+        ).mappings().fetchone()
+    return dict(row) if row else None

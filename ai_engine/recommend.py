@@ -17,6 +17,7 @@ from ai_engine.db import (
     _parse_embedding,
     category_to_department,
     get_all_mentors_with_project_count,
+    check_project_readiness,
 )
 
 from ai_engine.matching import rank_candidates, score_with_workload_penalty
@@ -213,37 +214,47 @@ def compare_mentors_for_project(project_id: str, mentor_name_1: str, mentor_name
     }
 
 def explain_exclusion(project_id: str, mentor_name: str) -> dict:
-    """
-    Explains specifically why someone was NOT recommended for a project —
-    checks each real exclusion reason (busy elsewhere, wrong domain,
-    missing mandatory skills, low score) and reports which applied.
-    """
-    from ai_engine.recommend import recommend_candidates_for_project
+    from ai_engine.db import get_employee_by_name
+
     project = get_project(project_id)
-    person = conn_lookup_by_name(mentor_name)  # you'd need a name->id lookup helper
+    person = get_employee_by_name(mentor_name)
+
+    if not person:
+        return {"error": f"No employee found with name '{mentor_name}'."}
 
     reasons = []
-    # Check active project allocation
     with engine.connect() as conn:
         busy = conn.execute(
             text("SELECT 1 FROM allocations WHERE resource_id = :id AND status IN ('proposed','assigned') AND reference_type = 'project'"),
-            {"id": person["id"]},
+            {"id": person["employee_id"]},
         ).fetchone()
     if busy:
         reasons.append("Already assigned to another active project")
 
-    if person.get("department") != category_to_department(project.get("category")):
-        reasons.append(f"Wrong domain — project needs {project.get('category')}, this person is in {person.get('department')}")
+    expected_domain = category_to_department(project.get("category"))
+    if expected_domain and person.get("department") != expected_domain:
+        reasons.append(f"Wrong domain — project needs {expected_domain}, this person is in {person.get('department')}")
 
-    # Check mandatory skills
     requirements = get_project_requirements(project_id)
-    person_skills = {s["skill_id"] for s in get_person_skills(person["id"], "employee")}
-    missing_mandatory = [r["skill_name"] for r in requirements if r["is_mandatory"] and r["skill_id"] not in person_skills]
+    person_skills = {s["skill_id"] for s in get_person_skills(person["employee_id"], "employee")}
+    missing_mandatory = [r["skill_id"] for r in requirements if r["is_mandatory"] and r["skill_id"] not in person_skills]
     if missing_mandatory:
-        reasons.append(f"Missing mandatory skill(s): {', '.join(missing_mandatory)}")
+        reasons.append(f"Missing mandatory skill(s) (skill_ids): {', '.join(missing_mandatory)}")
 
     if not reasons:
-        reasons.append("Eligible, but ranked lower than the selected candidate(s) on overall skill match")
+        # Person IS eligible — compute their real score and compare to who WAS recommended
+        result = recommend_candidates_for_project(project_id)
+        all_candidates = result.get("mentors", []) + result.get("eligible_team_leads", [])
+
+        this_person = next((c for c in all_candidates if c["name"].lower() == mentor_name.lower()), None)
+        top_candidate = all_candidates[0] if all_candidates else None
+
+        if this_person and top_candidate:
+            reasons.append(
+                f"Eligible, but ranked lower — {mentor_name} scored {this_person['suitability_score']}, "
+                f"while the top recommendation, {top_candidate['name']}, scored {top_candidate['suitability_score']}."
+            )
+        else:
+            reasons.append("Eligible, but ranked lower than the selected candidate(s) on overall skill match.")
 
     return {"mentor": mentor_name, "project": project["title"], "reasons": reasons}
-
