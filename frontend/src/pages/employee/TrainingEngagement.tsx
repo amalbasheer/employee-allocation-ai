@@ -73,6 +73,17 @@ interface ActiveEngagement {
   interns?: string[];
 }
 
+interface AssignedBatch {
+  batch_id: number;
+  batch_name: string;
+  domain: string;
+  start_date: string;
+  end_date: string;
+  delivery_mode: string;
+  status: string;
+  mentor_id: number;
+}
+
 interface TrainingBatch {
   id: string;
   batchName: string;
@@ -115,6 +126,38 @@ export const TrainingAllocationsDashboard: React.FC<{ propEmployeeId?: string }>
     return '';
   }, [propEmployeeId]);
 
+  // Fetch Allocated Student Batches for logged in mentor
+  const fetchAllocatedBatches = useCallback(async (headers: HeadersInit) => {
+    try {
+      const authUserRaw = localStorage.getItem('auth_user');
+      let userEmail = '';
+      if (authUserRaw) {
+        try {
+          const user = JSON.parse(authUserRaw);
+          userEmail = user.email || '';
+        } catch (e) {
+          console.error('Error parsing auth_user for email', e);
+        }
+      }
+
+      if (!userEmail) return;
+
+      const res = await fetch(
+        `/api/allocations/student-batches/my-allocated-batches?email=${encodeURIComponent(userEmail)}`,
+        { headers }
+      );
+
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setTrainingBatches(data);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching allocated student batches:', err);
+    }
+  }, []);
+
   // Fetch Training & Batch Data
   const fetchDashboardData = useCallback(async () => {
     setLoading(true);
@@ -136,6 +179,9 @@ export const TrainingAllocationsDashboard: React.FC<{ propEmployeeId?: string }>
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     };
 
+    // Trigger allocated batches fetch alongside dashboard data
+    await fetchAllocatedBatches(headers);
+
     try {
       const endpoint = `/api/allocations/my-allocations${targetEmployeeId ? `?resource_id=${targetEmployeeId}` : ''}`;
       const allocRes = await fetch(endpoint, { headers });
@@ -149,10 +195,7 @@ export const TrainingAllocationsDashboard: React.FC<{ propEmployeeId?: string }>
           const trainingAllocations = rawAllocations.filter((a: any) => 
             ['training', 'engagement', 'webinar', 'workshop'].includes(String(a.reference_type || '').toLowerCase())
           );
-          
-          const batchAllocations = rawAllocations.filter((a: any) => 
-            String(a.reference_type || '').toLowerCase() === 'batch'
-          );
+        
 
           // 1. Pending Proposals
           const fetchedProposals: Proposal[] = trainingAllocations
@@ -214,23 +257,12 @@ export const TrainingAllocationsDashboard: React.FC<{ propEmployeeId?: string }>
               interns: a.interns || ['Batch Trainees'],
             }));
 
-          // 5. Training Batches (Round-Robin Assigned)
-          const fetchedBatches: TrainingBatch[] = batchAllocations.map((a: any) => ({
-            id: String(a.allocation_id || a.id),
-            batchName: a.batch_name || a.title || 'Batch-2026-A',
-            courseTitle: a.course_name || 'Advanced Full-Stack Engineering',
-            assignedRole: a.role_on_project || 'Lead Evaluator',
-            startDate: a.start_date || '2026-09-01',
-            endDate: a.end_date || '2026-11-30',
-            status: a.status || 'assigned',
-            totalEnrolled: a.enrolled_count || 24,
-          }));
+          
 
           setProposals(fetchedProposals);
           setWaitingConfirmations(fetchedWaiting);
           setActiveEngagements(fetchedActive);
           setCompletedEngagements(fetchedCompleted);
-          setTrainingBatches(fetchedBatches);
           setUsingFallback(false);
         }
       } else {
@@ -242,7 +274,7 @@ export const TrainingAllocationsDashboard: React.FC<{ propEmployeeId?: string }>
     } finally {
       setLoading(false);
     }
-  }, [getActiveEmployeeId]);
+  }, [getActiveEmployeeId, fetchAllocatedBatches]);
 
   useEffect(() => {
     fetchDashboardData();
@@ -626,78 +658,89 @@ export const TrainingAllocationsDashboard: React.FC<{ propEmployeeId?: string }>
       )}
 
       {/* ======================================================== */}
-      {/* TAB 2: TRAINING BATCHES (ROUND ROBIN ASSIGNED) */}
-      {/* ======================================================== */}
-      {activeTab === 'batches' && (
-        <div className="space-y-6">
-          {/* INFORMATIONAL BANNER */}
-          <div className="bg-indigo-950/40 border border-indigo-500/30 p-4 rounded-xl flex items-center gap-3">
-            <Users className="w-5 h-5 text-indigo-400 flex-shrink-0" />
-            <p className="text-xs text-indigo-300">
-              Training batches are allocated using automated <strong>Round Robin System</strong> distribution. Batches assigned here are display-only and require no manual accept/decline action.
-            </p>
-          </div>
-
-          <Card
-            title={`Assigned Training Batches (${trainingBatches.length})`}
-            subtitle="Automated round-robin batch assignments"
-          >
-            <div className="space-y-4">
-              {trainingBatches.length === 0 ? (
-                <div className="text-center py-10 border border-dashed border-slate-800 rounded-xl">
-                  <Layers className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-                  <p className="text-xs text-slate-500">No training batches currently assigned to you.</p>
-                </div>
-              ) : (
-                trainingBatches.map((batch) => (
-                  <div
-                    key={batch.id}
-                    className="p-5 bg-slate-950 border border-slate-800 rounded-xl space-y-3 transition-all hover:border-indigo-500/40"
-                  >
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-bold text-white text-base flex items-center gap-2">
-                            <Layers className="w-4 h-4 text-emerald-400" />
-                            {batch.batchName}
-                          </h4>
-                          <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-md font-mono">
-                            {batch.totalEnrolled} Trainees Enrolled
-                          </span>
-                        </div>
-                        <p className="text-xs text-indigo-400 mt-1 font-medium">{batch.courseTitle}</p>
-                      </div>
-
-                      <span className="text-[10px] bg-slate-900 text-slate-300 px-2.5 py-1 rounded-md border border-slate-800 font-semibold uppercase">
-                        {batch.status}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2 text-xs text-slate-400">
-                      <span className="text-slate-500">Assigned Role:</span>
-                      <span className="text-slate-200 font-medium">{batch.assignedRole}</span>
-                    </div>
-
-                    <div className="flex items-center justify-between text-xs pt-3 border-t border-slate-900 text-slate-400">
-                      <span className="flex items-center gap-1.5 text-[11px]">
-                        <Calendar className="w-3.5 h-3.5 text-slate-500" />
-                        Duration: <span className="text-slate-300 font-mono">{batch.startDate}</span> to{' '}
-                        <span className="text-slate-300 font-mono">{batch.endDate}</span>
-                      </span>
-
-                      <button className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-semibold text-[11px]">
-                        View Batch Roster <ChevronRight className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </Card>
-        </div>
-      )}
+{/* TAB 2: TRAINING BATCHES (ROUND ROBIN ASSIGNED) */}
+{/* ======================================================== */}
+{activeTab === 'batches' && (
+  <div className="space-y-6">
+    {/* INFORMATIONAL BANNER */}
+    <div className="bg-indigo-950/40 border border-indigo-500/30 p-4 rounded-xl flex items-center gap-3">
+      <Users className="w-5 h-5 text-indigo-400 flex-shrink-0" />
+      <p className="text-xs text-indigo-300">
+        Training batches are allocated using automated <strong>Round Robin System</strong> distribution. Batches assigned here are display-only and require no manual accept/decline action.
+      </p>
     </div>
-  );
-};
+
+    <Card
+      title={`Assigned Training Batches (${trainingBatches.length})`}
+      subtitle="Automated round-robin batch assignments"
+    >
+      <div className="space-y-4">
+        {trainingBatches.length === 0 ? (
+          <div className="text-center py-10 border border-dashed border-slate-800 rounded-xl">
+            <Layers className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+            <p className="text-xs text-slate-500">No training batches currently assigned to you.</p>
+          </div>
+        ) : (
+          trainingBatches.map((batch: any, index: number) => {
+            // Safe property extraction (supports camelCase, snake_case, or alternative API structures)
+            const batchId = batch.id || batch._id || batch.batch_id || index;
+            const batchName = batch.batchName || batch.batch_name || batch.name || 'Allocated Training Batch';
+            const courseTitle = batch.courseTitle || batch.course_title || batch.course || 'Training Program';
+            const totalEnrolled = batch.totalEnrolled ?? batch.total_enrolled ?? (Array.isArray(batch.students) ? batch.students.length : 0);
+            const status = batch.status || 'Active';
+            const assignedRole = batch.assignedRole || batch.assigned_role || batch.role || 'Lead Mentor / Trainer';
+            const startDate = batch.startDate || batch.start_date || 'N/A';
+            const endDate = batch.endDate || batch.end_date || 'N/A';
+
+            return (
+              <div
+                key={batchId}
+                className="p-5 bg-slate-950 border border-slate-800 rounded-xl space-y-3 transition-all hover:border-indigo-500/40"
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-bold text-white text-base flex items-center gap-2">
+                        <Layers className="w-4 h-4 text-emerald-400" />
+                        {batchName}
+                      </h4>
+                      <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-md font-mono">
+                        {totalEnrolled} Trainees Enrolled
+                      </span>
+                    </div>
+                    <p className="text-xs text-indigo-400 mt-1 font-medium">{courseTitle}</p>
+                  </div>
+
+                  <span className="text-[10px] bg-slate-900 text-slate-300 px-2.5 py-1 rounded-md border border-slate-800 font-semibold uppercase">
+                    {status}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 text-xs text-slate-400">
+                  <span className="text-slate-500">Assigned Role:</span>
+                  <span className="text-slate-200 font-medium">{assignedRole}</span>
+                </div>
+
+                <div className="flex items-center justify-between text-xs pt-3 border-t border-slate-900 text-slate-400">
+                  <span className="flex items-center gap-1.5 text-[11px]">
+                    <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                    Duration: <span className="text-slate-300 font-mono">{startDate}</span> to{' '}
+                    <span className="text-slate-300 font-mono">{endDate}</span>
+                  </span>
+
+                  <button className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-semibold text-[11px]">
+                    View Batch Roster <ChevronRight className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </Card>
+  </div>
+)}
+
+    </div>);}
 
 export default TrainingAllocationsDashboard;

@@ -1,6 +1,6 @@
 import uuid
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from typing import List, Optional, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
@@ -990,3 +990,58 @@ def get_allocation_logs(
     ).order_by(AllocationLog.timestamp.desc()).all()
     
     return logs
+
+
+# -------------------------------------------------------------------------
+# Response Schema
+# -------------------------------------------------------------------------
+class AssignedBatchResponse(BaseModel):
+    batch_id: str
+    batch_name: str
+    domain: str
+    start_date: date
+    end_date: date
+    delivery_mode: str
+    status: str
+    mentor_id: str
+
+    class Config:
+        from_attributes = True
+
+
+# -------------------------------------------------------------------------
+# API Route: Fetch Allocated Batches by Logged-in Employee Email
+# -------------------------------------------------------------------------
+@router.get(
+    "/student-batches/my-allocated-batches",
+    response_model=List[AssignedBatchResponse]
+)
+def get_my_allocated_batches(
+    email: str = Query(..., description="Email address of the logged-in employee"),
+    db: Session = Depends(get_db)
+):
+    """
+    Fetch all student batches assigned to a specific employee matching their email.
+    """
+    # 1. Look up the employee record using the logged-in email
+    employee = (
+        db.query(CompanyEmployee)
+        .filter(CompanyEmployee.email.ilike(email.strip()))
+        .first()
+    )
+
+    if not employee:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No employee found with email: {email}"
+        )
+
+    # 2. Query student_batches matching mentor_id with employee's employee_id
+    assigned_batches = (
+        db.query(StudentBatch)
+        .filter(StudentBatch.mentor_id == employee.employee_id)
+        .order_by(StudentBatch.start_date.desc())
+        .all()
+    )
+
+    return assigned_batches
