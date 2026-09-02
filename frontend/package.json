@@ -33,5 +33,6 @@
   },
   "allowScripts": {
     "esbuild@0.21.5": true
-  }
+  },
+  "engines": {"node": "18.x"}
 }
