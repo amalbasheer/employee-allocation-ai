@@ -34,7 +34,8 @@ origins = [
     "http://127.0.0.1:5173",
     "http://localhost:3000",  # React / Next.js default
     "http://127.0.0.1:3000",
-    "*"                       # Allow all origins for development
+    "*"   ,
+     "https://employee-allocation-2auiv4tya-amalbasheer.vercel.app"                    # Allow all origins for development
 ]
 
 # Enable CORS for frontend integration
