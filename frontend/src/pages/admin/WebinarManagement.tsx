@@ -363,32 +363,18 @@ export const TrainingManagement: React.FC = () => {
 
   // Auto Generate Next Batch
   const handleAutoGenerateBatch = async () => {
-    try {
-      const res = await fetch('/api/training/student-batches/auto-generate-next', { method: 'POST' });
-      if (res.ok) {
-        const generated = await res.json();
-        setBatches([generated, ...batches]);
-        return;
-      }
-      throw new Error(`HTTP ${res.status}`);
-    } catch (e) {
-      console.warn('API batch auto-generation failed, generating locally:', e);
-      const nextBatchId = `rp2-batch-${String(batches.length + 100).padStart(4, '0')}`;
-      const newBatch: StudentBatch = {
-        batch_id: nextBatchId,
-        batch_name: 'Batch-Sep-Oct-2026',
-        domain: 'Data Analytics',
-        start_date: '2026-09-15',
-        end_date: '2026-10-15',
-        trainer_ids: 'emp-102',
-        trainer_name: 'Alex Morgan',
-        status: 'open',
-        delivery_mode: 'online'
-      };
-      setBatches([newBatch, ...batches]);
-    }
-  };
-
+  try {
+    const res = await fetch('/api/training/student-batches/auto-generate-next', { method: 'POST' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    
+    const generated = await res.json(); // this is an ARRAY of 2 batches
+    setBatches([...generated, ...batches]); // spread BOTH new batches into the list
+  } catch (e) {
+    console.error('Failed to auto-generate batch:', e);
+    alert('Failed to generate batch. Please try again or contact support.');
+    // NO fallback to fake data — show a real error instead
+  }
+};
 
   const handleGenerateWebinarIdeas = async (e: React.FormEvent) => {
   e.preventDefault();
