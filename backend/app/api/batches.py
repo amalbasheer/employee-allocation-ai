@@ -144,32 +144,50 @@ def assign_mentor(batch_id: str, payload: AssignMentorRequest, db: Session = Dep
             detail=f"Failed to assign mentor: {str(e)}"
         )
 
-@router.get("/student-batches/{batch_id}/recommended-mentors")
-def get_recommended_mentors_for_batch(batch_id: str, db: Session = Depends(get_db)):
-    batch = db.query(StudentBatch).filter(StudentBatch.batch_id == batch_id).first()
-    if not batch:
-        raise HTTPException(status_code=404, detail="Batch not found")
+# -------------------------------------------------------------------------
+@router.get("/{batch_id}/recommended-mentors", response_model=List[MentorResponse])
+def get_recommended_mentors(batch_id: str, db: Session = Depends(get_db)):
+    """
+    Fetches recommended replacement mentors for a batch — uses
+    recommend_batch_replacement for the full ranked list, and
+    get_next_mentor_for_batch to specifically flag the genuine top pick.
+    """
+    try:
+        batch = db.query(StudentBatch).filter(StudentBatch.batch_id == batch_id).first()
+        if not batch:
+            raise ValueError(f"Batch {batch_id} not found")
 
-    next_pick = get_next_mentor_for_batch(
-        domain=batch.domain,
-        month_num=batch.start_date.month,
-        year=batch.start_date.year
-    )
+        ai_recommendations = recommend_batch_replacement(batch_id)
 
-    all_mentors = (
-        db.query(CompanyEmployee)
-        .filter(func.lower(CompanyEmployee.department) == batch.domain.strip().lower())
-        .all()
-    )
+        top_pick = get_next_mentor_for_batch(
+            domain=batch.domain,
+            month_num=batch.start_date.month,
+            year=batch.start_date.year
+        )
+        top_pick_id = top_pick.get("employee_id") if top_pick else None
 
-    return [
-        {
-            "id": m.employee_id,
-            "employee_id": m.employee_id,
-            "name": m.name,
-            "role": "Team Lead" if m.is_team_lead else "Mentor",
-            "fit": "Recommended (Fairness Pick)" if next_pick and m.employee_id == next_pick.get("employee_id") else "Available",
-            "skills": ["Domain Expert", "Mentorship"],
-        }
-        for m in all_mentors
-    ]
+        formatted_mentors = []
+        for rec in ai_recommendations:
+            batch_count = rec.get("batch_count", 0)
+            calculated_score = max(0.0, 100.0 - (batch_count * 10))
+            designation = "Team Lead" if rec.get("is_team_lead") else "Mentor"
+
+            formatted_mentors.append({
+                "id": rec["id"],
+                "name": rec["name"],
+                "designation": designation,
+                "match_score": calculated_score,
+                "is_team_lead": bool(rec.get("is_team_lead")),
+                "batch_count": batch_count,
+                "is_top_pick": rec["id"] == top_pick_id,
+            })
+
+        formatted_mentors.sort(key=lambda m: (not m["is_top_pick"], -m["match_score"]))
+
+        return formatted_mentors
+
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to fetch recommended mentors: {str(e)}")
+

@@ -216,8 +216,9 @@ def recommend_batch_replacement(batch_id: str) -> list[dict]:
     """
     For a batch whose mentor is leaving mid-cycle — returns ALL eligible
     mentors (any mentor, not just team leads) in the batch's domain,
-    ranked by fewest recent batch commitments first (round-robin order),
-    excluding whoever's currently assigned.
+    ranked by fewest CURRENT batch assignments first (round-robin order),
+    excluding whoever's currently assigned. Counts directly from
+    student_batches.mentor_id — batches don't use the allocations table.
     """
     with engine.connect() as conn:
         batch = conn.execute(
@@ -230,10 +231,9 @@ def recommend_batch_replacement(batch_id: str) -> list[dict]:
         rows = conn.execute(
             text("""
                 SELECT ce.employee_id AS id, ce.name, ce.is_team_lead,
-                       COUNT(a.allocation_id) AS batch_count
+                       COUNT(sb.batch_id) AS batch_count
                 FROM company_employees ce
-                LEFT JOIN allocations a ON a.resource_id = ce.employee_id
-                    AND a.reference_type = 'batch' AND a.status IN ('proposed', 'accepted', 'assigned')
+                LEFT JOIN student_batches sb ON sb.mentor_id = ce.employee_id
                 WHERE ce.department = :domain AND ce.employee_id != :current_mentor
                 GROUP BY ce.employee_id, ce.name, ce.is_team_lead
                 ORDER BY batch_count ASC, ce.employee_id ASC
