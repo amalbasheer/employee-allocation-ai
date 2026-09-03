@@ -115,24 +115,7 @@ def assign_mentor_to_batch(batch_id: str, mentor_id: str, db: Session = Depends(
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
 
-    # Determine this batch's 2-month block (Jun-Jul, Aug-Sep, Oct-Nov...)
-    block_start_month = batch.start_date.month if batch.start_date.month % 2 == 0 else batch.start_date.month - 1
-    block_end_month = block_start_month + 1
-
-    # Find ALL batches in the same domain + same 2-month block (all modes, both months)
-    block_batches = (
-        db.query(StudentBatch)
-        .filter(
-            StudentBatch.domain == batch.domain,
-            func.extract('month', StudentBatch.start_date).between(block_start_month, block_end_month),
-            func.extract('year', StudentBatch.start_date) == batch.start_date.year,
-        )
-        .all()
-    )
-
-    for b in block_batches:
-        b.mentor_id = mentor_id
-
+    batch.mentor_id = mentor_id
     db.commit()
     db.refresh(batch)
     return batch
