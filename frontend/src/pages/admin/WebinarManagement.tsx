@@ -520,14 +520,7 @@ const handleDownloadWebinarPdf = async (idea: WebinarIdea) => {
               <Sparkles className="w-4 h-4 text-amber-400" /> Generate Idea
             </button>
           </>
-        ) : (
-          <button
-            onClick={handleAutoGenerateBatch}
-            className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg transition-all"
-          >
-            <RefreshCw className="w-4 h-4" /> Auto-Generate Next Batch
-          </button>
-        )}
+        ) : null}
       </div>
     </div>
 

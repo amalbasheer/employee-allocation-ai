@@ -634,8 +634,7 @@ def create_student_batch(payload: CreateStudentBatchSchema, db: Session = Depend
 def auto_generate_next_batch(db: Session = Depends(get_db)):
     """
     Generates the next batch pair (Offline + Online) for BOTH
-    Data Analytics and Data Science in a single call, each domain
-    independently continuing from its own most recent batch.
+    Data Analytics and Data Science in a single call.
     """
     all_created_batches = []
 
@@ -692,4 +691,24 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
     for b in all_created_batches:
         db.refresh(b)
 
-    return all_created_batches
+    mentor_ids = list({b.mentor_id for b in all_created_batches if b.mentor_id})
+    mentor_map = {}
+    if mentor_ids:
+        employees = db.query(CompanyEmployee).filter(CompanyEmployee.employee_id.in_(mentor_ids)).all()
+        mentor_map = {e.employee_id: e.name for e in employees}
+
+    response = []
+    for b in all_created_batches:
+        response.append({
+            "batch_id": b.batch_id,
+            "batch_name": b.batch_name,
+            "domain": b.domain,
+            "start_date": b.start_date,
+            "end_date": b.end_date,
+            "delivery_mode": b.delivery_mode,
+            "mentor_id": b.mentor_id,
+            "trainer_name": mentor_map.get(b.mentor_id, "Unassigned"),
+            "status": b.status,
+        })
+
+    return response
