@@ -638,19 +638,28 @@ def auto_generate_next_batch(
     last_batch = (
         db.query(StudentBatch)
         .filter(func.lower(StudentBatch.domain) == department.strip().lower())
-        .order_by(desc(StudentBatch.end_date))
+        .order_by(desc(StudentBatch.start_date))
         .first()
     )
     
     if last_batch:
-        start_dt = last_batch.end_date
+        prev_start = last_batch.start_date
+        next_month = prev_start.month + 1
+        next_year = prev_start.year
+        if next_month > 12:
+            next_month -= 12
+            next_year += 1
+        start_dt = date(next_year, next_month, 15)
     else:
         today = date.today()
         start_dt = date(today.year, today.month, 15)
 
-    month = start_dt.month % 12 + 1
-    year = start_dt.year + (start_dt.month // 12)
-    end_dt = date(year, month, 15)
+    end_month = start_dt.month + 4
+    end_year = start_dt.year
+    if end_month > 12:
+        end_month -= 12
+        end_year += 1
+    end_dt = date(end_year, end_month, 14)
 
     assigned_mentor = get_next_mentor_for_batch(
         domain=department,

@@ -110,40 +110,32 @@ def get_recommended_mentors(batch_id: str):
 # 3. ASSIGN / CHANGE MENTOR FOR A BATCH
 # -------------------------------------------------------------------------
 @router.put("/{batch_id}/assign-mentor")
-def assign_mentor(batch_id: str, payload: AssignMentorRequest, db: Session = Depends(get_db)):
-    """
-    Assigns or updates the mentor for a specific student batch.
-    """
-    try:
-        # 1. Update mentor_id in student_batches table
-        update_query = text("""
-            UPDATE student_batches
-            SET mentor_id = :mentor_id 
-            WHERE batch_id = :batch_id
-        """)
-        db.execute(update_query, {"mentor_id": payload.mentor_id, "batch_id": batch_id})
-        db.commit()
+def assign_mentor_to_batch(batch_id: str, mentor_id: str, db: Session = Depends(get_db)):
+    batch = db.query(StudentBatch).filter(StudentBatch.batch_id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
 
-        # 2. Fetch updated mentor's name from company_employees table
-        emp_query = text("SELECT name FROM company_employees WHERE employee_id = :id")
-        emp = db.execute(emp_query, {"id": payload.mentor_id}).mappings().fetchone()
-        trainer_name = emp["name"] if emp else payload.mentor_id
+    # Determine this batch's 2-month block (Jun-Jul, Aug-Sep, Oct-Nov...)
+    block_start_month = batch.start_date.month if batch.start_date.month % 2 == 0 else batch.start_date.month - 1
+    block_end_month = block_start_month + 1
 
-        return {
-            "success": True,
-            "message": "Mentor updated successfully",
-            "batch_id": batch_id,
-            "mentor_id": payload.mentor_id,
-            "trainer_name": trainer_name
-        }
-
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to assign mentor: {str(e)}"
+    # Find ALL batches in the same domain + same 2-month block (all modes, both months)
+    block_batches = (
+        db.query(StudentBatch)
+        .filter(
+            StudentBatch.domain == batch.domain,
+            func.extract('month', StudentBatch.start_date).between(block_start_month, block_end_month),
+            func.extract('year', StudentBatch.start_date) == batch.start_date.year,
         )
+        .all()
+    )
 
+    for b in block_batches:
+        b.mentor_id = mentor_id
+
+    db.commit()
+    db.refresh(batch)
+    return batch
 # -------------------------------------------------------------------------
 @router.get("/{batch_id}/recommended-mentors", response_model=List[MentorResponse])
 def get_recommended_mentors(batch_id: str, db: Session = Depends(get_db)):
