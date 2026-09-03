@@ -643,7 +643,6 @@ def auto_generate_next_batch(
     department: str = Query(default="Data Analytics"), 
     db: Session = Depends(get_db)
 ):
-    # 1. Fetch the last created batch for this domain to determine next dates
     last_batch = (
         db.query(StudentBatch)
         .filter(func.lower(StudentBatch.domain) == department.strip().lower())
@@ -661,30 +660,49 @@ def auto_generate_next_batch(
     year = start_dt.year + (start_dt.month // 12)
     end_dt = date(year, month, 15)
 
-    batch_name = f"Batch-{start_dt.strftime('%b')}-{end_dt.strftime('%b')}-{end_dt.year}"
-    
-    # 2. Call get_next_mentor_for_batch with domain, starting month, and year
     assigned_mentor = get_next_mentor_for_batch(
         domain=department,
         month_num=start_dt.month,
         year=start_dt.year
     )
-    
-    # 3. Extract employee_id from returned dictionary safely
     mentor_id = assigned_mentor.get("employee_id") if assigned_mentor else None
+    short_domain = "DA" if department == "Data Analytics" else "DS"
 
-    # 4. Create and save new batch
-    new_batch = StudentBatch(
-        batch_name=batch_name,
-        domain=department,
-        start_date=start_dt,
-        end_date=end_dt,
-        delivery_mode="online",
-        mentor_id=mentor_id,
-        status="open"
-    )
-    db.add(new_batch)
+    created_batches = []
+    for mode in ["offline", "online"]:
+        batch_name = f"{start_dt.strftime('%b')} {short_domain} {mode.capitalize()}"
+
+        new_batch = StudentBatch(
+            batch_name=batch_name,
+            domain=department,
+            start_date=start_dt,
+            end_date=end_dt,
+            delivery_mode=mode,
+            mentor_id=mentor_id,
+            status="open"
+        )
+        db.add(new_batch)
+        db.flush()  # get new_batch.batch_id before commit
+
+        if mentor_id:
+            new_allocation = Allocation(
+                allocation_id=f"rp2-alloc-{new_batch.batch_id[-4:]}-{mode[:1]}",
+                resource_type="employee",
+                resource_id=mentor_id,
+                reference_type="batch",
+                reference_id=new_batch.batch_id,
+                role_on_project="mentor",
+                allocated_hours=8,
+                suitability_score=0,
+                status="assigned",
+                assigned_by="Auto_Generate"
+            )
+            db.add(new_allocation)
+
+        created_batches.append(new_batch)
+
     db.commit()
-    db.refresh(new_batch)
+    for b in created_batches:
+        db.refresh(b)
 
-    return new_batch
+    return created_batches
