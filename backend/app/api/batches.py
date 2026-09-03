@@ -2,13 +2,16 @@
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel
 from typing import List, Optional
-from sqlalchemy import text
+from sqlalchemy import text, func
 from sqlalchemy.orm import Session
 
+from sqlalchemy import func
+from app.models.webinar import StudentBatch  # adjust path if different
+from app.models.employee import CompanyEmployee  # adjust path if different
 # Import your database session dependency
 from app.database import get_db
 # Import your AI engine function
-from ai_engine.db import recommend_batch_replacement
+from ai_engine.db import recommend_batch_replacement, get_next_mentor_for_batch
 
 router = APIRouter()
 
@@ -140,3 +143,33 @@ def assign_mentor(batch_id: str, payload: AssignMentorRequest, db: Session = Dep
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to assign mentor: {str(e)}"
         )
+
+@router.get("/student-batches/{batch_id}/recommended-mentors")
+def get_recommended_mentors_for_batch(batch_id: str, db: Session = Depends(get_db)):
+    batch = db.query(StudentBatch).filter(StudentBatch.batch_id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+
+    next_pick = get_next_mentor_for_batch(
+        domain=batch.domain,
+        month_num=batch.start_date.month,
+        year=batch.start_date.year
+    )
+
+    all_mentors = (
+        db.query(CompanyEmployee)
+        .filter(func.lower(CompanyEmployee.department) == batch.domain.strip().lower())
+        .all()
+    )
+
+    return [
+        {
+            "id": m.employee_id,
+            "employee_id": m.employee_id,
+            "name": m.name,
+            "role": "Team Lead" if m.is_team_lead else "Mentor",
+            "fit": "Recommended (Fairness Pick)" if next_pick and m.employee_id == next_pick.get("employee_id") else "Available",
+            "skills": ["Domain Expert", "Mentorship"],
+        }
+        for m in all_mentors
+    ]
