@@ -609,8 +609,12 @@ def list_student_batches(db: Session = Depends(get_db)):
 
 @router.post("/student-batches", status_code=status.HTTP_201_CREATED)
 def create_student_batch(payload: CreateStudentBatchSchema, db: Session = Depends(get_db)):
-    assigned_mentor = get_next_round_robin_mentor(db)
-    mentor_id = assigned_mentor.employee_id if assigned_mentor else None
+    assigned_mentor = get_next_mentor_for_batch(
+        domain=payload.domain,
+        month_num=payload.start_date.month,
+        year=payload.start_date.year
+    )
+    mentor_id = assigned_mentor.get("employee_id") if assigned_mentor else None
 
     new_batch = StudentBatch(
         batch_name=payload.batch_name,
@@ -622,21 +626,9 @@ def create_student_batch(payload: CreateStudentBatchSchema, db: Session = Depend
         status="open"
     )
     db.add(new_batch)
-    db.flush()
-
-    if mentor_id:
-        alloc = Allocation(
-            reference_type="batch",
-            reference_id=new_batch.batch_id,
-            employee_id=mentor_id,
-            status="allocated"
-        )
-        db.add(alloc)
-
     db.commit()
     db.refresh(new_batch)
     return new_batch
-
 
 @router.post("/student-batches/auto-generate-next")
 def auto_generate_next_batch(
@@ -671,7 +663,6 @@ def auto_generate_next_batch(
     created_batches = []
     for mode in ["offline", "online"]:
         batch_name = f"{start_dt.strftime('%b')} {short_domain} {mode.capitalize()}"
-
         new_batch = StudentBatch(
             batch_name=batch_name,
             domain=department,
@@ -682,23 +673,6 @@ def auto_generate_next_batch(
             status="open"
         )
         db.add(new_batch)
-        db.flush()  # get new_batch.batch_id before commit
-
-        if mentor_id:
-            new_allocation = Allocation(
-                allocation_id=f"rp2-alloc-{new_batch.batch_id[-4:]}-{mode[:1]}",
-                resource_type="employee",
-                resource_id=mentor_id,
-                reference_type="batch",
-                reference_id=new_batch.batch_id,
-                role_on_project="mentor",
-                allocated_hours=8,
-                suitability_score=0,
-                status="assigned",
-                assigned_by="Auto_Generate"
-            )
-            db.add(new_allocation)
-
         created_batches.append(new_batch)
 
     db.commit()

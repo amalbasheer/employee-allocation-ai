@@ -167,19 +167,19 @@ def get_person_skills(person_id: str, person_type: str) -> list[dict]:
 def get_next_mentor_for_batch(domain: str, month_num: int, year: int = 2026) -> dict:
     """
     Mentors are assigned in 2-month blocks (Jun-Jul, Aug-Sep, Oct-Nov...),
-    covering both online and offline sessions for that block.
+    covering both online and offline sessions for that block. Fairness is
+    tracked purely from student_batches.mentor_id — NOT the allocations
+    table, per confirmed design.
 
     Given a specific month, finds which 2-month block it belongs to.
     If a mentor is already assigned to another batch within that same
     block, reuse them (so both months share one mentor). Otherwise,
     round-robin picks whoever has covered the fewest blocks so far.
     """
-    # Determine the block's start month (odd months start blocks: Jun, Aug, Oct...)
     block_start_month = month_num if month_num % 2 == 0 else month_num - 1
     block_end_month = block_start_month + 1
 
     with engine.connect() as conn:
-        # Check if a mentor is already assigned within this block for this domain
         existing = conn.execute(
             text("""
                 SELECT sb.mentor_id, ce.name
@@ -197,18 +197,14 @@ def get_next_mentor_for_batch(domain: str, month_num: int, year: int = 2026) -> 
         if existing:
             return {"employee_id": existing["mentor_id"], "name": existing["name"]}
 
-        # No one assigned to this block yet — round-robin pick the least-used mentor
         row = conn.execute(
             text("""
-                SELECT ce.employee_id, ce.name, COUNT(a.allocation_id) AS block_count
+                SELECT ce.employee_id, ce.name, COUNT(sb.batch_id) AS batch_count
                 FROM company_employees ce
-                LEFT JOIN allocations a
-                    ON a.resource_id = ce.employee_id
-                    AND a.reference_type = 'batch'
-                    AND a.status IN ('proposed', 'accepted', 'assigned')
+                LEFT JOIN student_batches sb ON sb.mentor_id = ce.employee_id
                 WHERE ce.department = :domain
                 GROUP BY ce.employee_id, ce.name
-                ORDER BY block_count ASC, ce.employee_id ASC
+                ORDER BY batch_count ASC, ce.employee_id ASC
                 LIMIT 1
             """),
             {"domain": domain},
