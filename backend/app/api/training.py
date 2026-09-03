@@ -631,61 +631,65 @@ def create_student_batch(payload: CreateStudentBatchSchema, db: Session = Depend
     return new_batch
 
 @router.post("/student-batches/auto-generate-next")
-def auto_generate_next_batch(
-    department: str = Query(default="Data Analytics"), 
-    db: Session = Depends(get_db)
-):
-    last_batch = (
-        db.query(StudentBatch)
-        .filter(func.lower(StudentBatch.domain) == department.strip().lower())
-        .order_by(desc(StudentBatch.start_date))
-        .first()
-    )
-    
-    if last_batch:
-        prev_start = last_batch.start_date
-        next_month = prev_start.month + 1
-        next_year = prev_start.year
-        if next_month > 12:
-            next_month -= 12
-            next_year += 1
-        start_dt = date(next_year, next_month, 15)
-    else:
-        today = date.today()
-        start_dt = date(today.year, today.month, 15)
+def auto_generate_next_batch(db: Session = Depends(get_db)):
+    """
+    Generates the next batch pair (Offline + Online) for BOTH
+    Data Analytics and Data Science in a single call, each domain
+    independently continuing from its own most recent batch.
+    """
+    all_created_batches = []
 
-    end_month = start_dt.month + 4
-    end_year = start_dt.year
-    if end_month > 12:
-        end_month -= 12
-        end_year += 1
-    end_dt = date(end_year, end_month, 14)
-
-    assigned_mentor = get_next_mentor_for_batch(
-        domain=department,
-        month_num=start_dt.month,
-        year=start_dt.year
-    )
-    mentor_id = assigned_mentor.get("employee_id") if assigned_mentor else None
-    short_domain = "DA" if department == "Data Analytics" else "DS"
-
-    created_batches = []
-    for mode in ["offline", "online"]:
-        batch_name = f"{start_dt.strftime('%b')} {short_domain} {mode.capitalize()}"
-        new_batch = StudentBatch(
-            batch_name=batch_name,
-            domain=department,
-            start_date=start_dt,
-            end_date=end_dt,
-            delivery_mode=mode,
-            mentor_id=mentor_id,
-            status="open"
+    for department in ["Data Analytics", "Data Science"]:
+        last_batch = (
+            db.query(StudentBatch)
+            .filter(func.lower(StudentBatch.domain) == department.lower())
+            .order_by(desc(StudentBatch.start_date))
+            .first()
         )
-        db.add(new_batch)
-        created_batches.append(new_batch)
+
+        if last_batch:
+            prev_start = last_batch.start_date
+            next_month = prev_start.month + 1
+            next_year = prev_start.year
+            if next_month > 12:
+                next_month -= 12
+                next_year += 1
+            start_dt = date(next_year, next_month, 15)
+        else:
+            today = date.today()
+            start_dt = date(today.year, today.month, 15)
+
+        end_month = start_dt.month + 4
+        end_year = start_dt.year
+        if end_month > 12:
+            end_month -= 12
+            end_year += 1
+        end_dt = date(end_year, end_month, 14)
+
+        assigned_mentor = get_next_mentor_for_batch(
+            domain=department,
+            month_num=start_dt.month,
+            year=start_dt.year
+        )
+        mentor_id = assigned_mentor.get("employee_id") if assigned_mentor else None
+        short_domain = "DA" if department == "Data Analytics" else "DS"
+
+        for mode in ["offline", "online"]:
+            batch_name = f"{start_dt.strftime('%b')} {short_domain} {mode.capitalize()}"
+            new_batch = StudentBatch(
+                batch_name=batch_name,
+                domain=department,
+                start_date=start_dt,
+                end_date=end_dt,
+                delivery_mode=mode,
+                mentor_id=mentor_id,
+                status="open"
+            )
+            db.add(new_batch)
+            all_created_batches.append(new_batch)
 
     db.commit()
-    for b in created_batches:
+    for b in all_created_batches:
         db.refresh(b)
 
-    return created_batches
+    return all_created_batches
