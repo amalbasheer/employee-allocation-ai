@@ -110,12 +110,12 @@ def get_recommended_mentors(batch_id: str):
 # 3. ASSIGN / CHANGE MENTOR FOR A BATCH
 # -------------------------------------------------------------------------
 @router.put("/{batch_id}/assign-mentor")
-def assign_mentor_to_batch(batch_id: str, mentor_id: str, db: Session = Depends(get_db)):
+def assign_mentor_to_batch(batch_id: str, payload: AssignMentorRequest, db: Session = Depends(get_db)):
     batch = db.query(StudentBatch).filter(StudentBatch.batch_id == batch_id).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
 
-    batch.mentor_id = mentor_id
+    batch.mentor_id = payload.mentor_id
     db.commit()
     db.refresh(batch)
     return batch
