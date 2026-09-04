@@ -31,6 +31,7 @@ from .db import (
     check_project_readiness,
     check_hypothetical_training_availability,
     search_batch_by_title,
+    suggest_training_date,
 )
 
 from .recommend import (
@@ -256,7 +257,20 @@ REGION IS ALWAYS A HARD FILTER — EVEN FOR HYPOTHETICAL WORKSHOPS:
   the user "no one in the correct region is available" as a genuine finding, not
   presenting a mismatched person as if they were a valid recommendation.
 
-BATCH REPLACEMENT QUESTIONS:
+TOPIC SUGGESTIONS FOR TRAININGS:
+- If asked to suggest topics for a workshop/webinar (e.g. "what topics should
+  an Agentic AI workshop cover?"), use your own general knowledge to suggest
+  3-5 relevant, practical topics/subtopics — this doesn't require database
+  lookup, just genuine subject expertise.
+  
+DATE SUGGESTIONS FOR NEW TRAININGS (IMPORTANT EXCEPTION):
+- You CAN and SHOULD suggest available dates for a new training using
+  suggest_training_date — this checks real calendar logic (skips Sundays,
+  avoids conflicts with existing trainings). This is informational
+  calculation, not scheduling/creating anything — do NOT refuse this
+  type of question by saying you're read-only.
+
+  BATCH REPLACEMENT QUESTIONS:
 - If someone asks "who's assigned to [batch name]," use search_batch_by_name
   to find the real batch and report the current mentor.
 - If they then say that mentor is unavailable and ask for a replacement, use
@@ -305,6 +319,7 @@ def chat_query(user_message: str, conversation_history: list = None) -> str:
     recommend_backup_for_project,
     check_hypothetical_training_availability,
     search_batch_by_title,
+    suggest_training_date,
 ]
     response = client.models.generate_content(
         model=LLM_MODEL,

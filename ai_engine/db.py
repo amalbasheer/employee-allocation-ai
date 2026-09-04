@@ -647,3 +647,62 @@ def search_batch_by_title(name_keyword: str) -> list[dict]:
             {"keyword": f"%{name_keyword}%"},
         ).mappings().fetchall()
     return [dict(r) for r in rows]
+
+def suggest_training_date(preferred_month: int, preferred_year: int = 2026, avoid_conflicts_domain: str = None) -> dict:
+    """
+    Suggests a good date for a new training/workshop within the given
+    month — skips Sundays, and avoids dates where the same domain already
+    has other training engagements scheduled, so the suggestion doesn't
+    create a real scheduling conflict.
+
+    Args:
+        preferred_month: the month number (1-12) to find a date within
+        preferred_year: the year (defaults to 2026)
+        avoid_conflicts_domain: optionally check for conflicts specific
+            to one domain ("Data Analytics" or "Data Science")
+
+    Returns:
+        {"suggested_date": "YYYY-MM-DD", "reason": "..."} or
+        {"suggested_date": None, "reason": "..."} if nothing found
+    """
+    from datetime import date, timedelta
+
+    with engine.connect() as conn:
+        query = """
+            SELECT start_date, end_date FROM training_engagements
+            WHERE EXTRACT(MONTH FROM start_date) = :month
+            AND EXTRACT(YEAR FROM start_date) = :year
+        """
+        params = {"month": preferred_month, "year": preferred_year}
+        if avoid_conflicts_domain:
+            query += " AND domain = :domain"
+            params["domain"] = avoid_conflicts_domain
+
+        existing_dates = conn.execute(text(query), params).fetchall()
+
+    busy_dates = set()
+    for start, end in existing_dates:
+        if start and end:
+            current = start
+            while current <= end:
+                busy_dates.add(current)
+                current += timedelta(days=1)
+
+    first_day = date(preferred_year, preferred_month, 1)
+    next_month = preferred_month + 1 if preferred_month < 12 else 1
+    next_year = preferred_year if preferred_month < 12 else preferred_year + 1
+    last_day = date(next_year, next_month, 1) - timedelta(days=1)
+
+    current = first_day
+    while current <= last_day:
+        if current.weekday() != 6 and current not in busy_dates:  # 6 = Sunday
+            return {
+                "suggested_date": str(current),
+                "reason": "First available weekday with no scheduling conflicts in this month."
+            }
+        current += timedelta(days=1)
+
+    return {
+        "suggested_date": None,
+        "reason": "No suitable weekday found in this month — all dates are either Sundays or already booked."
+    }
