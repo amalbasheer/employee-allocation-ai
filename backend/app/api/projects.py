@@ -646,11 +646,11 @@ def sync_completed_projects(db: Session = Depends(get_db)):
                 STRING_AGG(p.title, ', ') AS title,
                 COUNT(p.project_id) AS count
             FROM allocations a
-            JOIN company_employees ce ON a.resource_id = ce.reference_id
-            JOIN projects p ON a.project_id = p.project_id
+            JOIN company_employees ce ON a.resource_id = ce.employee_id
+            JOIN projects p ON a.reference_id = p.project_id
             WHERE p.status = 'completed' 
-              AND a.status = 'assigned'
-            GROUP BY ce.reference_id, ce.name
+              AND a.status = 'completed'
+            GROUP BY a.reference_id, ce.name
         """)
         
         # Note: If using MySQL, replace STRING_AGG(p.title, ', ') with GROUP_CONCAT(p.title SEPARATOR ', ')

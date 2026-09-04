@@ -595,7 +595,7 @@ export const ProjectAllocation: React.FC = () => {
     setSyncStatus(null);
 
     try {
-      const res = await api.post('api/admin/sync-completed-projects');
+      const res = await api.post('api/projects/sync-completed-projects');
 
       if (res.data && res.data.success) {
         const syncedCount = res.data.count ?? res.data.synced_count ?? 0;
@@ -1307,6 +1307,8 @@ export const ProjectAllocation: React.FC = () => {
           </div>
         </div>
       )}
+
+      
       {/* 4. Render the AI Modal */}
       <AIProjectModal
         isOpen={isAIModalOpen}
