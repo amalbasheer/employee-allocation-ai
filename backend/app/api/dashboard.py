@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Dict, Any, List
 from fastapi import APIRouter, Depends, status
 from sqlalchemy import func, extract, desc, case
@@ -224,6 +224,37 @@ def get_dashboard_overview(db: Session = Depends(get_db)) -> Dict[str, Any]:
     ]
 
     # -------------------------------------------------------------------------
+    # 7. WEEKLY AVAILABLE EMPLOYEES
+    # -------------------------------------------------------------------------
+    availability_records = (
+        db.query(Availability, CompanyEmployee)
+        .join(
+            CompanyEmployee,
+            Availability.resource_id == CompanyEmployee.employee_id
+        )
+        .order_by(desc(Availability.week_start_date))
+        .all()
+    )
+
+    weekly_available_employees = [
+        {
+            "availability_id": avail.availability_id,
+            "resource_type": avail.resource_type,
+            "resource_id": avail.resource_id,
+            "employee_name": getattr(emp, "name", getattr(emp, "employee_name", getattr(emp, "full_name", "N/A"))),
+            "department": getattr(emp, "department", "N/A"),
+            "week_start_date": (
+                avail.week_start_date.strftime("%Y-%m-%d")
+                if hasattr(avail.week_start_date, "strftime")
+                else str(avail.week_start_date)
+            ),
+            "available_hour": getattr(avail, "available_hour", getattr(avail, "available_hours", 0)),
+            "is_on_leave": avail.is_on_leave,
+        }
+        for avail, emp in availability_records
+    ]
+
+    # -------------------------------------------------------------------------
     # COMBINED RESPONSE
     # -------------------------------------------------------------------------
     return {
@@ -256,4 +287,5 @@ def get_dashboard_overview(db: Session = Depends(get_db)) -> Dict[str, Any]:
         },
         "skill_coverage": skill_coverage_list,
         "recent_logs": logs_feed,
+        "weekly_available_employees": weekly_available_employees,
     }
