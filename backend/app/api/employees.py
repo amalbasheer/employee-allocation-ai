@@ -2,7 +2,8 @@
 from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy import func, or_
+from realtime import BaseModel
+from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timezone, timedelta, date
@@ -488,3 +489,210 @@ def get_employee_weekly_bandwidth(
         )
 
     return projections
+
+# ==========================================
+# PYDANTIC SCHEMAS
+# ==========================================
+
+class EmployeeSummary(BaseModel):
+    employee_id: str
+    name: str
+    email: str
+    designation_id: str
+    department: str
+    experience_years: float
+    weekly_capacity_hours: int
+    is_team_lead: bool
+
+class SkillDetail(BaseModel):
+    skill_id: str
+    skill_name: str
+    category: str
+    proficiency_level: str
+
+class ProjectDetail(BaseModel):
+    project_id: str
+    allocation_id: str
+    title: str
+    category: str
+    role: str
+    allocated_hours_per_week: float
+    start_date: Optional[str]
+    end_date: Optional[str]
+    status: str
+    allocation_status: str
+
+class StudentBatchDetail(BaseModel):
+    batch_id: str
+    batch_name: str
+    program_name: str
+    role: str
+    assigned_students_count: int
+    start_date: Optional[str]
+    end_date: Optional[str]
+    batch_status: str
+
+class WebinarDetail(BaseModel):
+    engagement_id: str
+    allocation_id: str
+    title: str
+    topic: str
+    type: str
+    scheduled_date: Optional[str]
+    duration_hours: float
+    target_audience: str
+    engagement_status: str
+
+class BasicInfo(EmployeeSummary):
+    phone: Optional[str] = None
+    joining_date: Optional[str] = None
+    location: Optional[str] = None
+    manager_name: Optional[str] = None
+
+class EmployeeFullProfile(BaseModel):
+    basic_info: BasicInfo
+    skills: List[SkillDetail]
+    projects: dict
+    student_batches: dict
+    training_engagements: dict
+
+# ==========================================
+# ENDPOINTS
+# ========================================
+
+@router.get("/{employee_id}/full-details", response_model=EmployeeFullProfile)
+def get_employee_full_details(employee_id: str, db: Session = Depends(get_db)):
+    """Fetch aggregated employee profile joining skills, projects, batches, and webinars."""
+    
+    # 1. Basic Employee Info
+    emp_query = text("""
+        SELECT 
+            employee_id, name, email, designation_id,
+            department, is_team_lead, experience_years, weekly_capacity_hours,
+            location,
+        FROM company_employees
+        WHERE employee_id = :emp_id
+    """)
+    basic_row = db.execute(emp_query, {"emp_id": employee_id}).mappings().first()
+    
+    if not basic_row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail=f"Employee ID {employee_id} not found."
+        )
+
+    # 2. Mapped Skills (Joining employee_skills and skills)
+    skills_query = text("""
+        SELECT 
+            s.skill_id,
+            s.skill_name,
+            COALESCE(s.category, 'General') as category,
+            COALESCE(es.proficiency_level, 'Intermediate') as proficiency_level,
+            COALESCE(es.experience_years, 0) as years_experience
+        FROM employee_skills es
+        JOIN skills s ON es.skill_id = s.skill_id
+        WHERE es.employee_id = :emp_id
+    """)
+    skills_rows = db.execute(skills_query, {"emp_id": employee_id}).mappings().all()
+
+    # 3. Projects & Allocations (Ongoing vs Completed)
+    projects_query = text("""
+        SELECT 
+            p.project_id,
+            a.allocation_id,
+            p.title,
+            COALESCE(p.category, 'Data Science') as category,
+            COALESCE(a.role_on_project, 'Team Member') as role,
+            COALESCE(a.allocated_hours, 10) as allocated_hours_per_week,
+            CAST(p.start_date AS VARCHAR) as start_date,
+            CAST(p.end_date AS VARCHAR) as end_date,
+            LOWER(COALESCE(p.status, 'open')) as status,
+            LOWER(COALESCE(a.allocation_status, 'assigned')) as allocation_status
+        FROM allocations a
+        JOIN projects p ON a.reference_id = p.project_id
+        WHERE a.resource_id = :emp_id 
+          AND a.resource_type = 'employee'
+          AND a.reference_type = 'project'
+    """)
+    proj_rows = db.execute(projects_query, {"emp_id": employee_id}).mappings().all()
+
+    ongoing_projects = []
+    completed_projects = []
+    for r in proj_rows:
+        data = dict(r)
+        if data['status'] in ['completed', 'closed'] or data['allocation_status'] == 'completed':
+            completed_projects.append(data)
+        else:
+            ongoing_projects.append(data)
+
+    # 4. Student Batches (Ongoing vs Future)
+    batches_query = text("""
+        SELECT 
+            b.batch_id,
+            b.batch_name,
+            b.domain as program_name,
+            b.delivery_mode as mode,
+            CAST(b.start_date AS VARCHAR) as start_date,
+            CAST(b.end_date AS VARCHAR) as end_date,
+            LOWER(COALESCE(b.status, 'ongoing')) as batch_status
+        FROM student_batches b
+        JOIN company_employees ce ON b.mentor_id = ce.employee_id
+        WHERE b.mentor_id = :emp_id
+    """)
+    batch_rows = db.execute(batches_query, {"emp_id": employee_id}).mappings().all()
+
+    ongoing_batches = []
+    future_batches = []
+    for r in batch_rows:
+        data = dict(r)
+        if data['batch_status'] == 'assigned' or (data['start_date'] and data['start_date'] <= datetime.now().strftime("%Y-%m-%d")):
+            future_batches.append(data)
+        else:
+            ongoing_batches.append(data)
+
+    # 5. Training Engagements & Webinars (Assigned vs Completed)
+    webinar_query = text("""
+        SELECT 
+            t.engagement_id,
+            a.allocation_id,
+            t.title,
+            COALESCE(t.engagement_type, 'Webinar') as type,
+            CAST(t.start_date AS VARCHAR) as scheduled_date,
+            COALESCE(t.required_hours, 1.0) as duration_hours,
+            COALESCE(t.audience, 'Employees & Interns') as target_audience,
+            COALESCE(t.mode, 'online') as mode,
+            COALESCE(t.domain, 'General') as domain,
+            LOWER(COALESCE(t.status, 'assigned')) as engagement_status
+        FROM allocations a
+        JOIN training_engagement t ON a.reference_id = t.engagement_id
+        WHERE a.resource_id = :emp_id 
+          AND a.resource_type = 'employee'
+          AND a.reference_type = 'training'
+    """)
+    webinar_rows = db.execute(webinar_query, {"emp_id": employee_id}).mappings().all()
+
+    assigned_webinars = []
+    completed_webinars = []
+    for r in webinar_rows:
+        data = dict(r)
+        if data['engagement_status'] in ['completed', 'conducted']:
+            completed_webinars.append(data)
+        else:
+            assigned_webinars.append(data)
+
+    return {
+        "basic_info": dict(basic_row),
+        "skills": [dict(s) for s in skills_rows],
+        "projects": {
+            "ongoing": ongoing_projects,
+            "completed": completed_projects
+        },
+        "student_batches": {
+            "ongoing": ongoing_batches,
+            "future": future_batches
+        },
+        "training_engagements": {
+            "assigned": assigned_webinars,
+            "completed": completed_webinars
+        }
+    }
