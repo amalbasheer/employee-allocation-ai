@@ -631,3 +631,19 @@ def get_employee_by_name(name: str) -> dict:
             {"name": name},
         ).mappings().fetchone()
     return dict(row) if row else None
+
+def search_batch_by_title(name_keyword: str) -> list[dict]:
+    """Finds student batches whose name contains the given keyword —
+    lets the chatbot resolve a batch name/description into real records."""
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT sb.batch_id, sb.batch_name, sb.domain, sb.mentor_id, sb.status,
+                       ce.name AS mentor_name
+                FROM student_batches sb
+                LEFT JOIN company_employees ce ON ce.employee_id = sb.mentor_id
+                WHERE sb.batch_name ILIKE :keyword
+            """),
+            {"keyword": f"%{name_keyword}%"},
+        ).mappings().fetchall()
+    return [dict(r) for r in rows]

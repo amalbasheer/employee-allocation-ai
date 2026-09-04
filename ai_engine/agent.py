@@ -29,7 +29,8 @@ from .db import (
     get_employee_workload_summary,
     get_workload_extremes,
     check_project_readiness,
-    check_hypothetical_training_availability
+    check_hypothetical_training_availability,
+    search_batch_by_title,
 )
 
 from .recommend import (
@@ -254,6 +255,15 @@ REGION IS ALWAYS A HARD FILTER — EVEN FOR HYPOTHETICAL WORKSHOPS:
 - Only mention someone whose location doesn't match if you are explicitly telling
   the user "no one in the correct region is available" as a genuine finding, not
   presenting a mismatched person as if they were a valid recommendation.
+
+BATCH REPLACEMENT QUESTIONS:
+- If someone asks "who's assigned to [batch name]," use search_batch_by_name
+  to find the real batch and report the current mentor.
+- If they then say that mentor is unavailable and ask for a replacement, use
+  recommend_batch_replacement with that SAME batch's real batch_id (from the
+  previous lookup) to find the next best fit, ranked by fewest existing
+  batch commitments (fairness-based, not skill-based, since batches use a
+  fixed curriculum regardless of who teaches).
 """
 
 def chat_query(user_message: str, conversation_history: list = None) -> str:
@@ -293,7 +303,8 @@ def chat_query(user_message: str, conversation_history: list = None) -> str:
     explain_exclusion,
     check_project_readiness,
     recommend_backup_for_project,
-    check_hypothetical_training_availability
+    check_hypothetical_training_availability,
+    search_batch_by_title,
 ]
     response = client.models.generate_content(
         model=LLM_MODEL,
