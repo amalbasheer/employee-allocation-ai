@@ -97,7 +97,7 @@ export const ProjectAllocation: React.FC = () => {
   // Sync State for Completed Projects
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
-  
+
   const selectedProject = projects.find((p) => p.id === selectedProjectId) || projects[0];
 
   useEffect(() => {
@@ -672,7 +672,16 @@ export const ProjectAllocation: React.FC = () => {
   >
     <Plus className="w-4 h-4" /> Add Project
   </button>
-
+  {/* Sync Completed Projects Refresh Button */}
+        <button
+          onClick={handleSyncCompletedProjects}
+          disabled={isSyncing}
+          className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg transition-all"
+          type="button"
+        >
+          <RefreshCw className={`w-4 h-4 ${isSyncing ? "animate-spin" : ""}`} />
+          {isSyncing ? "Syncing..." : "Sync Completed Projects"}
+        </button>
   {/* AI Project Generator Button */}
   <button
     onClick={() => setIsAIModalOpen(true)}
