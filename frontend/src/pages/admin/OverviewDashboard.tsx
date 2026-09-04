@@ -5,11 +5,17 @@ import {
   Clock,
   Zap,
   UserCheck,
+  Award,
   RefreshCw,
   TrendingUp,
   PieChart,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
+  TrendingDown,
+  Calendar,
+  LogIn,
+  PersonStanding,
 } from "lucide-react";
 
 interface SkillCoverageItem {
@@ -27,6 +33,17 @@ interface AuditLog {
   timestamp: string;
 }
 
+interface WeeklyAvailableEmployee {
+  availability_id: number | string;
+  resource_type: string;
+  resource_id: number | string;
+  employee_name: string;
+  department: string;
+  week_start_date: string;
+  available_hour: number;
+  is_on_leave: boolean;
+}
+
 interface DashboardData {
   kpis: {
     active_projects: number;
@@ -42,7 +59,8 @@ interface DashboardData {
   allocations_trend: { categories: string[]; series: Array<{ data: number[] }> };
   entity_allocation_breakdown: { labels: string[]; series: number[] };
   skill_coverage: SkillCoverageItem[];
-  recent_logs: AuditLog[]; 
+  recent_logs: AuditLog[];
+  weekly_available_employees: WeeklyAvailableEmployee[];
 }
 
 export default function DashboardOverview() {
@@ -98,6 +116,87 @@ export default function DashboardOverview() {
 
   const maxTrendValue = Math.max(...allocations_trend.series[0].data, ...allocations_trend.series[1].data, 10);
   const totalEntityHours = entity_allocation_breakdown.series.reduce((a, b) => a + b, 0) || 1;
+  // Safely extract the array or default to an empty array []
+  const weeklyAvailableList = data?.weekly_available_employees ?? [];
+  // Define standard weekly full-time hours
+  const STANDARD_WEEKLY_CAPACITY = 40;
+
+  const processedEmployees = (data?.weekly_available_employees || []).map((emp) => {
+  // If employee is on leave, capacity & allocation are 0
+  if (emp.is_on_leave) {
+    return {
+      ...emp,
+      capacityHours: 0,
+      allocatedHours: 0,
+      utilizationRate: 0,
+    };
+  }
+
+  const capacityHours = STANDARD_WEEKLY_CAPACITY;
+  const availableHours = emp.available_hour ?? 0;
+  
+  // Allocated = 40 - remaining available hours
+  const allocatedHours = Math.max(0, capacityHours - availableHours);
+  
+  // Utilization % calculation
+  const utilizationRate = Math.round((allocatedHours / capacityHours) * 100);
+
+  return {
+    ...emp,
+    capacityHours,
+    allocatedHours,
+    utilizationRate,
+  };
+});
+
+// Group employees based on thresholds (< 70% Under, > 85% Over)
+  const overUtilizedEmps = processedEmployees.filter(
+  (e) => !e.is_on_leave && e.utilizationRate > 85
+);
+  const underUtilizedEmps = processedEmployees.filter(
+  (e) => !e.is_on_leave && e.utilizationRate < 70
+);
+
+  const overUtilizedCount = overUtilizedEmps.length;
+  const underUtilizedCount = underUtilizedEmps.length;
+
+// Text overlays for KPI subtext
+  const overUtilizedNamesText = overUtilizedCount > 0
+  ? `${overUtilizedEmps.slice(0, 2).map((e) => e.employee_name).join(", ")}${overUtilizedCount > 2 ? ` +${overUtilizedCount - 2} more` : ""}`
+  : "No capacity alerts";
+
+  const underUtilizedNamesText = underUtilizedCount > 0
+  ? `${underUtilizedEmps.slice(0, 2).map((e) => e.employee_name).join(", ")}${underUtilizedCount > 2 ? ` +${underUtilizedCount - 2} more` : ""}`
+  : "All talent assigned";
+  
+  // 1. Filter out employees currently on leave
+  const activeEmps = processedEmployees.filter((e) => !e.is_on_leave);
+
+// 2. Sum up total allocated & capacity hours
+  const totalAllocatedHours = activeEmps.reduce((sum, e) => sum + e.allocatedHours, 0);
+  const totalCapacityHours = activeEmps.reduce((sum, e) => sum + e.capacityHours, 0);
+
+// 3. Compute overall employee utilization percentage
+  const totalEmpUtilizationPct = totalCapacityHours > 0
+  ? Math.round((totalAllocatedHours / totalCapacityHours) * 100)
+  : 0;
+  // 1. Extract skill coverage list safely
+const skillList = skill_coverage || [];
+const totalSkillsTracked = skillList.length;
+
+// 2. Average skill coverage percentage across all demanded skills
+const avgSkillCoverage = totalSkillsTracked > 0
+  ? Math.round(skillList.reduce((acc, item) => acc + (item.coverage_pct || 0), 0) / totalSkillsTracked)
+  : 0;
+
+// 3. Count skills with 100%+ supply coverage
+const fullyCoveredSkillsCount = skillList.filter((s) => (s.coverage_pct || 0) >= 100).length;
+
+// 4. Subtext summary string
+const skillSubtext = totalSkillsTracked > 0
+  ? `${fullyCoveredSkillsCount} of ${totalSkillsTracked} skills fully met`
+  : "No skill demand data";
+
 
   return (
     <div style={styles.dashboardLayout}>
@@ -105,7 +204,9 @@ export default function DashboardOverview() {
       <div style={styles.headerRow}>
         <div>
           <h1 style={styles.title}>Resource & Allocation Overview</h1>
-          <p style={styles.subtitle}>Real-time telemetry across projects, candidates, AI engine, and engagements</p>
+          <p style={styles.subtitle}>
+            Real-time telemetry across projects, candidates, AI engine, and engagements
+          </p>
         </div>
         <button onClick={fetchDashboardData} style={styles.refreshBtn}>
           <RefreshCw size={16} /> Sync Live Data
@@ -135,6 +236,7 @@ export default function DashboardOverview() {
           icon={<Zap color="#8b5cf6" />}
           badgeColor="rgba(139, 92, 246, 0.15)"
         />
+        
         <MetricCard
           title="Talent Pool"
           value={`${kpis.total_employees} Emps | ${kpis.total_interns} Interns`}
@@ -142,6 +244,37 @@ export default function DashboardOverview() {
           icon={<Users color="#f59e0b" />}
           badgeColor="rgba(245, 158, 11, 0.15)"
         />
+        {/* 3. NEW: Over-Utilized Employees (> 85%) */}
+  <MetricCard
+    title="Over-Utilized (>85%)"
+    value={`${overUtilizedCount} Staff`}
+    subtext={overUtilizedNamesText}
+    icon={<AlertTriangle color="#ef4444" />}
+    badgeColor="rgba(239, 68, 68, 0.15)"
+  />
+  {/* 4. NEW: Under-Utilized Employees (< 70%) */}
+  <MetricCard
+    title="Under-Utilized (<70%)"
+    value={`${underUtilizedCount} Staff`}
+    subtext={underUtilizedNamesText}
+    icon={<TrendingDown color="#f59e0b" />}
+    badgeColor="rgba(245, 158, 11, 0.15)"
+  />
+  {/* 2. Total Employee Utilization Rate */}
+  <MetricCard
+    title="Employee Utilization"
+    value={`${totalEmpUtilizationPct}%`}
+    subtext={`${totalAllocatedHours} hrs assigned / ${totalCapacityHours} hrs active capacity`}
+    icon={<PersonStanding color="#10b981" />}
+    badgeColor="rgba(16, 185, 129, 0.15)"
+  />
+  <MetricCard
+  title="Skill Utilization"
+  value={`${avgSkillCoverage}%`}
+  subtext={skillSubtext}
+  icon={<Award color="#ec4899" />}
+  badgeColor="rgba(236, 72, 153, 0.15)"
+/>
       </div>
 
       {/* CHARTS GRID */}
@@ -154,10 +287,26 @@ export default function DashboardOverview() {
           </div>
           <div style={styles.chartLegend}>
             <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ width: 12, height: 12, borderRadius: 2, backgroundColor: "#3b82f6" }}></span> Assigned Hours
+              <span
+                style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: 2,
+                  backgroundColor: "#3b82f6",
+                }}
+              ></span>{" "}
+              Assigned Hours
             </span>
             <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ width: 12, height: 12, borderRadius: 2, backgroundColor: "var(--border-color, #64748b)" }}></span> Proposed Hours
+              <span
+                style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: 2,
+                  backgroundColor: "var(--border-color, #64748b)",
+                }}
+              ></span>{" "}
+              Proposed Hours
             </span>
           </div>
           <div style={styles.barChartContainer}>
@@ -172,11 +321,19 @@ export default function DashboardOverview() {
                   <div style={styles.barTrack}>
                     <div
                       title={`Assigned: ${assignedVal} hrs`}
-                      style={{ ...styles.bar, height: `${assignedHeight}px`, backgroundColor: "#3b82f6" }}
+                      style={{
+                        ...styles.bar,
+                        height: `${assignedHeight}px`,
+                        backgroundColor: "#3b82f6",
+                      }}
                     />
                     <div
                       title={`Proposed: ${proposedVal} hrs`}
-                      style={{ ...styles.bar, height: `${proposedHeight}px`, backgroundColor: "var(--border-color, #64748b)" }}
+                      style={{
+                        ...styles.bar,
+                        height: `${proposedHeight}px`,
+                        backgroundColor: "var(--border-color, #64748b)",
+                      }}
                     />
                   </div>
                   <span style={styles.barLabel}>{cat}</span>
@@ -194,15 +351,26 @@ export default function DashboardOverview() {
           </div>
           <div style={{ marginTop: 16 }}>
             {entity_allocation_breakdown.series.map((hours, idx) => {
-              const label = entity_allocation_breakdown.labels?.[idx] || `Work Type ${idx + 1}`;
+              const label =
+                entity_allocation_breakdown.labels?.[idx] ||
+                `Work Type ${idx + 1}`;
               const pct = Math.round((hours / totalEntityHours) * 100);
               const colors = ["#3b82f6", "#10b981", "#f59e0b"];
 
               return (
                 <div key={label} style={{ marginBottom: 16 }}>
                   <div style={styles.progressHeader}>
-                    <span style={{ fontWeight: 600, color: "var(--text-main, currentColor)" }}>{label}</span>
-                    <span style={{ color: "var(--text-muted, #64748b)" }}>{hours} hrs ({pct}%)</span>
+                    <span
+                      style={{
+                        fontWeight: 600,
+                        color: "var(--text-main, currentColor)",
+                      }}
+                    >
+                      {label}
+                    </span>
+                    <span style={{ color: "var(--text-muted, #64748b)" }}>
+                      {hours} hrs ({pct}%)
+                    </span>
                   </div>
                   <div style={styles.progressTrack}>
                     <div
@@ -232,14 +400,34 @@ export default function DashboardOverview() {
           </div>
           <div style={{ marginTop: 12 }}>
             {skill_coverage.length === 0 ? (
-              <p style={{ color: "var(--text-muted, #94a3b8)", fontSize: 14 }}>No project skill requirements calculated yet.</p>
+              <p
+                style={{
+                  color: "var(--text-muted, #94a3b8)",
+                  fontSize: 14,
+                }}
+              >
+                No project skill requirements calculated yet.
+              </p>
             ) : (
               skill_coverage.map((item) => (
                 <div key={item.skill_name} style={{ marginBottom: 14 }}>
                   <div style={styles.progressHeader}>
-                    <span style={{ fontWeight: 600, color: "var(--text-main, currentColor)" }}>{item.skill_name}</span>
-                    <span style={{ fontSize: 13, color: "var(--text-muted, #64748b)" }}>
-                      Demand: {item.demand} reqs | Supply: {item.supply} ({item.coverage_pct}%)
+                    <span
+                      style={{
+                        fontWeight: 600,
+                        color: "var(--text-main, currentColor)",
+                      }}
+                    >
+                      {item.skill_name}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 13,
+                        color: "var(--text-muted, #64748b)",
+                      }}
+                    >
+                      Demand: {item.demand} reqs | Supply: {item.supply} (
+                      {item.coverage_pct}%)
                     </span>
                   </div>
                   <div style={styles.progressTrack}>
@@ -247,7 +435,12 @@ export default function DashboardOverview() {
                       style={{
                         height: "100%",
                         width: `${item.coverage_pct}%`,
-                        backgroundColor: item.coverage_pct >= 80 ? "#10b981" : item.coverage_pct >= 50 ? "#f59e0b" : "#ef4444",
+                        backgroundColor:
+                          item.coverage_pct >= 80
+                            ? "#10b981"
+                            : item.coverage_pct >= 50
+                            ? "#f59e0b"
+                            : "#ef4444",
                         borderRadius: 4,
                       }}
                     />
@@ -266,18 +459,46 @@ export default function DashboardOverview() {
           </div>
           <div style={{ marginTop: 10 }}>
             {recent_logs.length === 0 ? (
-              <p style={{ color: "var(--text-muted, #94a3b8)", fontSize: 14 }}>No recent logs recorded.</p>
+              <p
+                style={{
+                  color: "var(--text-muted, #94a3b8)",
+                  fontSize: 14,
+                }}
+              >
+                No recent logs recorded.
+              </p>
             ) : (
               <div style={styles.logList}>
                 {recent_logs.map((log) => (
                   <div key={log.id} style={styles.logItem}>
                     <div>
-                      <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text-main, currentColor)" }}>{log.action}</div>
-                      <div style={{ fontSize: 12, color: "var(--text-muted, #64748b)" }}>
+                      <div
+                        style={{
+                          fontWeight: 600,
+                          fontSize: 14,
+                          color: "var(--text-main, currentColor)",
+                        }}
+                      >
+                        {log.action}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: "var(--text-muted, #64748b)",
+                        }}
+                      >
                         Target: {log.target} | By: {log.changed_by}
                       </div>
                     </div>
-                    <span style={{ fontSize: 12, color: "var(--text-muted, #94a3b8)", whiteSpace: "nowrap" }}>{log.timestamp}</span>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        color: "var(--text-muted, #94a3b8)",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {log.timestamp}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -285,6 +506,75 @@ export default function DashboardOverview() {
           </div>
         </div>
       </div>
+
+      {/* FULL-WIDTH WEEKLY AVAILABLE EMPLOYEES SECTION */}
+<div style={styles.card}>
+  <div style={styles.sectionHeader}>
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <Calendar size={20} color="#3b82f6" />
+      <h3 style={styles.cardTitle}>Weekly Available Employees</h3>
+    </div>
+    <span style={styles.sectionBadge}>
+      {weeklyAvailableList.length} Records
+    </span>
+  </div>
+
+  <div style={styles.tableWrapper}>
+    <table style={styles.table}>
+      <thead>
+        <tr>
+          <th style={styles.th}>Employee Name</th>
+          <th style={styles.th}>Department</th>
+          <th style={styles.th}>Week Start Date</th>
+          <th style={styles.th}>Available Hours</th>
+          <th style={styles.th}>Leave Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {weeklyAvailableList.length > 0 ? (
+          weeklyAvailableList.map((emp) => (
+            <tr key={emp.availability_id} style={styles.tr}>
+              <td style={styles.td}>
+                <div
+                  style={{
+                    fontWeight: 600,
+                    color: "var(--text-main, \"#0f172a\")",
+                  }}
+                >
+                  {emp.employee_name}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-muted, #64748b)" }}>
+                  ID: {emp.resource_id}
+                </div>
+              </td>
+              <td style={styles.td}>{emp.department}</td>
+              <td style={styles.td}>{emp.week_start_date}</td>
+              
+              <td style={styles.td}>
+                <span style={{ fontWeight: 600 }}>
+                  {emp.is_on_leave ? "0 hrs" : `${emp.available_hour} hrs`}
+                </span>
+              </td>
+              <td style={styles.td}>
+                {emp.is_on_leave ? (
+                  <span style={styles.badgeLeave}>On Leave</span>
+                ) : (
+                  <span style={styles.badgeAvailable}>Available</span>
+                )}
+              </td>
+            </tr>
+          ))
+        ) : (
+          <tr>
+            <td colSpan={5} style={styles.emptyTd}>
+              No weekly availability records found.
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  </div>
+</div>
     </div>
   );
 }
@@ -356,7 +646,9 @@ const styles: Record<string, React.CSSProperties> = {
     gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
     gap: "16px",
     marginBottom: "24px",
+    width: "100%",
   },
+  
   kpiCard: {
     backgroundColor: "var(--bg-card, rgba(255, 255, 255, 0.03))",
     borderRadius: "8px",
@@ -483,6 +775,65 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: "center",
     justifyContent: "center",
     height: "60vh",
+  },
+  sectionHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: "16px",
+  },
+  sectionBadge: {
+    fontSize: "12px",
+    backgroundColor: "var(--badge-bg, #f1f5f9)",
+    color: "var(--text-muted, #475569)",
+    padding: "4px 8px",
+    borderRadius: "6px",
+    fontWeight: 500,
+  },
+  tableWrapper: {
+    overflowX: "auto",
+    width: "100%",
+  },
+  table: {
+    width: "100%",
+    borderCollapse: "collapse",
+    textAlign: "left",
+    fontSize: "14px",
+  },
+  th: {
+    backgroundColor: "#ffffff", // Explicitly white table header
+    color: "var(--text-main, #0f172a)",
+    padding: "12px 16px",
+    fontWeight: 600,
+    borderBottom: "1px solid var(--border-color, #e2e8f0)",
+  },
+  tr: {
+    borderBottom: "1px solid var(--border-color, #f1f5f9)",
+  },
+  td: {
+    padding: "12px 16px",
+    color: "var(--text-main, #334155)",
+  },
+  emptyTd: {
+    padding: "24px",
+    textAlign: "center",
+    color: "var(--text-muted, #94a3b8)",
+  },
+  badgeAvailable: {
+    backgroundColor: "rgba(16, 185, 129, 0.15)",
+    color: "#15803d",
+    padding: "4px 8px",
+    borderRadius: "12px",
+    fontSize: "12px",
+    fontWeight: 600,
+  },
+  badgeLeave: {
+    backgroundColor: "rgba(239, 68, 68, 0.15)",
+    color: "#b91c1c",
+    padding: "4px 8px",
+    borderRadius: "12px",
+    fontSize: "12px",
+    fontWeight: 600,
   },
   retryButton: {
     marginTop: "12px",

@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime
 from typing import Optional, List
-from sqlalchemy import Column, DateTime, Date, text, String, Float, func, Integer, Boolean, ForeignKey, UniqueConstraint, CheckConstraint
+from sqlalchemy import Column, Text, DateTime, Date, text, String, Float, func, Integer, Boolean, ForeignKey, UniqueConstraint, CheckConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from uuid import uuid4, UUID
 from app.database import Base
@@ -54,4 +54,12 @@ class Availability(Base):
 
     __table_args__ = (UniqueConstraint('resource_id', 'week_start_date', name='uq_resource_week'),)
 
-    
+
+class EmployeeCompletedProject(Base):
+    __tablename__ = 'employee_completed_projects'
+
+    completed_id = Column(Integer, primary_key=True, autoincrement=True)
+    employee_name = Column(String(255), nullable=False)
+    title = Column(Text, nullable=True)  # Stores comma-separated project titles
+    count = Column(Integer, default=0)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

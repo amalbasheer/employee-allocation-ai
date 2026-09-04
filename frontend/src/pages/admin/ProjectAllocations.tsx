@@ -94,6 +94,10 @@ export const ProjectAllocation: React.FC = () => {
   const [recommendedStudents, setRecommendedStudents] = useState<Student[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
+  // Sync State for Completed Projects
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+
   const selectedProject = projects.find((p) => p.id === selectedProjectId) || projects[0];
 
   useEffect(() => {
@@ -576,13 +580,40 @@ export const ProjectAllocation: React.FC = () => {
           );
       }
     }
-
+    
   // Fallback for unhandled statuses
     return (
       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-500/10 text-slate-400 border border-slate-500/20">
         <Clock className="w-3 h-3" /> {AllocatedStatus}
       </span>
     );
+  };
+  
+  // --- NEW: SYNC COMPLETED PROJECTS HANDLER ---
+  const handleSyncCompletedProjects = async () => {
+    setIsSyncing(true);
+    setSyncStatus(null);
+
+    try {
+      const res = await api.post('api/projects/sync-completed-projects');
+
+      if (res.data && res.data.success) {
+        const syncedCount = res.data.count ?? res.data.synced_count ?? 0;
+        setSyncStatus(`Synced ${syncedCount} records`);
+        
+        // Re-fetch projects to refresh dashboard data
+        fetchProjects();
+      } else {
+        setSyncStatus('Sync failed');
+      }
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.detail || err.response?.data?.error || 'Failed to sync completed projects.';
+      console.error('Error syncing completed projects:', errorMsg);
+      setSyncStatus('Sync failed');
+      alert(`Sync Failed: ${errorMsg}`);
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const getAssignedStudentNames = (studentIds: string[]) => {
@@ -641,7 +672,16 @@ export const ProjectAllocation: React.FC = () => {
   >
     <Plus className="w-4 h-4" /> Add Project
   </button>
-
+  {/* Sync Completed Projects Refresh Button */}
+        <button
+          onClick={handleSyncCompletedProjects}
+          disabled={isSyncing}
+          className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg transition-all"
+          type="button"
+        >
+          <RefreshCw className={`w-4 h-4 ${isSyncing ? "animate-spin" : ""}`} />
+          {isSyncing ? "Syncing..." : "Sync Completed Projects"}
+        </button>
   {/* AI Project Generator Button */}
   <button
     onClick={() => setIsAIModalOpen(true)}
@@ -1267,6 +1307,8 @@ export const ProjectAllocation: React.FC = () => {
           </div>
         </div>
       )}
+
+      
       {/* 4. Render the AI Modal */}
       <AIProjectModal
         isOpen={isAIModalOpen}

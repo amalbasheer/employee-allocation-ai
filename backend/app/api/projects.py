@@ -14,7 +14,7 @@ from app.models.project import Project, ProjectRequirement
 from app.models.taxonomy import Skill
 from app.models.allocation import Allocation
 from app.models.enums import ProjectStatus
-from app.models.employee import CompanyEmployee
+from app.models.employee import CompanyEmployee, EmployeeCompletedProject
 from app.schemas.project import (
     ProjectCreate,
     ProjectResponse,
@@ -633,3 +633,55 @@ def remove_project_requirement(
     db.delete(req)
     db.commit()
     return None
+
+
+@router.post("/sync-completed-projects")
+def sync_completed_projects(db: Session = Depends(get_db)):
+    try:
+        # 1. Fetch aggregated completed projects joining allocation, companyemployee, and projects
+        # For PostgreSQL (use STRING_AGG):
+        sync_sql = text("""
+            SELECT 
+                ce.name AS employee_name,
+                STRING_AGG(p.title, ', ') AS title,
+                COUNT(p.project_id) AS count
+            FROM allocations a
+            JOIN company_employees ce ON a.resource_id = ce.employee_id
+            JOIN projects p ON a.reference_id = p.project_id
+            WHERE p.status = 'completed' 
+              AND a.status = 'completed'
+            GROUP BY a.reference_id, ce.name
+        """)
+        
+        # Note: If using MySQL, replace STRING_AGG(p.title, ', ') with GROUP_CONCAT(p.title SEPARATOR ', ')
+        
+        aggregated_rows = db.execute(sync_sql).mappings().all()
+
+        # 2. Clear old sync records
+        db.execute(text("TRUNCATE TABLE employee_completed_projects;"))
+
+        # 3. Bulk insert newly aggregated data
+        new_records = [
+            EmployeeCompletedProject(
+                employee_name=row["employee_name"],
+                title=row["title"],
+                count=row["count"]
+            )
+            for row in aggregated_rows
+        ]
+        
+        db.add_all(new_records)
+        db.commit()
+
+        return {
+            "success": True,
+            "message": f"Successfully synced completed projects for {len(new_records)} employees.",
+            "count": len(new_records)
+        }
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to sync completed projects: {str(e)}"
+        )
