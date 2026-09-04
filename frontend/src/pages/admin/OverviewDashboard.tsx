@@ -5,12 +5,17 @@ import {
   Clock,
   Zap,
   UserCheck,
+  Award,
   RefreshCw,
   TrendingUp,
   PieChart,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
+  TrendingDown,
   Calendar,
+  LogIn,
+  PersonStanding,
 } from "lucide-react";
 
 interface SkillCoverageItem {
@@ -113,7 +118,86 @@ export default function DashboardOverview() {
   const totalEntityHours = entity_allocation_breakdown.series.reduce((a, b) => a + b, 0) || 1;
   // Safely extract the array or default to an empty array []
   const weeklyAvailableList = data?.weekly_available_employees ?? [];
+  // Define standard weekly full-time hours
+  const STANDARD_WEEKLY_CAPACITY = 40;
+
+  const processedEmployees = (data?.weekly_available_employees || []).map((emp) => {
+  // If employee is on leave, capacity & allocation are 0
+  if (emp.is_on_leave) {
+    return {
+      ...emp,
+      capacityHours: 0,
+      allocatedHours: 0,
+      utilizationRate: 0,
+    };
+  }
+
+  const capacityHours = STANDARD_WEEKLY_CAPACITY;
+  const availableHours = emp.available_hour ?? 0;
   
+  // Allocated = 40 - remaining available hours
+  const allocatedHours = Math.max(0, capacityHours - availableHours);
+  
+  // Utilization % calculation
+  const utilizationRate = Math.round((allocatedHours / capacityHours) * 100);
+
+  return {
+    ...emp,
+    capacityHours,
+    allocatedHours,
+    utilizationRate,
+  };
+});
+
+// Group employees based on thresholds (< 70% Under, > 85% Over)
+  const overUtilizedEmps = processedEmployees.filter(
+  (e) => !e.is_on_leave && e.utilizationRate > 85
+);
+  const underUtilizedEmps = processedEmployees.filter(
+  (e) => !e.is_on_leave && e.utilizationRate < 70
+);
+
+  const overUtilizedCount = overUtilizedEmps.length;
+  const underUtilizedCount = underUtilizedEmps.length;
+
+// Text overlays for KPI subtext
+  const overUtilizedNamesText = overUtilizedCount > 0
+  ? `${overUtilizedEmps.slice(0, 2).map((e) => e.employee_name).join(", ")}${overUtilizedCount > 2 ? ` +${overUtilizedCount - 2} more` : ""}`
+  : "No capacity alerts";
+
+  const underUtilizedNamesText = underUtilizedCount > 0
+  ? `${underUtilizedEmps.slice(0, 2).map((e) => e.employee_name).join(", ")}${underUtilizedCount > 2 ? ` +${underUtilizedCount - 2} more` : ""}`
+  : "All talent assigned";
+  
+  // 1. Filter out employees currently on leave
+  const activeEmps = processedEmployees.filter((e) => !e.is_on_leave);
+
+// 2. Sum up total allocated & capacity hours
+  const totalAllocatedHours = activeEmps.reduce((sum, e) => sum + e.allocatedHours, 0);
+  const totalCapacityHours = activeEmps.reduce((sum, e) => sum + e.capacityHours, 0);
+
+// 3. Compute overall employee utilization percentage
+  const totalEmpUtilizationPct = totalCapacityHours > 0
+  ? Math.round((totalAllocatedHours / totalCapacityHours) * 100)
+  : 0;
+  // 1. Extract skill coverage list safely
+const skillList = skill_coverage || [];
+const totalSkillsTracked = skillList.length;
+
+// 2. Average skill coverage percentage across all demanded skills
+const avgSkillCoverage = totalSkillsTracked > 0
+  ? Math.round(skillList.reduce((acc, item) => acc + (item.coverage_pct || 0), 0) / totalSkillsTracked)
+  : 0;
+
+// 3. Count skills with 100%+ supply coverage
+const fullyCoveredSkillsCount = skillList.filter((s) => (s.coverage_pct || 0) >= 100).length;
+
+// 4. Subtext summary string
+const skillSubtext = totalSkillsTracked > 0
+  ? `${fullyCoveredSkillsCount} of ${totalSkillsTracked} skills fully met`
+  : "No skill demand data";
+
+
   return (
     <div style={styles.dashboardLayout}>
       {/* HEADER */}
@@ -152,6 +236,7 @@ export default function DashboardOverview() {
           icon={<Zap color="#8b5cf6" />}
           badgeColor="rgba(139, 92, 246, 0.15)"
         />
+        
         <MetricCard
           title="Talent Pool"
           value={`${kpis.total_employees} Emps | ${kpis.total_interns} Interns`}
@@ -159,6 +244,37 @@ export default function DashboardOverview() {
           icon={<Users color="#f59e0b" />}
           badgeColor="rgba(245, 158, 11, 0.15)"
         />
+        {/* 3. NEW: Over-Utilized Employees (> 85%) */}
+  <MetricCard
+    title="Over-Utilized (>85%)"
+    value={`${overUtilizedCount} Staff`}
+    subtext={overUtilizedNamesText}
+    icon={<AlertTriangle color="#ef4444" />}
+    badgeColor="rgba(239, 68, 68, 0.15)"
+  />
+  {/* 4. NEW: Under-Utilized Employees (< 70%) */}
+  <MetricCard
+    title="Under-Utilized (<70%)"
+    value={`${underUtilizedCount} Staff`}
+    subtext={underUtilizedNamesText}
+    icon={<TrendingDown color="#f59e0b" />}
+    badgeColor="rgba(245, 158, 11, 0.15)"
+  />
+  {/* 2. Total Employee Utilization Rate */}
+  <MetricCard
+    title="Employee Utilization"
+    value={`${totalEmpUtilizationPct}%`}
+    subtext={`${totalAllocatedHours} hrs assigned / ${totalCapacityHours} hrs active capacity`}
+    icon={<PersonStanding color="#10b981" />}
+    badgeColor="rgba(16, 185, 129, 0.15)"
+  />
+  <MetricCard
+  title="Skill Utilization"
+  value={`${avgSkillCoverage}%`}
+  subtext={skillSubtext}
+  icon={<Award color="#ec4899" />}
+  badgeColor="rgba(236, 72, 153, 0.15)"
+/>
       </div>
 
       {/* CHARTS GRID */}
@@ -433,6 +549,7 @@ export default function DashboardOverview() {
               </td>
               <td style={styles.td}>{emp.department}</td>
               <td style={styles.td}>{emp.week_start_date}</td>
+              
               <td style={styles.td}>
                 <span style={{ fontWeight: 600 }}>
                   {emp.is_on_leave ? "0 hrs" : `${emp.available_hour} hrs`}
@@ -529,7 +646,9 @@ const styles: Record<string, React.CSSProperties> = {
     gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
     gap: "16px",
     marginBottom: "24px",
+    width: "100%",
   },
+  
   kpiCard: {
     backgroundColor: "var(--bg-card, rgba(255, 255, 255, 0.03))",
     borderRadius: "8px",
