@@ -106,7 +106,7 @@
             "Properties": {
               "Code": {
                 "S3Bucket": "serverless-framework-deployments-us-east-1-e9990962-d1d1",
-                "S3Key": "serverless/employee-allocation-backend/dev/1788705117113-2026-09-06T14:31:57.113Z/employee-allocation-backend.zip"
+                "S3Key": "serverless/employee-allocation-backend/dev/1788715392017-2026-09-06T17:23:12.017Z/employee-allocation-backend.zip"
               },
               "Handler": "app.main.handler",
               "Runtime": "python3.11",
@@ -129,14 +129,14 @@
               "ApiLogGroup"
             ]
           },
-          "ApiLambdaVersionOaCrXBfogkkIwcRjfxbsRl98pNNkTivorpcTiLWOGzs": {
+          "ApiLambdaVersionBFzDwTyLQe777O03PtmMZnx20Tw0yC7EfpehVkqz4s": {
             "Type": "AWS::Lambda::Version",
             "DeletionPolicy": "Retain",
             "Properties": {
               "FunctionName": {
                 "Ref": "ApiLambdaFunction"
               },
-              "CodeSha256": "u9H9xB7cTaDzyYOr7Tyt+su9nEGrYePed24oiElUBr4="
+              "CodeSha256": "letmmEdDvlPSMfaMKMHPeqsy8Y6Vn5ywH6sjmkBZl94="
             }
           },
           "HttpApi": {
@@ -242,7 +242,7 @@
           "ApiLambdaFunctionQualifiedArn": {
             "Description": "Current Lambda function version",
             "Value": {
-              "Ref": "ApiLambdaVersionOaCrXBfogkkIwcRjfxbsRl98pNNkTivorpcTiLWOGzs"
+              "Ref": "ApiLambdaVersionBFzDwTyLQe777O03PtmMZnx20Tw0yC7EfpehVkqz4s"
             },
             "Export": {
               "Name": "sls-employee-allocation-backend-dev-ApiLambdaFunctionQualifiedArn"
@@ -288,7 +288,16 @@
     },
     "custom": {
       "pythonRequirements": {
-        "dockerizePip": false
+        "dockerizePip": false,
+        "pipCmdExtraArgs": [
+          "--platform",
+          "manylinux2014_x86_64",
+          "--implementation",
+          "cp",
+          "--python-version",
+          "3.11",
+          "--only-binary=:all:"
+        ]
       }
     },
     "pluginsData": {},
@@ -308,7 +317,7 @@
         "timeout": 6,
         "runtime": "python3.11",
         "vpc": {},
-        "versionLogicalId": "ApiLambdaVersionOaCrXBfogkkIwcRjfxbsRl98pNNkTivorpcTiLWOGzs"
+        "versionLogicalId": "ApiLambdaVersionBFzDwTyLQe777O03PtmMZnx20Tw0yC7EfpehVkqz4s"
       }
     },
     "configValidationMode": "warn",
@@ -331,7 +340,7 @@
     "artifact": "C:\\Users\\Ameen\\employee-allocation-ai\\backend\\.serverless\\employee-allocation-backend.zip"
   },
   "package": {
-    "artifactDirectoryName": "serverless/employee-allocation-backend/dev/1788705117113-2026-09-06T14:31:57.113Z",
+    "artifactDirectoryName": "serverless/employee-allocation-backend/dev/1788715392017-2026-09-06T17:23:12.017Z",
     "artifact": "employee-allocation-backend.zip"
   }
 }
