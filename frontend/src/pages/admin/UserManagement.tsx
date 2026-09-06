@@ -5,6 +5,7 @@ import {
   UserPlus, 
   Search, 
   Eye,
+  User,
   Edit2, 
   Trash2, 
   Briefcase, 
@@ -37,6 +38,7 @@ export interface CompanyEmployee {
   email: string;
   department: string;
   designation_id: string;
+  designation?: string; // Optional, resolved from designation_id
   experience_years: number;
   weekly_capacity_hours: number;
   is_team_lead: boolean;
@@ -944,75 +946,7 @@ export const UserManagement: React.FC = () => {
                   </div>
                 </>
               )}
-              {/* 2. FULL PROFILE POPUP MODAL (Placed at root level inside the main container) */}
-    {isProfileModalOpen && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-6 text-slate-200 relative max-h-[90vh] overflow-y-auto">
-          
-          {/* Header */}
-          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-            <h3 className="text-lg font-bold text-white">Full Employee Profile</h3>
-            <button
-              onClick={() => setIsProfileModalOpen(false)}
-              className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Body Content */}
-          {fetchingProfile ? (
-            <div className="flex flex-col items-center justify-center py-12 space-y-3">
-              <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-              <p className="text-slate-400 text-xs">Loading employee details...</p>
-            </div>
-          ) : selectedProfile ? (
-            <div className="space-y-4 text-xs">
-              <div className="flex items-center gap-4 bg-slate-950 p-4 rounded-xl border border-slate-800">
-                <div className="w-12 h-12 rounded-full bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-bold text-lg">
-                  {selectedProfile.basic_info.name ? selectedProfile.basic_info.name.charAt(0) : 'E'}
-                </div>
-                <div>
-                  <h4 className="text-base font-semibold text-white">{selectedProfile.basic_info.name}</h4>
-                  <p className="text-slate-400">{selectedProfile.basic_info.email}</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80">
-                  <span className="text-slate-500 block text-[10px] uppercase font-semibold mb-1">Department</span>
-                  <span className="text-slate-200 font-medium">{selectedProfile.basic_info.department || 'N/A'}</span>
-                </div>
-                <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80">
-                  <span className="text-slate-500 block text-[10px] uppercase font-semibold mb-1">Location</span>
-                  <span className="text-slate-200 font-medium">{selectedProfile.basic_info.location || 'N/A'}</span>
-                </div>
-                <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80">
-                  <span className="text-slate-500 block text-[10px] uppercase font-semibold mb-1">Experience</span>
-                  <span className="text-slate-200 font-medium">{selectedProfile.basic_info.experience_years} Years</span>
-                </div>
-                <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80">
-                  <span className="text-slate-500 block text-[10px] uppercase font-semibold mb-1">Capacity</span>
-                  <span className="text-slate-200 font-medium">{selectedProfile.basic_info.weekly_capacity_hours} hrs/week</span>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <p className="text-center text-slate-400 py-8 text-xs">No profile data found.</p>
-          )}
-
-          {/* Footer */}
-          <div className="flex justify-end pt-2 border-t border-slate-800">
-            <button
-              onClick={() => setIsProfileModalOpen(false)}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs rounded-xl transition-all"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
+              
   
 
               {/* STUDENT/INTERN Specific Database Schema Fields */}
@@ -1161,6 +1095,215 @@ export const UserManagement: React.FC = () => {
           </div>
         </div>
       )}
+      
+      {/* FULL PROFILE POPUP MODAL */}
+{isProfileModalOpen && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-6 text-slate-200 relative max-h-[90vh] overflow-y-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-slate-800 pb-4 sticky top-0 bg-slate-900 z-10">
+        <h3 className="text-lg font-bold text-white flex items-center gap-2">
+          <User className="w-5 h-5 text-indigo-400" />
+          Full Employee Profile
+        </h3>
+        <button
+          onClick={() => setIsProfileModalOpen(false)}
+          className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Body Content */}
+      {fetchingProfile ? (
+        <div className="flex flex-col items-center justify-center py-12 space-y-3">
+          <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-slate-400 text-xs">Loading employee details...</p>
+        </div>
+      ) : selectedProfile ? (
+        <div className="space-y-6 text-xs">
+          {/* Header Card */}
+          <div className="flex items-center gap-4 bg-slate-950 p-4 rounded-xl border border-slate-800">
+            <div className="w-12 h-12 rounded-full bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-bold text-lg shrink-0">
+              {selectedProfile.basic_info?.name ? selectedProfile.basic_info.name.charAt(0) : 'E'}
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <h4 className="text-base font-semibold text-white">{selectedProfile.basic_info?.name}</h4>
+                {selectedProfile.basic_info?.is_team_lead && (
+                  <span className="bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-medium px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <Crown className="w-3 h-3" /> Team Lead
+                  </span>
+                )}
+              </div>
+              <p className="text-slate-400">{selectedProfile.basic_info?.email}</p>
+            </div>
+            <div className="text-right text-slate-400 font-mono text-[11px]">
+              {selectedProfile.basic_info?.employee_id}
+            </div>
+          </div>
+
+          {/* Basic Information */}
+          <div className="space-y-2">
+            <h5 className="font-semibold text-slate-300 text-xs uppercase tracking-wider">Basic Information</h5>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80">
+                <span className="text-slate-500 block text-[10px] uppercase font-semibold mb-1">Department</span>
+                <span className="text-slate-200 font-medium">{selectedProfile.basic_info?.department || 'N/A'}</span>
+              </div>
+              <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80">
+                <span className="text-slate-500 block text-[10px] uppercase font-semibold mb-1">Designation</span>
+                <span className="text-slate-200 font-medium">{selectedProfile.basic_info?.designation || 'N/A'}</span>
+              </div>
+              <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80">
+                <span className="text-slate-500 block text-[10px] uppercase font-semibold mb-1">Location</span>
+                <span className="text-slate-200 font-medium">{selectedProfile.basic_info?.location || 'N/A'}</span>
+              </div>
+              <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80">
+                <span className="text-slate-500 block text-[10px] uppercase font-semibold mb-1">Experience</span>
+                <span className="text-slate-200 font-medium">{selectedProfile.basic_info?.experience_years} Years</span>
+              </div>
+              <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80">
+                <span className="text-slate-500 block text-[10px] uppercase font-semibold mb-1">Weekly Capacity</span>
+                <span className="text-slate-200 font-medium">{selectedProfile.basic_info?.weekly_capacity_hours} hrs/wk</span>
+              </div>
+              
+              
+            </div>
+          </div>
+
+          {/* Skills Section */}
+          <div className="space-y-2">
+            <h5 className="font-semibold text-slate-300 text-xs uppercase tracking-wider">Skills & Expertise</h5>
+            {selectedProfile.skills && selectedProfile.skills.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {selectedProfile.skills.map((skill) => (
+                  <div key={skill.skill_id} className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80 flex items-center justify-between">
+                    <div>
+                      <p className="font-semibold text-white">{skill.skill_name}</p>
+                      <span className="text-[10px] text-slate-500 uppercase tracking-wide">{skill.category}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs font-bold text-indigo-400">Lvl {skill.proficiency_level}</span>
+                      <span className="text-slate-600 text-[10px]">/5</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-slate-500 bg-slate-950/30 p-3 rounded-xl border border-slate-800/50">No skills listed.</p>
+            )}
+          </div>
+
+          {/* Projects */}
+          <div className="space-y-2">
+            <h5 className="font-semibold text-slate-300 text-xs uppercase tracking-wider">Projects</h5>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80">
+                <p className="text-slate-400 font-medium mb-1">Ongoing Projects</p>
+                {selectedProfile.projects?.ongoing?.length > 0 ? (
+                  <ul className="list-disc list-inside text-slate-300 space-y-1">
+                    {selectedProfile.projects.ongoing.map((item, i) => (
+                      <li key={i}>{typeof item === 'object' ? item.title : item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-slate-500 italic">None</p>
+                )}
+              </div>
+              <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80">
+                <p className="text-slate-400 font-medium mb-1">Completed Projects</p>
+                {selectedProfile.projects?.completed?.length > 0 ? (
+                  <ul className="list-disc list-inside text-slate-300 space-y-1">
+                    {selectedProfile.projects.completed.map((item, i) => (
+                      <li key={i}>{typeof item === 'object' ? item.title : item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-slate-500 italic">None</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Student Batches */}
+          <div className="space-y-2">
+            <h5 className="font-semibold text-slate-300 text-xs uppercase tracking-wider">Student Batches</h5>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80">
+                <p className="text-slate-400 font-medium mb-1">Ongoing Batches</p>
+                {selectedProfile.student_batches?.ongoing?.length > 0 ? (
+                  <ul className="list-disc list-inside text-slate-300 space-y-1">
+                    {selectedProfile.student_batches.ongoing.map((item, i) => (
+                      <li key={i}>{typeof item === 'object' ? item.batch_name : item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-slate-500 italic">None</p>
+                )}
+              </div>
+              <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80">
+                <p className="text-slate-400 font-medium mb-1">Future Batches</p>
+                {selectedProfile.student_batches?.future?.length > 0 ? (
+                  <ul className="list-disc list-inside text-slate-300 space-y-1">
+                    {selectedProfile.student_batches.future.map((item, i) => (
+                      <li key={i}>{typeof item === 'object' ? item.batch_name : item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-slate-500 italic">None</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Training Engagements */}
+          <div className="space-y-2">
+            <h5 className="font-semibold text-slate-300 text-xs uppercase tracking-wider">Training Engagements</h5>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80">
+                <p className="text-slate-400 font-medium mb-1">Assigned Training</p>
+                {selectedProfile.training_engagements?.assigned?.length > 0 ? (
+                  <ul className="list-disc list-inside text-slate-300 space-y-1">
+                    {selectedProfile.training_engagements.assigned.map((item, i) => (
+                      <li key={i}>{typeof item === 'object' ? item.title : item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-slate-500 italic">None</p>
+                )}
+              </div>
+              <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80">
+                <p className="text-slate-400 font-medium mb-1">Completed Training</p>
+                {selectedProfile.training_engagements?.completed?.length > 0 ? (
+                  <ul className="list-disc list-inside text-slate-300 space-y-1">
+                    {selectedProfile.training_engagements.completed.map((item, i) => (
+                      <li key={i}>{typeof item === 'object' ? item.title : item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-slate-500 italic">None</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <p className="text-center text-slate-400 py-8 text-xs">No profile data found.</p>
+      )}
+
+      {/* Footer */}
+      <div className="flex justify-end pt-2 border-t border-slate-800 sticky bottom-0 bg-slate-900 z-10">
+        <button
+          onClick={() => setIsProfileModalOpen(false)}
+          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs rounded-xl transition-all"
+        >
+          Close
+        </button>
+      </div>
     </div>
-  );
+  </div>
+)}
+  </div>
+);
 };

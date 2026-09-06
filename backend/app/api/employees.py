@@ -499,6 +499,7 @@ class EmployeeSummary(BaseModel):
     name: str
     email: str
     designation_id: str
+    designation: Optional[str] = None  # Resolved from designation_id
     department: str
     experience_years: float
     weekly_capacity_hours: int
@@ -508,7 +509,7 @@ class SkillDetail(BaseModel):
     skill_id: str
     skill_name: str
     category: str
-    proficiency_level: str
+    proficiency_level: int
 
 class ProjectDetail(BaseModel):
     project_id: str
@@ -567,11 +568,12 @@ def get_employee_full_details(employee_id: str, db: Session = Depends(get_db)):
     # 1. Basic Employee Info
     emp_query = text("""
         SELECT 
-            employee_id, name, email, designation_id,
-            department, is_team_lead, experience_years, weekly_capacity_hours,
-            location,
-        FROM company_employees
-        WHERE employee_id = :emp_id
+            e.employee_id, e.name, e.email, d.title as designation, e.designation_id,
+            e.department, e.is_team_lead, e.experience_years, e.weekly_capacity_hours,
+            e.location
+        FROM company_employees e
+        JOIN designations d ON e.designation_id = d.designation_id
+        WHERE e.employee_id = :emp_id
     """)
     basic_row = db.execute(emp_query, {"emp_id": employee_id}).mappings().first()
     
@@ -587,8 +589,7 @@ def get_employee_full_details(employee_id: str, db: Session = Depends(get_db)):
             s.skill_id,
             s.skill_name,
             COALESCE(s.category, 'General') as category,
-            COALESCE(es.proficiency_level, 'Intermediate') as proficiency_level,
-            COALESCE(es.experience_years, 0) as years_experience
+            COALESCE(es.proficiency_level, 3) as proficiency_level
         FROM employee_skills es
         JOIN skills s ON es.skill_id = s.skill_id
         WHERE es.employee_id = :emp_id
@@ -607,7 +608,7 @@ def get_employee_full_details(employee_id: str, db: Session = Depends(get_db)):
             CAST(p.start_date AS VARCHAR) as start_date,
             CAST(p.end_date AS VARCHAR) as end_date,
             LOWER(COALESCE(p.status, 'open')) as status,
-            LOWER(COALESCE(a.allocation_status, 'assigned')) as allocation_status
+            LOWER(COALESCE(a.status, 'assigned')) as allocation_status
         FROM allocations a
         JOIN projects p ON a.reference_id = p.project_id
         WHERE a.resource_id = :emp_id 
@@ -645,7 +646,7 @@ def get_employee_full_details(employee_id: str, db: Session = Depends(get_db)):
     future_batches = []
     for r in batch_rows:
         data = dict(r)
-        if data['batch_status'] == 'assigned' or (data['start_date'] and data['start_date'] <= datetime.now().strftime("%Y-%m-%d")):
+        if data['batch_status'] == 'open' or (data['start_date'] and data['start_date'] >= datetime.now().strftime("%Y-%m-%d")):
             future_batches.append(data)
         else:
             ongoing_batches.append(data)
@@ -664,7 +665,7 @@ def get_employee_full_details(employee_id: str, db: Session = Depends(get_db)):
             COALESCE(t.domain, 'General') as domain,
             LOWER(COALESCE(t.status, 'assigned')) as engagement_status
         FROM allocations a
-        JOIN training_engagement t ON a.reference_id = t.engagement_id
+        JOIN training_engagements t ON a.reference_id = t.engagement_id
         WHERE a.resource_id = :emp_id 
           AND a.resource_type = 'employee'
           AND a.reference_type = 'training'
