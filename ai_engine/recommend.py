@@ -22,7 +22,7 @@ from ai_engine.db import (
 
 )
 
-from ai_engine.matching import rank_candidates, score_with_workload_penalty
+from ai_engine.matching import rank_candidates, score_with_workload_penalty, score_with_training_load_penalty
 from ai_engine.project_taxonomy import get_required_roles
 
 
@@ -151,6 +151,18 @@ def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
         ).fetchall()
         conflicting_ids = {row[0] for row in conflicting_leads}
 
+        # NEW — count each candidate's OTHER active training commitments
+        training_counts_rows = conn.execute(
+            text("""
+                SELECT resource_id, COUNT(*) AS training_count
+                FROM allocations
+                WHERE reference_type = 'training'
+                AND status IN ('proposed', 'assigned')
+                GROUP BY resource_id
+            """)
+        ).fetchall()
+        training_counts = {row[0]: row[1] for row in training_counts_rows}
+
     requirements = [
         {
             "skill_id": r["skill_id"],
@@ -161,8 +173,6 @@ def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
         for r in requirements_rows
     ]
 
-    # Online sessions: no region filtering, anyone eligible.
-    # Offline sessions: filter to mentors whose location matches.
     region_filter = None if engagement.get("mode") == "online" else engagement.get("region")
 
     mentors = get_available_mentors(domain=engagement.get("domain"), region=region_filter, check_project_conflicts=False)
@@ -179,10 +189,16 @@ def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
     training_audience = engagement.get("audience")
     for candidate in ranked:
         raw_skill_score = candidate["suitability_score"]
-        print(f"DEBUG: {candidate['name']}, candidate_audience={candidate.get('preferred_audience')!r}, training_audience={training_audience!r}")
-        candidate["suitability_score"] = score_with_audience_preference(
+
+        # Apply audience penalty first
+        audience_adjusted = score_with_audience_preference(
             raw_skill_score, candidate.get("preferred_audience"), training_audience
         )
+
+        # Then apply training-load penalty on top
+        active_count = training_counts.get(candidate["id"], 0)
+        candidate["suitability_score"] = score_with_training_load_penalty(audience_adjusted, active_count)
+        candidate["active_training_count"] = active_count
 
     ranked.sort(key=lambda c: c["suitability_score"], reverse=True)
 

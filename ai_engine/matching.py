@@ -115,3 +115,16 @@ def score_with_workload_penalty(skill_score: float, active_project_count: int) -
     multiplier = 1.0 - reduction
 
     return round(skill_score * multiplier, 2)
+
+def score_with_training_load_penalty(skill_score: float, active_training_count: int) -> float:
+    """
+    Reduces the skill score slightly based on how many OTHER training
+    engagements this person is already committed to — more workshops
+    means a bigger penalty, capped so skill quality still dominates.
+    Same pattern as the project workload penalty.
+    """
+    penalty_per_training = 0.05
+    max_penalty = 0.30
+    reduction = min(active_training_count * penalty_per_training, max_penalty)
+    multiplier = 1.0 - reduction
+    return round(skill_score * multiplier, 2)
