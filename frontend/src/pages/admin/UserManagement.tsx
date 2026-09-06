@@ -59,6 +59,67 @@ export interface StudentIntern {
   department: string;
 }
 
+export interface EmployeeSkill {
+  skill_id: string;
+  skill_name: string;
+  category: string;
+  proficiency_level: string;
+  years_experience: number;
+}
+
+export interface EmployeeProject {
+  project_id: string;
+  allocation_id: string;
+  title: string;
+  category: string;
+  role: string;
+  allocated_hours_per_week: number;
+  start_date: string;
+  end_date: string;
+  status: string;
+  allocation_status: string;
+}
+
+export interface StudentBatch {
+  batch_id: string;
+  batch_name: string;
+  program_name: string;
+  mode: string;
+  start_date: string;
+  end_date: string;
+  batch_status: string;
+}
+
+export interface TrainingEngagement {
+  engagement_id: string;
+  allocation_id: string;
+  title: string;
+  type: string;
+  scheduled_date: string;
+  duration_hours: number;
+  target_audience: string;
+  mode: string;
+  domain: string;
+  engagement_status: string;
+}
+
+export interface EmployeeFullProfile {
+  basic_info: CompanyEmployee;
+  skills: EmployeeSkill[];
+  projects: {
+    ongoing: EmployeeProject[];
+    completed: EmployeeProject[];
+  };
+  student_batches: {
+    ongoing: StudentBatch[];
+    future: StudentBatch[];
+  };
+  training_engagements: {
+    assigned: TrainingEngagement[];
+    completed: TrainingEngagement[];
+  };
+}
+
 export const UserManagement: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'EMPLOYEE' | 'STUDENT'>('EMPLOYEE');
   const [searchTerm, setSearchTerm] = useState('');
@@ -73,6 +134,11 @@ export const UserManagement: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
+  // Full Details Profile Modal States
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [selectedProfile, setSelectedProfile] = useState<EmployeeFullProfile | null>(null);
+  const [fetchingProfile, setFetchingProfile] = useState(false);
+  
   // Resume Mode for Students: 'URL' or 'FILE'
   const [resumeMode, setResumeMode] = useState<'URL' | 'FILE'>('URL');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -198,6 +264,22 @@ export const UserManagement: React.FC = () => {
     }
   };
 
+  // HANDLER: Fetch aggregated employee profile for the modal
+  const handleViewFullProfile = async (employeeId: string) => {
+    setFetchingProfile(true);
+    setIsProfileModalOpen(true);
+    try {
+      const res = await api.get<EmployeeFullProfile>(`/api/employees/${employeeId}/full-details`);
+      setSelectedProfile(res.data);
+    } catch (err) {
+      console.error('Failed to fetch full employee details:', err);
+      alert('Could not load full employee profile.');
+      setIsProfileModalOpen(false);
+    } finally {
+      setFetchingProfile(false);
+    }
+  }; 
+ 
   // Resolve Designation Title from ID
   const getDesignationTitle = (designationId?: string): string => {
     if (!designationId) return 'N/A';
@@ -403,6 +485,7 @@ export const UserManagement: React.FC = () => {
       (s.degree_program && s.degree_program.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
+  
   return (
     <div className="space-y-6">
       {/* Page Header */}
