@@ -4,6 +4,7 @@ import { Badge } from '../../components/common/Badge';
 import { 
   UserPlus, 
   Search, 
+  Eye,
   Edit2, 
   Trash2, 
   Briefcase, 
@@ -264,8 +265,11 @@ export const UserManagement: React.FC = () => {
     }
   };
 
+  // Track selected employee for the details popup
+  const [selectedEmployee, setSelectedEmployee] = useState<any | null>(null);
   // HANDLER: Fetch aggregated employee profile for the modal
   const handleViewFullProfile = async (employeeId: string) => {
+    setSelectedProfile(null);
     setFetchingProfile(true);
     setIsProfileModalOpen(true);
     try {
@@ -485,177 +489,189 @@ export const UserManagement: React.FC = () => {
       (s.degree_program && s.degree_program.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  
   return (
-    <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">User Directory</h1>
-          <p className="text-slate-400 text-sm">
-            Manage company employees, interns, educational backgrounds, and capacity settings.
-          </p>
-        </div>
+  <div className="space-y-6">
+    {/* Page Header */}
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div>
+        <h1 className="text-2xl font-bold text-white tracking-tight">User Directory</h1>
+        <p className="text-slate-400 text-sm">
+          Manage company employees, interns, educational backgrounds, and capacity settings.
+        </p>
+      </div>
+
+      <button
+        onClick={handleOpenCreateModal}
+        className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs rounded-xl shadow-lg shadow-indigo-600/20 transition-all self-start sm:self-auto"
+      >
+        <UserPlus className="w-4 h-4" />
+        <span>Add {activeTab === 'EMPLOYEE' ? 'Employee' : 'Student / Intern'}</span>
+      </button>
+    </div>
+
+    {/* Tabs & Search Controls */}
+    <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-2 rounded-2xl">
+      <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl">
+        <button
+          onClick={() => setActiveTab('EMPLOYEE')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
+            activeTab === 'EMPLOYEE'
+              ? 'bg-indigo-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-white hover:bg-slate-900'
+          }`}
+        >
+          <Briefcase className="w-4 h-4" />
+          <span>Employees</span>
+          <span
+            className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] ${
+              activeTab === 'EMPLOYEE' ? 'bg-indigo-700 text-white' : 'bg-slate-800 text-slate-400'
+            }`}
+          >
+            {employees.length}
+          </span>
+        </button>
 
         <button
-          onClick={handleOpenCreateModal}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs rounded-xl shadow-lg shadow-indigo-600/20 transition-all self-start sm:self-auto"
+          onClick={() => setActiveTab('STUDENT')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
+            activeTab === 'STUDENT'
+              ? 'bg-indigo-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-white hover:bg-slate-900'
+          }`}
         >
-          <UserPlus className="w-4 h-4" />
-          <span>Add {activeTab === 'EMPLOYEE' ? 'Employee' : 'Student / Intern'}</span>
+          <GraduationCap className="w-4 h-4" />
+          <span>Students & Interns</span>
+          <span
+            className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] ${
+              activeTab === 'STUDENT' ? 'bg-indigo-700 text-white' : 'bg-slate-800 text-slate-400'
+            }`}
+          >
+            {students.length}
+          </span>
         </button>
       </div>
 
-      {/* Tabs & Search Controls */}
-      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-2 rounded-2xl">
-        <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl">
-          <button
-            onClick={() => setActiveTab('EMPLOYEE')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === 'EMPLOYEE'
-                ? 'bg-indigo-600 text-white shadow-md'
-                : 'text-slate-400 hover:text-white hover:bg-slate-900'
-            }`}
-          >
-            <Briefcase className="w-4 h-4" />
-            <span>Employees</span>
-            <span
-              className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] ${
-                activeTab === 'EMPLOYEE' ? 'bg-indigo-700 text-white' : 'bg-slate-800 text-slate-400'
-              }`}
-            >
-              {employees.length}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('STUDENT')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === 'STUDENT'
-                ? 'bg-indigo-600 text-white shadow-md'
-                : 'text-slate-400 hover:text-white hover:bg-slate-900'
-            }`}
-          >
-            <GraduationCap className="w-4 h-4" />
-            <span>Students & Interns</span>
-            <span
-              className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] ${
-                activeTab === 'STUDENT' ? 'bg-indigo-700 text-white' : 'bg-slate-800 text-slate-400'
-              }`}
-            >
-              {students.length}
-            </span>
-          </button>
-        </div>
-
-        <div className="relative flex-1 max-w-md">
-          <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder={`Search ${activeTab === 'EMPLOYEE' ? 'employees by name, email, department...' : 'students by name, college, degree...'}`}
-            className="w-full bg-slate-950 border border-slate-800 text-xs text-white pl-9 pr-4 py-2 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-500"
-          />
-        </div>
+      <div className="relative flex-1 max-w-md">
+        <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+        <input
+          type="text"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder={`Search ${activeTab === 'EMPLOYEE' ? 'employees by name, email, department...' : 'students by name, college, degree...'}`}
+          className="w-full bg-slate-950 border border-slate-800 text-xs text-white pl-9 pr-4 py-2 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-500"
+        />
       </div>
+    </div>
 
-      {/* Database Matched Table View */}
-      <Card title={`${activeTab === 'EMPLOYEE' ? 'Company Employees' : 'Interns & Students'} Roster`}>
-        <div className="overflow-x-auto">
-          {activeTab === 'EMPLOYEE' ? (
-            /* EMPLOYEES TABLE */
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-950 text-slate-400 uppercase font-semibold border-b border-slate-800">
-                <tr>
-                  <th className="p-3">Employee Name</th>
-                  <th className="p-3">Department</th>
-                  <th className="p-3">Experience</th>
-                  <th className="p-3">Weekly Capacity</th>
-                  <th className="p-3">Role Type</th>
-                  <th className="p-3">Location</th>
-                  <th className="p-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {filteredEmployees.length > 0 ? (
-                  filteredEmployees.map((emp) => (
-                    <tr key={emp.employee_id} className="hover:bg-slate-800/40 transition-colors">
-                      <td className="p-3">
-                        <div className="font-medium text-white flex items-center gap-1.5">
-                          {emp.name}
-                          {emp.is_team_lead && (
-                            <span title="Team Lead">
-                              <Crown className="w-3.5 h-3.5 text-amber-400 inline shrink-0" />
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[11px] text-slate-500 flex items-center gap-1">
-                          <Mail className="w-3 h-3" />
-                          {emp.email}
-                        </div>
-                      </td>
-                      <td className="p-3">
-                        <div className="flex items-center gap-1.5 text-slate-300">
-                          <Building2 className="w-3.5 h-3.5 text-slate-500" />
-                          {emp.department}
-                        </div>
-                      </td>
-                      
-                      <td className="p-3">
-                        <div className="flex items-center gap-1 text-slate-300">
-                          <Award className="w-3.5 h-3.5 text-slate-500" />
-                          {emp.experience_years} yrs
-                        </div>
-                      </td>
-                      <td className="p-3">
-                        <div className="flex items-center gap-1 text-slate-300">
-                          <Clock className="w-3.5 h-3.5 text-slate-500" />
-                          {emp.weekly_capacity_hours} hrs/wk
-                        </div>
-                      </td>
-                      <td className="p-3">
-                        {emp.is_team_lead ? (
-                          <Badge label="TEAM LEAD" variant="amber" />
-                        ) : (
-                          <Badge label="EMPLOYEE" variant="emerald" />
+    {/* Database Matched Table View */}
+    <Card title={`${activeTab === 'EMPLOYEE' ? 'Company Employees' : 'Interns & Students'} Roster`}>
+      <div className="overflow-x-auto">
+        {activeTab === 'EMPLOYEE' ? (
+          /* EMPLOYEES TABLE */
+          <table className="w-full text-left text-xs text-slate-300">
+            <thead className="bg-slate-950 text-slate-400 uppercase font-semibold border-b border-slate-800">
+              <tr>
+                <th className="p-3">Employee Name</th>
+                <th className="p-3">Department</th>
+                <th className="p-3">Experience</th>
+                <th className="p-3">Weekly Capacity</th>
+                <th className="p-3">Role Type</th>
+                <th className="p-3">Location</th>
+                <th className="p-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60">
+              {filteredEmployees.length > 0 ? (
+                filteredEmployees.map((emp) => (
+                  <tr key={emp.employee_id} className="hover:bg-slate-800/40 transition-colors">
+                    <td className="p-3">
+                      {/* CLICKABLE NAME OPTION */}
+                      <button
+                        onClick={() => handleViewFullProfile(emp.employee_id)}
+                        className="font-medium text-white hover:text-indigo-400 transition-colors flex items-center gap-1.5 text-left"
+                      >
+                        {emp.name}
+                        {emp.is_team_lead && (
+                          <span title="Team Lead">
+                            <Crown className="w-3.5 h-3.5 text-amber-400 inline shrink-0" />
+                          </span>
                         )}
-                      </td>
-                      <td className="p-3">
-                        <div className="flex items-center gap-1.5 text-slate-300">
-                          <Globe className="w-3.5 h-3.5 text-slate-500" />
-                          {emp.location}
-                        </div>
-                      </td>
-                      <td className="p-3 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => handleOpenEditModal(emp)}
-                            className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-indigo-400 rounded-lg transition-colors"
-                            title="Edit Employee"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteUser(emp.employee_id, emp.name)}
-                            className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-red-400 rounded-lg transition-colors"
-                            title="Delete Employee"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={6} className="p-8 text-center text-slate-500">
-                      {loading ? 'Loading employees...' : 'No employees found matching your search.'}
+                      </button>
+                      <div className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
+                        <Mail className="w-3 h-3" />
+                        {emp.email}
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-1.5 text-slate-300">
+                        <Building2 className="w-3.5 h-3.5 text-slate-500" />
+                        {emp.department}
+                      </div>
+                    </td>
+                    
+                    <td className="p-3">
+                      <div className="flex items-center gap-1 text-slate-300">
+                        <Award className="w-3.5 h-3.5 text-slate-500" />
+                        {emp.experience_years} yrs
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-1 text-slate-300">
+                        <Clock className="w-3.5 h-3.5 text-slate-500" />
+                        {emp.weekly_capacity_hours} hrs/wk
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      {emp.is_team_lead ? (
+                        <Badge label="TEAM LEAD" variant="amber" />
+                      ) : (
+                        <Badge label="EMPLOYEE" variant="emerald" />
+                      )}
+                    </td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-1.5 text-slate-300">
+                        <Globe className="w-3.5 h-3.5 text-slate-500" />
+                        {emp.location}
+                      </div>
+                    </td>
+                    <td className="p-3 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {/* 1. VIEW FULL PROFILE TRIGGER BUTTON */}
+                        <button
+                          onClick={() => handleViewFullProfile(emp.employee_id)}
+                          className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-indigo-400 rounded-lg transition-colors"
+                          title="View Full Profile"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          onClick={() => handleOpenEditModal(emp)}
+                          className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-indigo-400 rounded-lg transition-colors"
+                          title="Edit Employee"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteUser(emp.employee_id, emp.name)}
+                          className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-red-400 rounded-lg transition-colors"
+                          title="Delete Employee"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
-                )}
-              </tbody>
-            </table>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={7} className="p-8 text-center text-slate-500">
+                    {loading ? 'Loading employees...' : 'No employees found matching your search.'}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
           ) : (
             /* STUDENTS / INTERNS TABLE */
             <table className="w-full text-left text-xs text-slate-300">
@@ -928,6 +944,76 @@ export const UserManagement: React.FC = () => {
                   </div>
                 </>
               )}
+              {/* 2. FULL PROFILE POPUP MODAL (Placed at root level inside the main container) */}
+    {isProfileModalOpen && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-6 text-slate-200 relative max-h-[90vh] overflow-y-auto">
+          
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+            <h3 className="text-lg font-bold text-white">Full Employee Profile</h3>
+            <button
+              onClick={() => setIsProfileModalOpen(false)}
+              className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Body Content */}
+          {fetchingProfile ? (
+            <div className="flex flex-col items-center justify-center py-12 space-y-3">
+              <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+              <p className="text-slate-400 text-xs">Loading employee details...</p>
+            </div>
+          ) : selectedProfile ? (
+            <div className="space-y-4 text-xs">
+              <div className="flex items-center gap-4 bg-slate-950 p-4 rounded-xl border border-slate-800">
+                <div className="w-12 h-12 rounded-full bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-bold text-lg">
+                  {selectedProfile.basic_info.name ? selectedProfile.basic_info.name.charAt(0) : 'E'}
+                </div>
+                <div>
+                  <h4 className="text-base font-semibold text-white">{selectedProfile.basic_info.name}</h4>
+                  <p className="text-slate-400">{selectedProfile.basic_info.email}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80">
+                  <span className="text-slate-500 block text-[10px] uppercase font-semibold mb-1">Department</span>
+                  <span className="text-slate-200 font-medium">{selectedProfile.basic_info.department || 'N/A'}</span>
+                </div>
+                <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80">
+                  <span className="text-slate-500 block text-[10px] uppercase font-semibold mb-1">Location</span>
+                  <span className="text-slate-200 font-medium">{selectedProfile.basic_info.location || 'N/A'}</span>
+                </div>
+                <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80">
+                  <span className="text-slate-500 block text-[10px] uppercase font-semibold mb-1">Experience</span>
+                  <span className="text-slate-200 font-medium">{selectedProfile.basic_info.experience_years} Years</span>
+                </div>
+                <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80">
+                  <span className="text-slate-500 block text-[10px] uppercase font-semibold mb-1">Capacity</span>
+                  <span className="text-slate-200 font-medium">{selectedProfile.basic_info.weekly_capacity_hours} hrs/week</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="text-center text-slate-400 py-8 text-xs">No profile data found.</p>
+          )}
+
+          {/* Footer */}
+          <div className="flex justify-end pt-2 border-t border-slate-800">
+            <button
+              onClick={() => setIsProfileModalOpen(false)}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs rounded-xl transition-all"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+  
 
               {/* STUDENT/INTERN Specific Database Schema Fields */}
               {activeTab === 'STUDENT' && (
