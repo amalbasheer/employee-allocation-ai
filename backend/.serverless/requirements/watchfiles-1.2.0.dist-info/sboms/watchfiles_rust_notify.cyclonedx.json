@@ -2,9 +2,9 @@
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
   "version": 1,
-  "serialNumber": "urn:uuid:f390727e-e140-4555-a153-64ec0d65cf79",
+  "serialNumber": "urn:uuid:90f5d194-0070-4dcd-930b-1eb9f2a7bf5b",
   "metadata": {
-    "timestamp": "2026-05-18T04:24:53.059496500Z",
+    "timestamp": "2026-05-18T04:25:06.263627260Z",
     "tools": [
       {
         "vendor": "CycloneDX",
@@ -14,7 +14,7 @@
     ],
     "component": {
       "type": "library",
-      "bom-ref": "path+file:///D:/a/watchfiles/watchfiles#watchfiles_rust_notify@1.2.0",
+      "bom-ref": "path+file:///home/runner/work/watchfiles/watchfiles#watchfiles_rust_notify@1.2.0",
       "name": "watchfiles_rust_notify",
       "version": "1.2.0",
       "scope": "required",
@@ -37,7 +37,7 @@
       "components": [
         {
           "type": "library",
-          "bom-ref": "path+file:///D:/a/watchfiles/watchfiles#watchfiles_rust_notify@1.2.0 bin-target-0",
+          "bom-ref": "path+file:///home/runner/work/watchfiles/watchfiles#watchfiles_rust_notify@1.2.0 bin-target-0",
           "name": "_rust_notify",
           "version": "1.2.0",
           "purl": "pkg:cargo/watchfiles_rust_notify@1.2.0?download_url=file://.#src/lib.rs"
@@ -54,16 +54,16 @@
   "components": [
     {
       "type": "library",
-      "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#cc@1.0.96",
-      "author": "Alex Crichton <alex@alexcrichton.com>",
-      "name": "cc",
-      "version": "1.0.96",
-      "description": "A build-time dependency for Cargo build scripts to assist in invoking the native C compiler to compile native C code into a static archive to be linked into Rust code. ",
+      "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#bitflags@2.7.0",
+      "author": "The Rust Project Developers",
+      "name": "bitflags",
+      "version": "2.7.0",
+      "description": "A macro to generate structures which behave like bitflags. ",
       "scope": "required",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "065a29261d53ba54260972629f9ca6bffa69bac13cd1fed61420f7fa68b9f8bd"
+          "content": "1be3f42a67d6d345ecd59f675f3f012d6974981560836e938c22b424b85ce1be"
         }
       ],
       "licenses": [
@@ -71,19 +71,19 @@
           "expression": "MIT OR Apache-2.0"
         }
       ],
-      "purl": "pkg:cargo/cc@1.0.96",
+      "purl": "pkg:cargo/bitflags@2.7.0",
       "externalReferences": [
         {
           "type": "documentation",
-          "url": "https://docs.rs/cc"
+          "url": "https://docs.rs/bitflags"
         },
         {
           "type": "website",
-          "url": "https://github.com/rust-lang/cc-rs"
+          "url": "https://github.com/bitflags/bitflags"
         },
         {
           "type": "vcs",
-          "url": "https://github.com/rust-lang/cc-rs"
+          "url": "https://github.com/bitflags/bitflags"
         }
       ]
     },
@@ -245,6 +245,68 @@
     },
     {
       "type": "library",
+      "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#inotify-sys@0.1.5",
+      "author": "Hanno Braun <hb@hannobraun.de>",
+      "name": "inotify-sys",
+      "version": "0.1.5",
+      "description": "inotify bindings for the Rust programming language",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "e05c02b5e89bff3b946cedeca278abc628fe811e604f027c45a8aa3cf793d0eb"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:cargo/inotify-sys@0.1.5",
+      "externalReferences": [
+        {
+          "type": "documentation",
+          "url": "https://docs.rs/inotify-sys"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/hannobraun/inotify-sys"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#inotify@0.11.0",
+      "author": "Hanno Braun <mail@hannobraun.de>, Félix Saparelli <me@passcod.name>, Cristian Kubis <cristian.kubis@tsunix.de>, Frank Denis <github@pureftpd.org>",
+      "name": "inotify",
+      "version": "0.11.0",
+      "description": "Idiomatic wrapper for inotify",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "f37dccff2791ab604f9babef0ba14fbe0be30bd368dc541e2b08d07c8aa908f3"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "purl": "pkg:cargo/inotify@0.11.0",
+      "externalReferences": [
+        {
+          "type": "documentation",
+          "url": "https://docs.rs/inotify"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/hannobraun/inotify"
+        }
+      ]
+    },
+    {
+      "type": "library",
       "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.169",
       "author": "The Rust Project Developers",
       "name": "libc",
@@ -306,6 +368,37 @@
         {
           "type": "vcs",
           "url": "https://github.com/rust-lang/log"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#mio@1.0.3",
+      "author": "Carl Lerche <me@carllerche.com>, Thomas de Zeeuw <thomasdezeeuw@gmail.com>, Tokio Contributors <team@tokio.rs>",
+      "name": "mio",
+      "version": "1.0.3",
+      "description": "Lightweight non-blocking I/O.",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "2886843bf800fba2e3377cff24abf6379b4c4d5c6681eaf9ea5b0d15090450bd"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:cargo/mio@1.0.3",
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/tokio-rs/mio"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/tokio-rs/mio"
         }
       ]
     },
@@ -824,127 +917,11 @@
           "url": "https://github.com/BurntSushi/walkdir"
         }
       ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#winapi-util@0.1.9",
-      "author": "Andrew Gallant <jamslam@gmail.com>",
-      "name": "winapi-util",
-      "version": "0.1.9",
-      "description": "A dumping ground for high level safe wrappers over windows-sys.",
-      "scope": "required",
-      "hashes": [
-        {
-          "alg": "SHA-256",
-          "content": "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
-        }
-      ],
-      "licenses": [
-        {
-          "expression": "Unlicense OR MIT"
-        }
-      ],
-      "purl": "pkg:cargo/winapi-util@0.1.9",
-      "externalReferences": [
-        {
-          "type": "documentation",
-          "url": "https://docs.rs/winapi-util"
-        },
-        {
-          "type": "website",
-          "url": "https://github.com/BurntSushi/winapi-util"
-        },
-        {
-          "type": "vcs",
-          "url": "https://github.com/BurntSushi/winapi-util"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#windows-sys@0.59.0",
-      "author": "Microsoft",
-      "name": "windows-sys",
-      "version": "0.59.0",
-      "description": "Rust for Windows",
-      "scope": "required",
-      "hashes": [
-        {
-          "alg": "SHA-256",
-          "content": "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
-        }
-      ],
-      "licenses": [
-        {
-          "expression": "MIT OR Apache-2.0"
-        }
-      ],
-      "purl": "pkg:cargo/windows-sys@0.59.0",
-      "externalReferences": [
-        {
-          "type": "vcs",
-          "url": "https://github.com/microsoft/windows-rs"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#windows-targets@0.52.6",
-      "author": "Microsoft",
-      "name": "windows-targets",
-      "version": "0.52.6",
-      "description": "Import libs for Windows",
-      "scope": "required",
-      "hashes": [
-        {
-          "alg": "SHA-256",
-          "content": "9b724f72796e036ab90c1021d4780d4d3d648aca59e491e6b98e725b84e99973"
-        }
-      ],
-      "licenses": [
-        {
-          "expression": "MIT OR Apache-2.0"
-        }
-      ],
-      "purl": "pkg:cargo/windows-targets@0.52.6",
-      "externalReferences": [
-        {
-          "type": "vcs",
-          "url": "https://github.com/microsoft/windows-rs"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#windows_x86_64_msvc@0.52.6",
-      "author": "Microsoft",
-      "name": "windows_x86_64_msvc",
-      "version": "0.52.6",
-      "description": "Import lib for Windows",
-      "scope": "required",
-      "hashes": [
-        {
-          "alg": "SHA-256",
-          "content": "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
-        }
-      ],
-      "licenses": [
-        {
-          "expression": "MIT OR Apache-2.0"
-        }
-      ],
-      "purl": "pkg:cargo/windows_x86_64_msvc@0.52.6",
-      "externalReferences": [
-        {
-          "type": "vcs",
-          "url": "https://github.com/microsoft/windows-rs"
-        }
-      ]
     }
   ],
   "dependencies": [
     {
-      "ref": "path+file:///D:/a/watchfiles/watchfiles#watchfiles_rust_notify@1.2.0",
+      "ref": "path+file:///home/runner/work/watchfiles/watchfiles#watchfiles_rust_notify@1.2.0",
       "dependsOn": [
         "registry+https://github.com/rust-lang/crates.io-index#crossbeam-channel@0.5.15",
         "registry+https://github.com/rust-lang/crates.io-index#notify@8.0.0",
@@ -952,7 +929,7 @@
       ]
     },
     {
-      "ref": "registry+https://github.com/rust-lang/crates.io-index#cc@1.0.96"
+      "ref": "registry+https://github.com/rust-lang/crates.io-index#bitflags@2.7.0"
     },
     {
       "ref": "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.0"
@@ -970,11 +947,25 @@
       "ref": "registry+https://github.com/rust-lang/crates.io-index#filetime@0.2.24",
       "dependsOn": [
         "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.0",
-        "registry+https://github.com/rust-lang/crates.io-index#windows-sys@0.59.0"
+        "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.169"
       ]
     },
     {
       "ref": "registry+https://github.com/rust-lang/crates.io-index#heck@0.5.0"
+    },
+    {
+      "ref": "registry+https://github.com/rust-lang/crates.io-index#inotify-sys@0.1.5",
+      "dependsOn": [
+        "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.169"
+      ]
+    },
+    {
+      "ref": "registry+https://github.com/rust-lang/crates.io-index#inotify@0.11.0",
+      "dependsOn": [
+        "registry+https://github.com/rust-lang/crates.io-index#bitflags@2.7.0",
+        "registry+https://github.com/rust-lang/crates.io-index#inotify-sys@0.1.5",
+        "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.169"
+      ]
     },
     {
       "ref": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.169"
@@ -983,17 +974,25 @@
       "ref": "registry+https://github.com/rust-lang/crates.io-index#log@0.4.22"
     },
     {
+      "ref": "registry+https://github.com/rust-lang/crates.io-index#mio@1.0.3",
+      "dependsOn": [
+        "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.169",
+        "registry+https://github.com/rust-lang/crates.io-index#log@0.4.22"
+      ]
+    },
+    {
       "ref": "registry+https://github.com/rust-lang/crates.io-index#notify-types@2.0.0"
     },
     {
       "ref": "registry+https://github.com/rust-lang/crates.io-index#notify@8.0.0",
       "dependsOn": [
         "registry+https://github.com/rust-lang/crates.io-index#filetime@0.2.24",
+        "registry+https://github.com/rust-lang/crates.io-index#inotify@0.11.0",
         "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.169",
         "registry+https://github.com/rust-lang/crates.io-index#log@0.4.22",
+        "registry+https://github.com/rust-lang/crates.io-index#mio@1.0.3",
         "registry+https://github.com/rust-lang/crates.io-index#notify-types@2.0.0",
-        "registry+https://github.com/rust-lang/crates.io-index#walkdir@2.5.0",
-        "registry+https://github.com/rust-lang/crates.io-index#windows-sys@0.59.0"
+        "registry+https://github.com/rust-lang/crates.io-index#walkdir@2.5.0"
       ]
     },
     {
@@ -1049,10 +1048,7 @@
       ]
     },
     {
-      "ref": "registry+https://github.com/rust-lang/crates.io-index#python3-dll-a@0.2.14",
-      "dependsOn": [
-        "registry+https://github.com/rust-lang/crates.io-index#cc@1.0.96"
-      ]
+      "ref": "registry+https://github.com/rust-lang/crates.io-index#python3-dll-a@0.2.14"
     },
     {
       "ref": "registry+https://github.com/rust-lang/crates.io-index#quote@1.0.45",
@@ -1061,10 +1057,7 @@
       ]
     },
     {
-      "ref": "registry+https://github.com/rust-lang/crates.io-index#same-file@1.0.6",
-      "dependsOn": [
-        "registry+https://github.com/rust-lang/crates.io-index#winapi-util@0.1.9"
-      ]
+      "ref": "registry+https://github.com/rust-lang/crates.io-index#same-file@1.0.6"
     },
     {
       "ref": "registry+https://github.com/rust-lang/crates.io-index#syn@2.0.60",
@@ -1083,30 +1076,8 @@
     {
       "ref": "registry+https://github.com/rust-lang/crates.io-index#walkdir@2.5.0",
       "dependsOn": [
-        "registry+https://github.com/rust-lang/crates.io-index#same-file@1.0.6",
-        "registry+https://github.com/rust-lang/crates.io-index#winapi-util@0.1.9"
+        "registry+https://github.com/rust-lang/crates.io-index#same-file@1.0.6"
       ]
-    },
-    {
-      "ref": "registry+https://github.com/rust-lang/crates.io-index#winapi-util@0.1.9",
-      "dependsOn": [
-        "registry+https://github.com/rust-lang/crates.io-index#windows-sys@0.59.0"
-      ]
-    },
-    {
-      "ref": "registry+https://github.com/rust-lang/crates.io-index#windows-sys@0.59.0",
-      "dependsOn": [
-        "registry+https://github.com/rust-lang/crates.io-index#windows-targets@0.52.6"
-      ]
-    },
-    {
-      "ref": "registry+https://github.com/rust-lang/crates.io-index#windows-targets@0.52.6",
-      "dependsOn": [
-        "registry+https://github.com/rust-lang/crates.io-index#windows_x86_64_msvc@0.52.6"
-      ]
-    },
-    {
-      "ref": "registry+https://github.com/rust-lang/crates.io-index#windows_x86_64_msvc@0.52.6"
     }
   ]
 }
