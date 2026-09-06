@@ -1,0 +1,20 @@
+service: employee-allocation-backend
+
+provider:
+  name: aws
+  runtime: python3.11
+  stage: dev
+  region: us-east-1
+  timeout: 30
+  environment:
+    DATABASE_URL: ${env:DATABASE_URL}
+
+functions:
+  api:
+    handler: app.main.handler
+    events:
+      - httpApi: '*'
+
+custom:
+  pythonRequirements:
+    dockerizePip: false

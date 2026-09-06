@@ -1,0 +1,11 @@
+fastapi
+google-genai
+pgvector
+psycopg2-binary
+pydantic
+pydantic-settings
+python-dotenv
+python-multipart
+sqlalchemy>=2.0.0
+supabase
+uvicorn[standard]
