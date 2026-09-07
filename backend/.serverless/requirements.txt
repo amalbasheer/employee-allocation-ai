@@ -7,6 +7,12 @@ pydantic
 pydantic-settings
 pydantic[email]>=2.0.0
 pypdf
+fpdf
+numpy
+numpy>=1.24.0
+pandas
+pandas>=2.0.0
+supabase
 pypdf2
 python-dotenv
 python-multipart
