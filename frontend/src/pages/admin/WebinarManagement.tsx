@@ -172,7 +172,7 @@ export const TrainingManagement: React.FC = () => {
   
   // 1. Fetch Real Engagements from API
   useEffect(() => {
-    fetch('/api/training/engagements')
+    fetch('https://employee-allocation-ai.onrender.com/api/training/engagements')
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
@@ -191,7 +191,7 @@ export const TrainingManagement: React.FC = () => {
   // 2. Fetch Real Student Batches from API
   const fetchStudentBatches = async () => {
     try {
-      const res = await fetch('/api/training/student-batches');
+      const res = await fetch('https://employee-allocation-ai.onrender.com/api/training/student-batches');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: StudentBatch[] = await res.json();
       setBatches(data);
@@ -209,7 +209,7 @@ export const TrainingManagement: React.FC = () => {
   useEffect(() => {
     if (!selectedEngagementId) return;
 
-    fetch(`/api/training/engagements/${selectedEngagementId}/recommendations`)
+    fetch(`https://employee-allocation-ai.onrender.com/api/training/engagements/${selectedEngagementId}/recommendations`)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
@@ -240,7 +240,7 @@ export const TrainingManagement: React.FC = () => {
     setIsLoadingBatchMentors(true);
 
     try {
-      const res = await fetch(`/api/batches/${batch.batch_id}/recommended-mentors`);
+      const res = await fetch(`https://employee-allocation-ai.onrender.com/api/batches/${batch.batch_id}/recommended-mentors`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const formatted = data.map((item: any) => ({
@@ -274,7 +274,7 @@ export const TrainingManagement: React.FC = () => {
     setSelectedBatchIdForMentor(null);
 
     try {
-      const res = await fetch(`/api/batches/${batchId}/assign-mentor`, {
+      const res = await fetch(`https://employee-allocation-ai.onrender.com/api/batches/${batchId}/assign-mentor`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mentor_id: selectedMentorId }),
@@ -298,7 +298,7 @@ export const TrainingManagement: React.FC = () => {
     );
 
     try {
-      const res = await fetch(`/api/training/engagements/${engagementId}/propose`, {
+      const res = await fetch(`https://employee-allocation-ai.onrender.com/api/training/engagements/${engagementId}/propose`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mentor_id: mentor.employee_id }),
@@ -316,7 +316,7 @@ export const TrainingManagement: React.FC = () => {
     );
 
     try {
-      const res = await fetch(`/api/training/engagements/${engagementId}/confirm`, { method: 'POST' });
+      const res = await fetch(`https://employee-allocation-ai.onrender.com/api/training/engagements/${engagementId}/confirm`, { method: 'POST' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
     } catch (err) {
       console.warn('API confirmation request failed:', err);
@@ -350,7 +350,7 @@ export const TrainingManagement: React.FC = () => {
     setNewDesc('');
 
     try {
-      const res = await fetch('/api/training/engagements', {
+      const res = await fetch('https://employee-allocation-ai.onrender.com/api/training/engagements', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newEntry)
@@ -364,7 +364,7 @@ export const TrainingManagement: React.FC = () => {
   // Auto Generate Next Batch
   const handleAutoGenerateBatch = async () => {
   try {
-    const res = await fetch('/api/training/student-batches/auto-generate-next', { method: 'POST' });
+    const res = await fetch('https://employee-allocation-ai.onrender.com/api/training/student-batches/auto-generate-next', { method: 'POST' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     
     const generated = await res.json(); // this is an ARRAY of 2 batches
@@ -381,7 +381,7 @@ export const TrainingManagement: React.FC = () => {
   setIsGeneratingWebinars(true);
 
   try {
-    const res = await fetch('/api/ai_events/suggest', {
+    const res = await fetch('https://employee-allocation-ai.onrender.com/api/ai_events/suggest', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -414,7 +414,7 @@ const handleDownloadWebinarPdf = async (idea: WebinarIdea) => {
   setDownloadingPdfId(targetId);
 
   try {
-    const res = await fetch('/api/ai_events/generate-proposal-pdf', {
+    const res = await fetch('https://employee-allocation-ai.onrender.com/api/ai_events/generate-proposal-pdf', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
