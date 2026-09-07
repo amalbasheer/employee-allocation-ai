@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // 1. Normalize Base URL (strips trailing slashes to prevent double slashes in routes)
-const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const rawBaseUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
 const API_BASE_URL = rawBaseUrl.replace(/\/+$/, '');
 
 export const apiClient = axios.create({
