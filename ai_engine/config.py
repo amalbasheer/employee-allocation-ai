@@ -22,6 +22,6 @@ GEMINI_API_KEY = RAW_API_KEY.strip("'\" \t\n\r")  # remove
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Model names — change here if you switch models later, nowhere else
-LLM_MODEL = "gemini-3.1-flash-lite"      # used for skill extraction + chat
+LLM_MODEL = "gemini-2.5-flash"      # used for skill extraction + chat
 EMBEDDING_MODEL = "gemini-embedding-001"  # used for all embeddings
 EMBEDDING_DIM = 768                       # must match Vector(768) in the DB schema
