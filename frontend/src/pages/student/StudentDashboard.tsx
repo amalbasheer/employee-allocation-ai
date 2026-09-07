@@ -68,7 +68,8 @@ const StudentDashboard: React.FC = () => {
 
   // Fetch real project data from backend API
   // Inside StudentDashboard.FC
-
+  const API_BASE = import.meta.env.VITE_BACKEND_URL || 'https://employee-allocation-ai.onrender.com';
+  
   const fetchStudentProjects = useCallback(async () => {
     setLoading(true);
 
@@ -110,7 +111,7 @@ const StudentDashboard: React.FC = () => {
       const queryParams = new URLSearchParams();
       if (studentId) queryParams.append('resource_id', studentId);
 
-      const url = `/api/allocations/my-allocations${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+      const url = `${API_BASE}/api/allocations/my-allocations${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
       console.log('Fetching allocations from:', url);
 
       const res = await fetch(url, { headers });
