@@ -11,14 +11,14 @@ from google import genai
 
 load_dotenv()  # reads .env in this folder (make sure .env is in .gitignore)
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+RAW_API_KEY = os.getenv("GEMINI_API_KEY")
 
-if not GEMINI_API_KEY:
+if not RAW_API_KEY:
     raise EnvironmentError(
         "GEMINI_API_KEY not found. Create a .env file in ai_engine/ with:\n"
         "GEMINI_API_KEY=your-key-here"
     )
-
+GEMINI_API_KEY = RAW_API_KEY.strip("'\" \t\n\r")  # remove
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Model names — change here if you switch models later, nowhere else

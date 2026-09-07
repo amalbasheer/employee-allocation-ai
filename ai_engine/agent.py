@@ -333,7 +333,14 @@ def chat_query(user_message: str, conversation_history: list = None) -> str:
         ),
     )
 
-    return response.text
+    # Safely extract text or handle function call output
+    if response.text:
+        return response.text
+    elif response.function_calls:
+        # If the SDK does not auto-execute tools, extract function call name/args
+        return f"Tool execution required: {response.function_calls[0].name}"
+    
+    return "No response generated."
 
 
 if __name__ == "__main__":
