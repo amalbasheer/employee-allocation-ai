@@ -50,7 +50,7 @@ def test_json():
 
 
 # Register central API router under /api
-app.include_router(api_router, prefix="/api")
+app.include_router(api_router, prefix="https://employee-allocation-ai.onrender.com/api")
 
 # AWS Lambda Handler with lifespan disabled for minimal cold-start times
 handler = import_module("mangum").Mangum(app, lifespan="off")
