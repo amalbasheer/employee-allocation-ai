@@ -125,7 +125,8 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const [activeProjects, setActiveProjects] = useState<ActiveProject[]>([]);
   const pendingCount = proposals.filter((p) => p.status === 'proposed').length;
   const [completedProjects, setCompletedProjects] = useState<ActiveProject[]>([]); 
-
+  const API_BASE = import.meta.env.VITE_BACKEND_URL || 'https://employee-allocation-ai.onrender.com';
+  
   const getActiveEmployeeId = useCallback((): string => {
     if (propEmployeeId) return propEmployeeId;
 
@@ -164,7 +165,7 @@ const fetchDashboardData = useCallback(async () => {
   };
 
   try {
-    const endpoint = `/api/allocations/my-allocations${targetEmployeeId ? `?resource_id=${targetEmployeeId}` : ''}`;
+    const endpoint = `${API_BASE}/api/allocations/my-allocations${targetEmployeeId ? `?resource_id=${targetEmployeeId}` : ''}`;
     const allocRes = await fetch(endpoint, { headers });
 
     if (allocRes.ok) {
@@ -286,7 +287,7 @@ const [isUpdatingStatus, setIsUpdatingStatus] = useState<boolean>(false);
 
 const handleUpdateProjectStatus = async (projectId: string, newStatus: string) => {
   try {
-    const res = await api.patch(`api/projects/${projectId}/status`, {
+    const res = await api.patch(`${API_BASE}/api/projects/${projectId}/status`, {
       status: newStatus.toLowerCase(),
     });
 
@@ -319,7 +320,7 @@ const handleProposalAction = async (id: string, action: 'accept') => {
   const allocationStatus = action === 'accept' ? 'accepted' : 'accepted_by_employee';
 
   try {
-    const response = await fetch(`/api/allocations/${id}/respond`, {
+    const response = await fetch(`${API_BASE}/api/allocations/${id}/respond`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -329,7 +330,7 @@ const handleProposalAction = async (id: string, action: 'accept') => {
     });
 
     if (!response.ok) {
-      await fetch(`/api/allocations/${id}`, {
+      await fetch(`${API_BASE}/api/allocations/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: allocationStatus }),
@@ -363,7 +364,7 @@ const handleRejectionAction = async (id: string, action: 'reject') => {
   const allocationStatus = action === 'reject' ? 'rejected' : 'rejected_by_employee';
 
   try {
-    const response = await fetch(`/api/allocations/${id}/reject`, {
+    const response = await fetch(`${API_BASE}/api/allocations/${id}/reject`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -373,7 +374,7 @@ const handleRejectionAction = async (id: string, action: 'reject') => {
     });
 
     if (!response.ok) {
-      await fetch(`/api/allocations/${id}`, {
+      await fetch(`${API_BASE}/api/allocations/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: allocationStatus }),
