@@ -317,7 +317,7 @@ export const TrainingAllocationsDashboard: React.FC<{ propEmployeeId?: string }>
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          status: 'rejected_by_employee',
+          status: 'rejected',
           employee_id: targetEmployeeId,
         }),
       });

@@ -451,7 +451,7 @@ def update_allocation_status(
 # 1. EMPLOYEE ACCEPTING THE PROPOSAL
 # -------------------------------------------------------------------
 class AllocationRespondRequest(BaseModel):
-    status: str          # "accepted" or "rejected_by_employee"
+    status: str          # "accepted" or "rejected"
     employee_id: str
 
 
