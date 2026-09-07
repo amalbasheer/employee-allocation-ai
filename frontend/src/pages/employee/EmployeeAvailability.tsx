@@ -49,20 +49,21 @@ export const EmployeeAvailabilityPage: React.FC<{ employeeId?: string }> = ({
   const [leaveStartDate, setLeaveStartDate] = useState<string>('');
   const [leaveEndDate, setLeaveEndDate] = useState<string>('');
   const [leaveReason, setLeaveReason] = useState<string>('');
-
+  const API_BASE = import.meta.env.VITE_BACKEND_URL || 'https://employee-allocation-ai.onrender.com';
+  
   // Fetch initial data from APIs
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
       // 1. Fetch Daily Remaining Bandwidth
-      const dailyRes = await fetch(`/api/employees/${employeeId}/daily-bandwidth`);
+      const dailyRes = await fetch(`${API_BASE}/api/employees/${employeeId}/daily-bandwidth`);
       if (dailyRes.ok) {
         const dData = await dailyRes.json();
         setDailyData(dData);
       }
 
       // 2. Fetch 8-Week Bandwidth Projection
-      const weeklyRes = await fetch(`/api/employees/${employeeId}/bandwidth?num_weeks=8`);
+      const weeklyRes = await fetch(`${API_BASE}/api/employees/${employeeId}/bandwidth?num_weeks=8`);
       if (weeklyRes.ok) {
         const wData = await weeklyRes.json();
         setWeeklyProjections(wData);
@@ -84,7 +85,7 @@ export const EmployeeAvailabilityPage: React.FC<{ employeeId?: string }> = ({
     if (!singleWeekDate) return;
 
     try {
-      const res = await fetch(`/api/employees/${employeeId}/availability`, {
+      const res = await fetch(`${API_BASE}/api/employees/${employeeId}/availability`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -111,7 +112,7 @@ export const EmployeeAvailabilityPage: React.FC<{ employeeId?: string }> = ({
     if (!leaveStartDate || !leaveEndDate) return;
 
     try {
-      const res = await fetch(`/api/employees/${employeeId}/leave`, {
+      const res = await fetch(`${API_BASE}/api/employees/${employeeId}/leave`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

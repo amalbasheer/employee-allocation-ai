@@ -110,7 +110,8 @@ export const TrainingAllocationsDashboard: React.FC<{ propEmployeeId?: string }>
 
   // Training Batches State
   const [trainingBatches, setTrainingBatches] = useState<TrainingBatch[]>([]);
-
+  const API_BASE = import.meta.env.VITE_BACKEND_URL || 'https://employee-allocation-ai.onrender.com';
+  
   // Helper to extract Active Employee ID
   const getActiveEmployeeId = useCallback((): string => {
     if (propEmployeeId) return propEmployeeId;
@@ -143,7 +144,7 @@ export const TrainingAllocationsDashboard: React.FC<{ propEmployeeId?: string }>
       if (!userEmail) return;
 
       const res = await fetch(
-        `/api/allocations/student-batches/my-allocated-batches?email=${encodeURIComponent(userEmail)}`,
+        `${API_BASE}/api/allocations/student-batches/my-allocated-batches?email=${encodeURIComponent(userEmail)}`,
         { headers }
       );
 
@@ -183,7 +184,7 @@ export const TrainingAllocationsDashboard: React.FC<{ propEmployeeId?: string }>
     await fetchAllocatedBatches(headers);
 
     try {
-      const endpoint = `/api/allocations/my-allocations${targetEmployeeId ? `?resource_id=${targetEmployeeId}` : ''}`;
+      const endpoint = `${API_BASE}/api/allocations/my-allocations${targetEmployeeId ? `?resource_id=${targetEmployeeId}` : ''}`;
       const allocRes = await fetch(endpoint, { headers });
 
       if (allocRes.ok) {
@@ -288,7 +289,7 @@ export const TrainingAllocationsDashboard: React.FC<{ propEmployeeId?: string }>
 
     const targetEmployeeId = getActiveEmployeeId();
     try {
-      await fetch(`/api/allocations/${id}/respond`, {
+      await fetch(`${API_BASE}/api/allocations/${id}/respond`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -312,7 +313,7 @@ export const TrainingAllocationsDashboard: React.FC<{ propEmployeeId?: string }>
     const targetEmployeeId = getActiveEmployeeId();
 
     try {
-      await fetch(`/api/allocations/${id}/respond`, {
+      await fetch(`${API_BASE}/api/allocations/${id}/respond`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
