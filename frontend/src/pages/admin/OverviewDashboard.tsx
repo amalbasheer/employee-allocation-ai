@@ -71,7 +71,7 @@ export default function DashboardOverview() {
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
-      const response = await fetch("/api/dashboard/overview");
+      const response = await fetch("https://employee-allocation-ai.onrender.com/api/dashboard/overview");
       if (!response.ok) throw new Error("Failed to fetch dashboard data");
       const result = await response.json();
       setData(result);
