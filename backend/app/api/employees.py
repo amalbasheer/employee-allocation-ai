@@ -417,7 +417,7 @@ def get_employee_daily_bandwidth(
     w_end = current_monday + timedelta(days=6)
     allocated_hours = (
         db.query(func.coalesce(func.sum(Allocation.allocated_hours), 0))
-        .join(Project, Allocation.project_id == Project.project_id)
+        .join(Project, Allocation.reference_id == Project.project_id)
         .filter(
             Allocation.resource_id == employee_id,
             func.lower(Allocation.status).in_(["assigned", "accepted", "proposed", "rejected", "substituted"]),
