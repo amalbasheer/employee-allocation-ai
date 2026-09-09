@@ -38,6 +38,7 @@ def get_current_user(
         emp_query = supabase.table("company_employees").select("*").eq("email", email).execute()
         if emp_query.data and len(emp_query.data) > 0:
             emp_data = emp_query.data[0]
+            print(f"DEBUG: user_res.user.user_metadata = {user_res.user.user_metadata}")
             role = emp_data.get("role") or user_res.user.user_metadata.get("role") or "employee"
             name = emp_data.get("name") or emp_data.get("full_name") or email.split("@")[0]
             return UserProfile(id=user_id, email=email, role=role, name=name)
