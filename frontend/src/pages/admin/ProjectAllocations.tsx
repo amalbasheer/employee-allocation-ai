@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Plus, Layers, Sliders, Clock, Send, UserCheck, XCircle, CheckCircle2, 
   Tag, Calendar, ArrowRight, ThumbsUp, ThumbsDown, GraduationCap, CheckCircle,
@@ -100,6 +100,13 @@ export const ProjectAllocation: React.FC = () => {
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) || projects[0];
 
+  // --- New Filter States ---
+  const [projectStatusFilter, setProjectStatusFilter] = useState<string>('all');
+  const [allocationStatusFilter, setAllocationStatusFilter] = useState<string>('all');
+
+  // --- New Multi-Select State ---
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setIsModalOpen(false);
@@ -108,6 +115,44 @@ export const ProjectAllocation: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isModalOpen]);
    
+  // --- Filtering Logic ---
+  const filteredProjects = useMemo(() => {
+    return projects.filter((project) => {
+      const matchesProjectStatus =
+        projectStatusFilter === 'all' || project.status === projectStatusFilter;
+
+      const currentAllocationStatus = project.proposedMentorStatus || 'unassigned';
+      const matchesAllocationStatus =
+        allocationStatusFilter === 'all' || currentAllocationStatus === allocationStatusFilter;
+
+      return matchesProjectStatus && matchesAllocationStatus;
+    });
+  }, [projects, projectStatusFilter, allocationStatusFilter]);
+
+  // --- Multi-Select Functions ---
+  const toggleSelectProject = (projectId: string) => {
+    setSelectedProjectIds((prev) =>
+      prev.includes(projectId)
+        ? prev.filter((id) => id !== projectId)
+        : [...prev, projectId]
+    );
+  };
+
+  const toggleSelectAllFiltered = () => {
+    const filteredIds = filteredProjects.map((p) => p.id);
+    const areAllSelected = filteredIds.length > 0 && filteredIds.every((id) => selectedProjectIds.includes(id));
+
+    if (areAllSelected) {
+      setSelectedProjectIds((prev) => prev.filter((id) => !filteredIds.includes(id)));
+    } else {
+      setSelectedProjectIds((prev) => Array.from(new Set([...prev, ...filteredIds])));
+    }
+  };
+
+  const clearSelection = () => {
+    setSelectedProjectIds([]);
+  };
+  
   const handleAddProject = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!projectName.trim()) return;
@@ -719,85 +764,149 @@ export const ProjectAllocation: React.FC = () => {
       </div>
 
       {/* TAB 1: ALL PROJECTS LIST */}
-      {activeTab === 'ALL_PROJECTS' && (
-        <Card title="Project Directory">
-          {loadingProjects ? (
-            <div className="p-8 text-center text-slate-400 flex justify-center items-center gap-2">
-              <span className="animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-500"></span>
-                Loading projects...
-            </div>
-          ) : projects.length === 0 ? (
-            <div className="p-8 text-center text-slate-400">No projects available. Create one to get started.</div>
-          ) : (
-            <div className="space-y-4">
-              {projects.map((project) => (
-                <div
-                  key={project.id}
-                  className="p-5 bg-slate-950 border border-slate-800 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all hover:border-slate-700"
-                >
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-3">
-                      <h4 className="font-bold text-white text-base">{project.name}</h4>
-                      {renderStatusBadge(project.status, project.proposedMentorStatus)}
-                    </div>
+{activeTab === 'ALL_PROJECTS' && (
+  <Card title="Project Directory">
+    {/* Filter & Search Bar */}
+    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pb-4 mb-4 border-b border-slate-800">
+      <div className="flex items-center gap-2 w-full sm:w-auto">
+        <label className="text-xs text-slate-400 font-medium">Project Status:</label>
+        <select
+          value={projectStatusFilter}
+          onChange={(e) => setProjectStatusFilter(e.target.value)}
+          className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
+        >
+          <option value="all">All Statuses</option>
+          <option value="open">Open</option>
+          <option value="in_progress">In Progress</option>
+          <option value="completed">Completed</option>
+        </select>
 
-                    <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400">
-                      <span className="flex items-center gap-1 text-slate-300">
-                        <Tag className="w-3.5 h-3.5 text-indigo-400" /> {project.category}
-                      </span>
-                      <span className="flex items-center gap-1 text-slate-300">
-                        <Tag className="w-3.5 h-3.5 text-indigo-400" /> {project.project_type}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Calendar className="w-3.5 h-3.5" /> Start: {project.startDate}
-                      </span>
-                    </div>
-                    
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-  {(project.requiredSkills ?? []).map((skill, index) => (
-    <span key={index} className="text-[11px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded-md border border-slate-800">
-      {typeof skill === 'object' && skill !== null
-        ? ((skill as { skill_name?: string; skill_id?: string }).skill_name ||
-          (skill as { skill_name?: string; skill_id?: string }).skill_id)
-        : skill}
-    </span>
-  ))}
-</div>
+        {/* Allocation Status Filter */}
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-slate-400 font-medium">Allocation Status:</label>
+          <select
+            value={allocationStatusFilter}
+            onChange={(e) => setAllocationStatusFilter(e.target.value)}
+            className="bg-slate-800 text-slate-200 border border-slate-700 rounded-md px-3 py-1.5 text-xs focus:outline-none focus:border-indigo-500"
+          >
+            <option value="all">All Allocations</option>
+            <option value="unassigned">Unassigned</option>
+            <option value="proposed">Proposal Sent</option>
+            <option value="accepted">Accepted</option>
+            <option value="assigned">Assigned</option>
+            <option value="rejected">Rejected</option>
+            <option value="substituted">Substituted</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    {loadingProjects ? (
+      <div className="p-8 text-center text-slate-400 flex justify-center items-center gap-2">
+        <span className="animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-500"></span>
+        Loading projects...
+      </div>
+    ) : filteredProjects.length === 0 ? (
+      <div className="p-8 text-center text-slate-400">No projects matching your search/filter criteria.</div>
+    ) : (
+      <div className="space-y-4">
+        {/* Batch Selection Bar */}
+        <div className="flex items-center justify-between px-2 text-xs text-slate-400">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={
+                filteredProjects.length > 0 &&
+                filteredProjects.every((p) => selectedProjectIds?.includes(p.id))
+              }
+              onChange={toggleSelectAllFiltered}
+              className="rounded bg-slate-900 border-slate-700 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+            />
+            <span>Select All ({selectedProjectIds?.length ?? 0} selected)</span>
+          </label>
+        </div>
+
+        {filteredProjects.map((project) => {
+          const isSelected = selectedProjectIds?.includes(project.id);
+          return (
+            <div
+              key={project.id}
+              className={`p-5 bg-slate-950 border rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all hover:border-slate-700 ${
+                isSelected ? 'border-indigo-500/60 bg-indigo-950/10' : 'border-slate-800'
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  onChange={() => toggleSelectProject(project.id)}
+                  className="mt-1 rounded bg-slate-900 border-slate-700 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                />
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <h4 className="font-bold text-white text-base">{project.name}</h4>
+                    {renderStatusBadge(project.status, project.proposedMentorStatus)}
                   </div>
 
-                  <div className="flex flex-col md:items-end gap-3 border-t md:border-t-0 border-slate-800 pt-3 md:pt-0">
-                    <div className="text-xs text-slate-400 space-y-1 md:text-right">
-                      <div>
-                        Mentor:{' '}
-                        {project.proposedMentorName ? (
-                          <strong className="text-slate-200">{project.proposedMentorName}</strong>
-                        ) : (
-                          <span className="text-amber-400/80 italic">Unassigned</span>
-                        )}
-                      </div>
-                      <div>
-                        Students ({(project.allocatedStudentIds ?? []).length}):{' '}
-                        {project.allocatedStudentsname ? (
-                          <strong className="text-slate-200">{project.allocatedStudentsname}</strong>
-                        ) : (
-                          <span className="text-slate-500">Unassigned</span>
-                        )}
-                      </div>
-                    </div>
+                  <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400">
+                    <span className="flex items-center gap-1 text-slate-300">
+                      <Tag className="w-3.5 h-3.5 text-indigo-400" /> {project.category}
+                    </span>
+                    <span className="flex items-center gap-1 text-slate-300">
+                      <Tag className="w-3.5 h-3.5 text-indigo-400" /> {project.project_type}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Calendar className="w-3.5 h-3.5" /> Start: {project.startDate}
+                    </span>
+                  </div>
 
-                    <button
-                      onClick={() => handleManageAllocation(project.id)}
-                      className="bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-700 flex items-center gap-1.5 transition-all self-start md:self-end"
-                    >
-                      Manage Allocation <ArrowRight className="w-3.5 h-3.5 text-indigo-400" />
-                    </button>
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {(project.requiredSkills ?? []).map((skill, index) => (
+                      <span key={index} className="text-[11px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded-md border border-slate-800">
+                        {typeof skill === 'object' && skill !== null
+                          ? ((skill as { skill_name?: string; skill_id?: string }).skill_name ||
+                            (skill as { skill_name?: string; skill_id?: string }).skill_id)
+                          : skill}
+                      </span>
+                    ))}
                   </div>
                 </div>
-              ))}
+              </div>
+
+              <div className="flex flex-col md:items-end gap-3 border-t md:border-t-0 border-slate-800 pt-3 md:pt-0">
+                <div className="text-xs text-slate-400 space-y-1 md:text-right">
+                  <div>
+                    Mentor:{' '}
+                    {project.proposedMentorName ? (
+                      <strong className="text-slate-200">{project.proposedMentorName}</strong>
+                    ) : (
+                      <span className="text-amber-400/80 italic">Unassigned</span>
+                    )}
+                  </div>
+                  <div>
+                    Students ({(project.allocatedStudentIds ?? []).length}):{' '}
+                    {project.allocatedStudentsname ? (
+                      <strong className="text-slate-200">{project.allocatedStudentsname}</strong>
+                    ) : (
+                      <span className="text-slate-500">Unassigned</span>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => handleManageAllocation(project.id)}
+                  className="bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-700 flex items-center gap-1.5 transition-all self-start md:self-end"
+                >
+                  Manage Allocation <ArrowRight className="w-3.5 h-3.5 text-indigo-400" />
+                </button>
+              </div>
             </div>
-          )}
-        </Card>
-      )}
+          );
+        })}
+      </div>
+    )}
+  </Card>
+)}
 
       {/* TAB 2: RECOMMENDATIONS & ALLOCATION */}
       {activeTab === 'RECOMMENDATIONS' && (
