@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card } from '../../components/common/Card';
 import { 
   Video, Plus, Clock, CheckCircle2, XCircle, Send, 
@@ -170,6 +170,11 @@ export const TrainingManagement: React.FC = () => {
   const [suggestedWebinars, setSuggestedWebinars] = useState<WebinarIdea[]>([]);
   
   const API_BASE = import.meta.env.VITE_BACKEND_URL || 'https://employee-allocation-ai.onrender.com';
+  
+  // Status Filter & Multi-Select States
+  const [engagementStatusFilter, setEngagementStatusFilter] = useState<string>('all');
+  const [selectedEngagementIds, setSelectedEngagementIds] = useState<string[]>([]);
+  
   // 1. Fetch Real Engagements from API
   useEffect(() => {
     fetch(`${API_BASE}/api/training/engagements`)
@@ -224,11 +229,42 @@ export const TrainingManagement: React.FC = () => {
   const selectedEngagement = 
     engagements.find((e) => e.engagement_id === selectedEngagementId) || engagements[0];
 
-  const filteredEngagements = engagements.filter((e) => {
-    if (typeFilter === 'all') return true;
-    return e.engagement_type === typeFilter;
+  // --- Filtering Logic ---
+const filteredEngagements = useMemo(() => {
+  return engagements.filter((e) => {
+    const matchesType = typeFilter === 'all' || e.engagement_type === typeFilter;
+    const matchesStatus = engagementStatusFilter === 'all' || e.status === engagementStatusFilter;
+    return matchesType && matchesStatus;
   });
+}, [engagements, typeFilter, engagementStatusFilter]);
 
+// --- Multi-Select Handles ---
+const toggleSelectEngagement = (engagementId: string) => {
+  setSelectedEngagementIds((prev) =>
+    prev.includes(engagementId)
+      ? prev.filter((id) => id !== engagementId)
+      : [...prev, engagementId]
+  );
+};
+
+const toggleSelectAllFiltered = () => {
+  const filteredIds = filteredEngagements.map((e) => e.engagement_id);
+  const areAllSelected =
+    filteredIds.length > 0 && filteredIds.every((id) => selectedEngagementIds.includes(id));
+
+  if (areAllSelected) {
+    setSelectedEngagementIds((prev) => prev.filter((id) => !filteredIds.includes(id)));
+  } else {
+    setSelectedEngagementIds((prev) => Array.from(new Set([...prev, ...filteredIds])));
+  }
+};
+
+const clearSelection = () => {
+  setSelectedEngagementIds([]);
+};
+
+  
+  
   // 4. Fetch Real Recommended Mentors for Student Batch Drawer
   const handleToggleBatchMentorDrawer = async (batch: StudentBatch) => {
     if (selectedBatchIdForMentor === batch.batch_id) {
@@ -567,6 +603,24 @@ const handleDownloadWebinarPdf = async (idea: WebinarIdea) => {
                 {type}
               </button>
             ))}
+            {/* Engagement Status Filter */}
+    <label className="text-xs text-slate-400 font-medium">STATUS:</label>
+    <select
+      value={engagementStatusFilter}
+      onChange={(e) => setEngagementStatusFilter(e.target.value)}
+      
+      className="bg-slate-800 text-slate-200 border border-slate-700 rounded-md px-3 py-1.5 text-xs focus:outline-none focus:border-indigo-500"
+      
+    >
+      
+      <option value="all">All Statuses</option>
+      <option value="open">Open</option>
+      <option value="proposed">Proposed</option>
+      <option value="accepted">Accepted</option>
+      <option value="allocated">Allocated</option>
+      <option value="rejected">Rejected</option>
+      <option value="completed">Completed</option>
+    </select>
           </div>
 
           <div className="flex items-center gap-2 border-t md:border-t-0 md:border-l border-slate-800 pt-2 md:pt-0 md:pl-4">
@@ -588,50 +642,84 @@ const handleDownloadWebinarPdf = async (idea: WebinarIdea) => {
             </button>
           </div>
         </div>
-
+        {/* Batch Selection Bar */}
+<div className="flex items-center justify-between px-2 text-xs text-slate-400 mb-3">
+  <label className="flex items-center gap-2 cursor-pointer select-none">
+    <input
+      type="checkbox"
+      checked={
+        filteredEngagements.length > 0 &&
+        filteredEngagements.every((e) => selectedEngagementIds.includes(e.engagement_id))
+      }
+      onChange={toggleSelectAllFiltered}
+      className="rounded bg-slate-900 border-slate-700 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+    />
+    <span>Select All ({selectedEngagementIds.length} selected)</span>
+  </label>
+  {selectedEngagementIds.length > 0 && (
+    <button
+      onClick={clearSelection}
+      className="text-xs text-rose-400 hover:underline"
+    >
+      Clear Selection
+    </button>
+  )}
+</div>
         {subTab === 'list' && (
-          <Card title="Training Engagements">
-            <div className="space-y-3">
-              {filteredEngagements.map((item) => (
-                <div
-                  key={item.engagement_id}
-                  className="p-4 bg-slate-950 border border-slate-800 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all hover:border-slate-700"
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="p-2.5 bg-indigo-500/10 border border-indigo-500/20 rounded-lg text-indigo-400 mt-1">
-                      <Video className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-bold text-white text-base">{item.title}</h4>
-                        <span className="text-[10px] uppercase bg-slate-900 border border-slate-700 px-2 py-0.5 rounded text-slate-300 font-semibold">
-                          {item.engagement_type}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-400 mt-1">{item.description}</p>
-                      <p className="text-xs text-slate-400 mt-1">
-                        Speaker: <span className="text-slate-200 font-medium">{item.mentor_name || 'Unassigned'}</span> • Location: <span className="text-slate-200 font-medium">{item.location || 'Unassigned'}</span> • Mode: <span className="text-slate-200 font-medium">{item.mode || 'Unassigned'}</span> • Duration: <span className="text-slate-300">{item.required_hours} hrs</span> • Schedule: <span className="text-slate-300">{item.start_date}</span>
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-4">
-                    {renderStatusBadge(item.status)}
-                    <button
-                      onClick={() => {
-                        setSelectedEngagementId(item.engagement_id);
-                        setSubTab('allocation');
-                      }}
-                      className="bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-semibold px-3 py-2 rounded-lg border border-slate-700 flex items-center gap-1 transition-all"
-                    >
-                      Speaker Allocation <ArrowRight className="w-3.5 h-3.5 text-indigo-400" />
-                    </button>
-                  </div>
+  <Card title="Training Engagements">
+    <div className="space-y-3">
+      
+      {filteredEngagements.map((item) => {
+        const isSelected = selectedEngagementIds?.includes(item.engagement_id);
+        return (
+          <div
+            key={item.engagement_id}
+            className={`p-4 bg-slate-950 border rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all hover:border-slate-700 ${
+              isSelected ? 'border-indigo-500/60 bg-indigo-950/10' : 'border-slate-800'
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => toggleSelectEngagement(item.engagement_id)}
+                className="mt-1 rounded bg-slate-900 border-slate-700 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+              />
+              <div className="p-2.5 bg-indigo-500/10 border border-indigo-500/20 rounded-lg text-indigo-400 mt-1">
+                <Video className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="font-bold text-white text-base">{item.title}</h4>
+                  <span className="text-[10px] uppercase bg-slate-900 border border-slate-700 px-2 py-0.5 rounded text-slate-300 font-semibold">
+                    {item.engagement_type}
+                  </span>
                 </div>
-              ))}
+                <p className="text-xs text-slate-400 mt-1">{item.description}</p>
+                <p className="text-xs text-slate-400 mt-1">
+                  Speaker: <span className="text-slate-200 font-medium">{item.mentor_name || 'Unassigned'}</span> • Location: <span className="text-slate-200 font-medium">{item.location || 'Unassigned'}</span> • Mode: <span className="text-slate-200 font-medium">{item.mode || 'Unassigned'}</span> • Duration: <span className="text-slate-300">{item.required_hours} hrs</span> • Schedule: <span className="text-slate-300">{item.start_date}</span>
+                </p>
+              </div>
             </div>
-          </Card>
-        )}
+
+            <div className="flex items-center gap-4">
+              {renderStatusBadge(item.status)}
+              <button
+                onClick={() => {
+                  setSelectedEngagementId(item.engagement_id);
+                  setSubTab('allocation');
+                }}
+                className="bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-semibold px-3 py-2 rounded-lg border border-slate-700 flex items-center gap-1 transition-all"
+              >
+                Speaker Allocation <ArrowRight className="w-3.5 h-3.5 text-indigo-400" />
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </Card>
+)}
 
         {subTab === 'allocation' && (
           <Card title="Speaker Allocation Portal">

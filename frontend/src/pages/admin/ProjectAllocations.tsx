@@ -824,7 +824,17 @@ export const ProjectAllocation: React.FC = () => {
             />
             <span>Select All ({selectedProjectIds?.length ?? 0} selected)</span>
           </label>
-        </div>
+        
+               {selectedProjectIds.length > 0 && (
+              
+                <button
+                  onClick={clearSelection}
+                  className="text-xs text-rose-400 hover:underline"
+                >
+                  Clear Selection
+                </button>
+              
+            )}</div>
 
         {filteredProjects.map((project) => {
           const isSelected = selectedProjectIds?.includes(project.id);
@@ -901,8 +911,11 @@ export const ProjectAllocation: React.FC = () => {
                 </button>
               </div>
             </div>
+            
           );
+          
         })}
+        
       </div>
     )}
   </Card>
