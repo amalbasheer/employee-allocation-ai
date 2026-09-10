@@ -571,7 +571,7 @@ def list_student_batches(db: Session = Depends(get_db)):
         if desig_ids:
             try:
                 desig_rows = db.execute(
-                    text("SELECT designation_id, designation_name FROM designations WHERE designation_id = ANY(:ids)"),
+                    text("SELECT designation_id, title FROM designations WHERE designation_id = ANY(:ids)"),
                     {"ids": desig_ids}
                 ).fetchall()
                 designation_map = {row[0]: row[1] for row in desig_rows}
