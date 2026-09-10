@@ -3,55 +3,108 @@
 Wires optimizer.py's PuLP-based allocation solving into REAL data —
 takes a list of currently open project IDs (or training engagement IDs),
 ranks real candidates for each using existing recommendation logic, then
-finds the best OVERALL assignment across all of them simultaneously,
-preventing any one person from being over-assigned across the batch.
-
-Interns are NOT run through the optimizer — since they're already
-restricted to one project at a time by get_available_interns(), the
-over-concentration problem doesn't apply to them, so the existing
-per-project intern recommendation is used directly instead.
+finds the best OVERALL assignment across all of them simultaneously.
 """
 
-from ai_engine.db import engine, get_project, get_training_engagement, get_person_skills
+from ai_engine.db import engine, get_project, get_training_engagement
 from ai_engine.recommend import recommend_candidates_for_project, recommend_mentor_for_training
 from ai_engine.optimizer import build_score_matrix, optimize_allocations
 from sqlalchemy import text
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
+import logging
+
+logging.basicConfig(level=logging.INFO)
 
 
-def get_skill_names(skill_ids: list[str]) -> list[str]:
-    """Resolves raw skill_ids into readable skill names for display."""
-    if not skill_ids:
-        return []
+def get_bulk_person_skills(person_ids: list[str], person_type: str = "employee") -> dict[str, list[str]]:
+    """Fetches skill names for multiple employees or interns in a single bulk SQL query."""
+    if not person_ids:
+        return {}
+
+    table_name = "employee_skills" if person_type == "employee" else "intern_skills"
+    id_col = "employee_id" if person_type == "employee" else "intern_id"
+
+    query = text(f"""
+        SELECT ps.{id_col}, s.skill_name 
+        FROM {table_name} ps
+        JOIN skills s ON ps.skill_id = s.skill_id
+        WHERE ps.{id_col} = ANY(:ids)
+    """)
+
+    skills_by_person = {pid: [] for pid in person_ids}
+    with engine.connect() as conn:
+        rows = conn.execute(query, {"ids": person_ids}).fetchall()
+        for pid, skill_name in rows:
+            if pid in skills_by_person:
+                skills_by_person[pid].append(skill_name)
+
+    return skills_by_person
+
+
+def get_bulk_names(employee_ids: list[str]) -> dict[str, str]:
+    """Fetches names for a list of employee IDs in a single bulk SQL query."""
+    if not employee_ids:
+        return {}
     with engine.connect() as conn:
         rows = conn.execute(
-            text("SELECT skill_id, skill_name FROM skills WHERE skill_id = ANY(:ids)"),
-            {"ids": skill_ids},
+            text("SELECT employee_id, name FROM company_employees WHERE employee_id = ANY(:ids)"),
+            {"ids": employee_ids},
         ).fetchall()
-    return [r[1] for r in rows]
+    return {r[0]: r[1] for r in rows}
+
+
+def _fetch_single_project_candidates(project_id: str):
+    """Helper worker to fetch candidates for one project concurrently."""
+    t_start = time.time()
+    project = get_project(project_id)
+    if not project:
+        return None
+
+    result = recommend_candidates_for_project(project_id)
+    eligible = result.get("eligible_team_leads", [])
+    interns = result.get("interns", [])
+    top_intern = interns[0] if interns else None
+
+    logging.info(f"Project {project_id} candidate fetch took: {time.time() - t_start:.2f}s")
+    return {
+        "project_id": project_id,
+        "eligible": eligible,
+        "top_intern": top_intern,
+    }
 
 
 def optimize_multiple_projects(project_ids: list[str]) -> dict:
-    """
-    Optimizes team-lead assignment across multiple open projects at once,
-    then attaches the best available intern per project (using existing
-    logic, since interns don't need optimization).
-    """
+    """Optimizes team-lead assignment across multiple open projects in parallel."""
+    MAX_BATCH_SIZE = 10
+    if len(project_ids) > MAX_BATCH_SIZE:
+        logging.warning(f"Batch size {len(project_ids)} exceeds limit. Capping to {MAX_BATCH_SIZE}.")
+        project_ids = project_ids[:MAX_BATCH_SIZE]
+
+    t0 = time.time()
     projects_for_optimizer = []
     projects_with_ranked_candidates = {}
     intern_suggestions = {}
 
-    for project_id in project_ids:
-        project = get_project(project_id)
-        if not project:
-            continue
+    # PARALLEL FETCH: Run candidate recommendation calls concurrently
+    max_workers = min(len(project_ids), 8)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_pid = {
+            executor.submit(_fetch_single_project_candidates, pid): pid 
+            for pid in project_ids
+        }
+        for future in as_completed(future_to_pid):
+            res = future.result()
+            if res:
+                pid = res["project_id"]
+                projects_for_optimizer.append({"project_id": pid})
+                projects_with_ranked_candidates[pid] = res["eligible"]
+                intern_suggestions[pid] = res["top_intern"]
 
-        projects_for_optimizer.append({"project_id": project_id})
+    logging.info(f"All candidate recommendations fetched concurrently in: {time.time() - t0:.2f}s")
 
-        result = recommend_candidates_for_project(project_id)
-        projects_with_ranked_candidates[project_id] = result.get("eligible_team_leads", [])
-
-        interns = result.get("interns", [])
-        intern_suggestions[project_id] = interns[0] if interns else None
+    if not projects_for_optimizer:
+        return {"assignments": [], "unstaffed_projects": project_ids}
 
     score_matrix = build_score_matrix(projects_with_ranked_candidates, min_score=40.0)
 
@@ -67,36 +120,33 @@ def optimize_multiple_projects(project_ids: list[str]) -> dict:
         projects_for_optimizer, list(all_candidates_by_id.values()), score_matrix
     )
 
-    with engine.connect() as conn:
-        name_lookup = {}
-        if raw_assignments:
-            ids = [a["candidate_id"] for a in raw_assignments]
-            rows = conn.execute(
-                text("SELECT employee_id, name FROM company_employees WHERE employee_id = ANY(:ids)"),
-                {"ids": ids},
-            ).fetchall()
-            name_lookup = {r[0]: r[1] for r in rows}
+    # BULK DATA ENRICHMENT (O(1) database round-trips)
+    candidate_ids = list({a["candidate_id"] for a in raw_assignments})
+    intern_ids = list({
+        intern_suggestions[a["project_id"]]["id"]
+        for a in raw_assignments
+        if intern_suggestions.get(a["project_id"])
+    })
+
+    employee_names = get_bulk_names(candidate_ids)
+    candidate_skills_map = get_bulk_person_skills(candidate_ids, person_type="employee")
+    intern_skills_map = get_bulk_person_skills(intern_ids, person_type="intern")
 
     enriched_assignments = []
     for a in raw_assignments:
-        skills = get_person_skills(a["candidate_id"], "employee")
-        skill_names = get_skill_names([s["skill_id"] for s in skills])
-
+        cand_id = a["candidate_id"]
         top_intern = intern_suggestions.get(a["project_id"])
-        intern_skill_names = []
-        if top_intern:
-            intern_skills = get_person_skills(top_intern["id"], "intern")
-            intern_skill_names = get_skill_names([s["skill_id"] for s in intern_skills])
+        top_intern_id = top_intern["id"] if top_intern else None
 
         enriched_assignments.append({
             "project_id": a["project_id"],
-            "candidate_id": a["candidate_id"],
-            "candidate_name": name_lookup.get(a["candidate_id"], "Unknown"),
-            "candidate_skills": skill_names,
+            "candidate_id": cand_id,
+            "candidate_name": employee_names.get(cand_id, "Unknown"),
+            "candidate_skills": candidate_skills_map.get(cand_id, []),
             "score": a["score"],
-            "suggested_intern_id": top_intern["id"] if top_intern else None,
+            "suggested_intern_id": top_intern_id,
             "suggested_intern_name": top_intern["name"] if top_intern else None,
-            "suggested_intern_skills": intern_skill_names,
+            "suggested_intern_skills": intern_skills_map.get(top_intern_id, []) if top_intern_id else [],
         })
 
     assigned_project_ids = {a["project_id"] for a in raw_assignments}
@@ -105,24 +155,43 @@ def optimize_multiple_projects(project_ids: list[str]) -> dict:
     return {"assignments": enriched_assignments, "unstaffed_projects": unstaffed}
 
 
+def _fetch_single_training_candidates(engagement_id: str):
+    """Helper worker to fetch mentor candidates for one training engagement concurrently."""
+    t_start = time.time()
+    engagement = get_training_engagement(engagement_id)
+    if not engagement:
+        return None
+
+    ranked = recommend_mentor_for_training(engagement_id)
+    logging.info(f"Training engagement {engagement_id} mentor fetch took: {time.time() - t_start:.2f}s")
+    return {"engagement_id": engagement_id, "ranked": ranked}
+
+
 def optimize_multiple_trainings(engagement_ids: list[str]) -> dict:
-    """
-    Optimizes team-lead assignment across multiple training engagements
-    at once — same concept as project optimization, preventing the same
-    team lead from being over-assigned across simultaneous trainings.
-    """
+    """Optimizes team-lead assignment across multiple training engagements in parallel."""
+    MAX_BATCH_SIZE = 10
+    if len(engagement_ids) > MAX_BATCH_SIZE:
+        logging.warning(f"Batch size {len(engagement_ids)} exceeds limit. Capping to {MAX_BATCH_SIZE}.")
+        engagement_ids = engagement_ids[:MAX_BATCH_SIZE]
+
     trainings_for_optimizer = []
     trainings_with_ranked_candidates = {}
 
-    for engagement_id in engagement_ids:
-        engagement = get_training_engagement(engagement_id)
-        if not engagement:
-            continue
+    max_workers = min(len(engagement_ids), 8)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_eid = {
+            executor.submit(_fetch_single_training_candidates, eid): eid 
+            for eid in engagement_ids
+        }
+        for future in as_completed(future_to_eid):
+            res = future.result()
+            if res:
+                eid = res["engagement_id"]
+                trainings_for_optimizer.append({"project_id": eid})
+                trainings_with_ranked_candidates[eid] = res["ranked"]
 
-        trainings_for_optimizer.append({"project_id": engagement_id})
-
-        ranked = recommend_mentor_for_training(engagement_id)
-        trainings_with_ranked_candidates[engagement_id] = ranked
+    if not trainings_for_optimizer:
+        return {"assignments": [], "unstaffed_engagements": engagement_ids}
 
     score_matrix = build_score_matrix(trainings_with_ranked_candidates, min_score=40.0)
 
@@ -138,25 +207,18 @@ def optimize_multiple_trainings(engagement_ids: list[str]) -> dict:
         trainings_for_optimizer, list(all_candidates_by_id.values()), score_matrix
     )
 
-    with engine.connect() as conn:
-        name_lookup = {}
-        if raw_assignments:
-            ids = [a["candidate_id"] for a in raw_assignments]
-            rows = conn.execute(
-                text("SELECT employee_id, name FROM company_employees WHERE employee_id = ANY(:ids)"),
-                {"ids": ids},
-            ).fetchall()
-            name_lookup = {r[0]: r[1] for r in rows}
+    candidate_ids = list({a["candidate_id"] for a in raw_assignments})
+    employee_names = get_bulk_names(candidate_ids)
+    candidate_skills_map = get_bulk_person_skills(candidate_ids, person_type="employee")
 
     enriched_assignments = []
     for a in raw_assignments:
-        skills = get_person_skills(a["candidate_id"], "employee")
-        skill_names = get_skill_names([s["skill_id"] for s in skills])
+        cand_id = a["candidate_id"]
         enriched_assignments.append({
             "engagement_id": a["project_id"],
-            "candidate_id": a["candidate_id"],
-            "candidate_name": name_lookup.get(a["candidate_id"], "Unknown"),
-            "candidate_skills": skill_names,
+            "candidate_id": cand_id,
+            "candidate_name": employee_names.get(cand_id, "Unknown"),
+            "candidate_skills": candidate_skills_map.get(cand_id, []),
             "score": a["score"],
         })
 

@@ -67,11 +67,12 @@ export default function DashboardOverview() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
+  const API_BASE = import.meta.env.VITE_BACKEND_URL || 'https://employee-allocation-ai.onrender.com';
+  
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
-      const response = await fetch("https://employee-allocation-ai.onrender.com/api/dashboard/overview");
+      const response = await fetch(`${API_BASE}/api/dashboard/overview`);
       if (!response.ok) throw new Error("Failed to fetch dashboard data");
       const result = await response.json();
       setData(result);

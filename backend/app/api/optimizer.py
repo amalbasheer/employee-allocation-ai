@@ -1,12 +1,16 @@
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 from typing import List
+import time
+import logging
+import asyncio
 
 from ai_engine.optimizer_integration import (
     optimize_multiple_projects,
     optimize_multiple_trainings,
 )
 
+logger = logging.getLogger("api.optimizer")
 router = APIRouter()
 
 
@@ -39,10 +43,26 @@ async def api_optimize_projects(payload: ProjectOptimizeRequest):
             detail="project_ids list cannot be empty."
         )
 
+    t0 = time.time()
+    logger.info(f"[START] Optimizing {len(payload.project_ids)} projects")
+
     try:
-        result = optimize_multiple_projects(payload.project_ids)
+        # Offload synchronous execution to asyncio threadpool with a strict timeout
+        result = await asyncio.wait_for(
+            asyncio.to_thread(optimize_multiple_projects, payload.project_ids),
+            timeout=12.0  # Force response within 12 seconds to prevent client timeout
+        )
+        logger.info(f"[SUCCESS] Projects optimized in {time.time() - t0:.2f}s")
         return result
+
+    except asyncio.TimeoutError:
+        logger.error(f"[TIMEOUT] Project optimization exceeded 12s limit (elapsed: {time.time() - t0:.2f}s)")
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Project optimization timed out. Reduce batch size or optimize DB queries."
+        )
     except Exception as e:
+        logger.error(f"[ERROR] Project optimization failed after {time.time() - t0:.2f}s: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Project optimization error: {str(e)}"
@@ -62,10 +82,25 @@ async def api_optimize_trainings(payload: TrainingOptimizeRequest):
             detail="engagement_ids list cannot be empty."
         )
 
+    t0 = time.time()
+    logger.info(f"[START] Optimizing {len(payload.engagement_ids)} trainings")
+
     try:
-        result = optimize_multiple_trainings(payload.engagement_ids)
+        result = await asyncio.wait_for(
+            asyncio.to_thread(optimize_multiple_trainings, payload.engagement_ids),
+            timeout=12.0
+        )
+        logger.info(f"[SUCCESS] Trainings optimized in {time.time() - t0:.2f}s")
         return result
+
+    except asyncio.TimeoutError:
+        logger.error(f"[TIMEOUT] Training optimization exceeded 12s limit (elapsed: {time.time() - t0:.2f}s)")
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Training optimization timed out."
+        )
     except Exception as e:
+        logger.error(f"[ERROR] Training optimization failed after {time.time() - t0:.2f}s: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Training optimization error: {str(e)}"

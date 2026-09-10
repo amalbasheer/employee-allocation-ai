@@ -16,7 +16,10 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise EnvironmentError("DATABASE_URL not set in .env")
 
-engine = create_engine(DATABASE_URL)
+engine = create_engine(DATABASE_URL, pool_size=20,         # Increase base connections from 5 to 20
+    max_overflow=20,      # Allow up to 20 additional burst connections
+    pool_timeout=5,       # Raise an error after 5s instead of hanging for 30s
+    pool_pre_ping=True,)
 
 CATEGORY_TO_DEPARTMENT = {
     "Machine Learning": "Data Science",
