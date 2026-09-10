@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Plus, Layers, Sliders, Clock, Send, UserCheck, XCircle, CheckCircle2, 
   Tag, Calendar, ArrowRight, ThumbsUp, ThumbsDown, GraduationCap, CheckCircle,
-  Star, UserPlus, RefreshCw, Users, FolderPlus, X, PlayCircle, Crown, Sparkles 
+  Star, UserPlus, RefreshCw, Users, FolderPlus, X, PlayCircle, Crown, Sparkles, 
+  FolderSync
 } from 'lucide-react';
 import { Card } from '../../components/common/Card';
 import AIProjectModal from "../../components/AIProjectModal";
@@ -12,7 +13,7 @@ import { AllocationStatus } from '../../types';
 // --- Types ---
 export type ProjectStatus = 'open' | 'completed' |'in_progress';
 export type AllocatedStatus = 'proposed' | 'accepted' |'rejected' | 'assigned' | 'substituted' | 'unassigned';
-export type MainTab = 'ALL_PROJECTS' | 'RECOMMENDATIONS';
+export type MainTab = 'ALL_PROJECTS' | 'RECOMMENDATIONS' | 'OPTIMIZATIONS';
 export type RecommendationSubTab = 'MENTORS' | 'STUDENTS';
 
 export interface Mentor {
@@ -298,6 +299,7 @@ export const ProjectAllocation: React.FC = () => {
     }
   }, [activeTab]);
 
+  
   const handleProposeMentor = async (referenceId: string, mentor: Mentor) => {
   // 1. Locate current project in state
   const currentProject = projects.find(
@@ -761,6 +763,17 @@ export const ProjectAllocation: React.FC = () => {
         >
           <Sliders className="w-4 h-4" /> Resource Allocation
         </button>
+        <button
+          onClick={() => setActiveTab('OPTIMIZATIONS')}
+          className={`pb-3 text-sm font-medium flex items-center gap-2 border-b-2 transition-all ${
+            activeTab === 'OPTIMIZATIONS'
+              ? 'border-indigo-500 text-indigo-400'
+              : 'border-transparent text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Layers className="w-4 h-4" /> Optimizations
+        </button>
+        
       </div>
 
       {/* TAB 1: ALL PROJECTS LIST */}
@@ -799,7 +812,19 @@ export const ProjectAllocation: React.FC = () => {
           </select>
         </div>
       </div>
-    </div>
+        <div className="flex justify-end">
+         {/* Sync Completed Projects Refresh Button */}
+        <button
+          onClick={handleSyncCompletedProjects}
+  
+          className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg transition-all"
+          type="button"
+        >
+          <FolderSync className="w-4 h-4" /> Optimize
+        </button>
+        </div>
+      </div>
+    
 
     {loadingProjects ? (
       <div className="p-8 text-center text-slate-400 flex justify-center items-center gap-2">
