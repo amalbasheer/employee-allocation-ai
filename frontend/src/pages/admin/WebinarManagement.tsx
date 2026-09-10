@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Card } from '../../components/common/Card';
 import { 
   Video, Plus, Clock, CheckCircle2, XCircle, Send, 
-  UserCheck, Star, UserPlus, Sliders, ArrowRight, Download,
+  UserCheck, Star, UserPlus, Sliders, ArrowRight, Download, FolderSync,
   GraduationCap, RefreshCw, Sparkles, Filter, AlertCircle, X, Loader2
 } from 'lucide-react';
 
@@ -666,9 +666,19 @@ const handleDownloadWebinarPdf = async (idea: WebinarIdea) => {
   )}
 </div>
         {subTab === 'list' && (
-  <Card title="Training Engagements">
-    <div className="space-y-3">
-      
+  <Card
+    title="Training Engagements"
+    action={
+      <button
+        onClick={handleAutoGenerateBatch}
+        className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg transition-all"
+        type="button"
+      >
+        <FolderSync className="w-4 h-4" /> Optimize
+      </button>
+    }
+  >
+  <div className="space-y-3">
       {filteredEngagements.map((item) => {
         const isSelected = selectedEngagementIds?.includes(item.engagement_id);
         return (

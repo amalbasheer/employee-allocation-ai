@@ -1459,7 +1459,7 @@ const handleAIProjectGenerated = (aiData: any) => {
             <div className="text-2xl font-bold text-indigo-400 mt-1 flex items-center gap-1">
               {(
                 (optimizationResult.assignments.reduce((acc, curr) => acc + curr.score, 0) /
-                  (optimizationResult.assignments.length || 1)) * 100
+                  (optimizationResult.assignments.length || 1))
               ).toFixed(1)}%
               <Star className="w-5 h-5 text-indigo-400 fill-indigo-400/20" />
             </div>
@@ -1475,7 +1475,7 @@ const handleAIProjectGenerated = (aiData: any) => {
           <div className="grid grid-cols-1 gap-4">
             {optimizationResult.assignments.map((assignment) => {
               const project = projects.find((p) => p.id === assignment.project_id);
-              const scorePct = Math.round(assignment.score * 100);
+              const scorePct = Math.round(assignment.score);
 
               return (
                 <div
