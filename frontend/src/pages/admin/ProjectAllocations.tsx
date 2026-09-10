@@ -217,7 +217,7 @@ const handleAIProjectGenerated = (aiData: any) => {
       };
 
     // 2. Call FastAPI backend
-      const res = await api.post('/api/projects', payload);
+      const res = await api.post('${API_BASE}/api/projects', payload);
       const createdProject = res.data;
 
     // 3. Map backend response to React state model
@@ -1183,14 +1183,14 @@ const handleAIProjectGenerated = (aiData: any) => {
                                 className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-lg animate-pulse flex items-center gap-1.5"
                               >
                                 <CheckCircle2 className="w-3.5 h-3.5" />
-                                {selectedProject.isSubstituting || selectedProject.status === 'open'
-                                  ? 'Confirm Substitution'
-                                  : 'Confirm Allocation'}
+                                {selectedProject.status === 'open'
+                     } Confirm Allocation
+                                  
                               </button>
                               <span className="text-[10px] text-emerald-400 font-medium">
-                                {selectedProject.isSubstituting || selectedProject.status === 'open'
-                                  ? 'Substituted mentor accepted proposal!'
-                                  : 'Mentor accepted proposal!'}
+                                {selectedProject.status === 'open'
+                     }
+                                   Mentor accepted proposal!
                                 </span>
                               </div>
                             )}
@@ -1255,24 +1255,7 @@ const handleAIProjectGenerated = (aiData: any) => {
                             </div>
                           )}
                             {/* 2. Accepted State: Confirm Button (Handles Initial Allocation vs. Substitution) */}
-                          {isThisMentorProposed && selectedProject.proposedMentorStatus === 'accepted' && (
-                            <div className="flex flex-col items-end gap-1">
-                              <button
-                                onClick={() => handleConfirmMentor(selectedProject.id)}
-                                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-lg animate-pulse flex items-center gap-1.5"
-                              >
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                {selectedProject.isSubstituting || selectedProject.status === 'open'
-                                  ? 'Confirm Substitution'
-                                  : 'Confirm Allocation'}
-                              </button>
-                              <span className="text-[10px] text-emerald-400 font-medium">
-                                {selectedProject.isSubstituting || selectedProject.status === 'open'
-                                  ? 'Substituted mentor accepted proposal!'
-                                  : 'Mentor accepted proposal!'}
-                                </span>
-                              </div>
-                            )}
+                        
 
                         </div>
                         </div>
@@ -1543,6 +1526,21 @@ const handleAIProjectGenerated = (aiData: any) => {
                         <UserCheck className="w-3.5 h-3.5" /> Propose Mentor
                       </button>
                     </div>
+                    <div className="flex items-center gap-2">
+                          {/* 1. Proposed State: Waiting for Mentor Acceptance */}
+                          {selectedProject.proposedMentorStatus === 'proposed' && (
+                            <div className="flex flex-col items-end gap-1">
+                              <button
+                                disabled
+                                className="bg-slate-800 text-slate-400 cursor-not-allowed text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 border border-slate-700 opacity-80"
+                              >
+                                <Send className="w-3.5 h-3.5 text-amber-400" /> Proposed
+                              </button>
+                              <span className="text-[10px] text-amber-400 font-medium italic">
+                                Waiting for acceptance...
+                              </span>
+                            </div>
+                          )}</div>
 
                     {/* Suggested Intern / Student */}
                     <div className="bg-slate-800/40 rounded-lg p-4 border border-slate-800/80 flex flex-col justify-between">
@@ -1672,8 +1670,8 @@ const handleAIProjectGenerated = (aiData: any) => {
                     <option value="DevOps & Security">DevOps & Security</option>
                     <option value="Full Stack">Full Stack</option>
                     <option value="Backend Architecture">Backend Architecture</option>
-                    <option value="Backend Architecture">Data Science</option>
-                    <option value="Backend Architecture">Data Analytics</option>
+                    <option value="Data Science">Data Science</option>
+                    <option value="Data Analytics">Data Analytics</option>
                   </select>
                 </div>
 
