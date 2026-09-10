@@ -330,20 +330,21 @@ def create_project(
                     "is_mandatory": getattr(req, "is_mandatory", True)
                 })
 
-        # Case B: AI Skill Extraction
+         # Case B: AI Skill Extraction
         if not raw_requirements and extract_skills_from_text:
             if new_project.description or raw_skills_input:
                 try:
                     extracted = extract_skills_from_text(
                         new_project.description or "",
-                        raw_skills_input
+                        source_type="project"
                     )
-                    for item in extracted:
-                        s_name = getattr(item, "skill_name", str(item))
+                    skill_list = extracted.get("skills", []) if isinstance(extracted, dict) else extracted
+                    for item in skill_list:
+                        s_name = item.get("name") if isinstance(item, dict) else str(item)
                         raw_requirements.append({
                             "skill_name": str(s_name),
-                            "min_proficiency": getattr(item, "min_proficiency", 3),
-                            "is_mandatory": getattr(item, "is_mandatory", True)
+                            "min_proficiency": item.get("min_proficiency", 3) if isinstance(item, dict) else 3,
+                            "is_mandatory": item.get("is_mandatory", True) if isinstance(item, dict) else True
                         })
                 except Exception as e:
                     logger.warning(f"AI skill extraction failed: {e}. Falling back to raw skills.")
