@@ -8,11 +8,11 @@ import DashboardOverview from './pages/admin/OverviewDashboard';
 import { UserManagement } from './pages/admin/UserManagement';
 import { TrainingManagement } from './pages/admin/WebinarManagement';
 import { EmployeeDashboard } from './pages/employee/EmployeeDashboard';
-import  StudentDashboard  from './pages/student/StudentDashboard';
+import StudentDashboard from './pages/student/StudentDashboard';
 import { Role } from './types';
 import { ProjectAllocation } from './pages/admin/ProjectAllocations';
 import { EmployeeAvailabilityPage } from './pages/employee/EmployeeAvailability';
-import TrainingAllocationsPage, { TrainingAllocationsDashboard } from './pages/employee/TrainingEngagement';
+import { TrainingAllocationsDashboard } from './pages/employee/TrainingEngagement';
 
 interface ProtectedRouteProps {
   children?: React.ReactNode;
@@ -20,20 +20,25 @@ interface ProtectedRouteProps {
 }
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles }) => {
-  const { user, isAuthenticated } = useAuth();
+  const { user, role: contextRole, isAuthenticated } = useAuth();
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
 
-  if (allowedRoles && user?.role && !allowedRoles.includes(user.role)) {
-    const role = user.role.toUpperCase();
-    if (role === 'ADMIN') return <Navigate to="/admin/overview" replace />;
-    if (role === 'STUDENT' || role === 'INTERN') return <Navigate to="/student/dashboard" replace />;
-    return <Navigate to="/employee/dashboard" replace />;
+  // Extract role and normalize to uppercase for robust case-insensitive matching
+  const activeRole = (contextRole || user?.role || (user as any)?.user_metadata?.role || '')?.toUpperCase();
+
+  if (allowedRoles && activeRole) {
+    const normalizedAllowed = allowedRoles.map((r) => r.toUpperCase());
+
+    if (!normalizedAllowed.includes(activeRole)) {
+      if (activeRole === 'ADMIN') return <Navigate to="/admin/overview" replace />;
+      if (activeRole === 'STUDENT' || activeRole === 'INTERN') return <Navigate to="/student/dashboard" replace />;
+      return <Navigate to="/employee/dashboard" replace />;
+    }
   }
 
-  // Render children if passed as a wrapper, otherwise render Outlet for layout routes
   return children ? <>{children}</> : <Outlet />;
 };
 
@@ -42,11 +47,10 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* Public Login Route */}
+          {/* Public Routes */}
           <Route path="/login" element={<Login />} />
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/activate" element={<ActivateAccount />} />
-          
 
           {/* Protected Routes inside AppLayout */}
           <Route element={<ProtectedRoute />}>
@@ -95,20 +99,18 @@ export default function App() {
                 path="/employee/engagement"
                 element={
                   <ProtectedRoute allowedRoles={['EMPLOYEE']}>
-                    <TrainingAllocationsDashboard/>
+                    <TrainingAllocationsDashboard />
                   </ProtectedRoute>
                 }
-              
               />
               <Route
                 path="/employee/availability"
                 element={
                   <ProtectedRoute allowedRoles={['EMPLOYEE']}>
-                    <EmployeeAvailabilityPage/>
+                    <EmployeeAvailabilityPage />
                   </ProtectedRoute>
                 }
               />
-              <Route path="/student/dashboard" element={<StudentDashboard />} />
               <Route
                 path="/student/dashboard"
                 element={

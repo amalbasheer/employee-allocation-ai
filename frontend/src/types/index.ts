@@ -7,11 +7,11 @@ export type ProjectStatus = 'open' | 'in_progress' | 'completed' | 'cancelled';
 export type AllocationStatus = 'proposed' | 'accepted' | 'rejected' | 'assigned' | 'substituted';
 
 export enum UserRole {
-  ADMIN = 'admin',
-  SUPERADMIN = 'superadmin',
-  EMPLOYEE = 'employee',
-  STUDENT = 'student',
-  INTERN = 'intern',
+  ADMIN = 'ADMIN',
+  SUPERADMIN = 'SUPERADMIN',
+  EMPLOYEE = 'EMPLOYEE',
+  STUDENT = 'STUDENT',
+  INTERN = 'INTERN',
 }
 
 // ==========================================
@@ -24,7 +24,11 @@ export interface User {
   role: Role;
   department?: string;
   avatarUrl?: string;
-}
+  user_metadata?: {
+    name?: string;
+    role?: Role;
+    [key: string]: any;
+}};
 
 export interface UserProfile {
   id: string;

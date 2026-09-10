@@ -6,7 +6,7 @@ interface AuthContextType {
   user: User | null;
   role: Role | null;
   token: string | null;
-  login: (userData: User, token?: string) => void;
+  login: (userData: any, token?: string) => void;
   logout: () => void;
   isAuthenticated: boolean;
 }
@@ -14,18 +14,34 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // Directly pull role strictly from user_metadata
+  const extractRole = (userData: any): Role | null => {
+    return userData?.user_metadata?.role || null;
+  };
+
   const [user, setUser] = useState<User | null>(() => {
     const savedUser = localStorage.getItem('auth_user');
-    return savedUser ? JSON.parse(savedUser) : null;
+    if (!savedUser) return null;
+    const parsedUser = JSON.parse(savedUser);
+    return {
+      ...parsedUser,
+      role: extractRole(parsedUser),
+    };
   });
 
   const [token, setToken] = useState<string | null>(() => {
     return localStorage.getItem('auth_token');
   });
 
-  const login = (userData: User, authToken?: string) => {
-    setUser(userData);
-    localStorage.setItem('auth_user', JSON.stringify(userData));
+  const login = (userData: any, authToken?: string) => {
+    const resolvedRole = extractRole(userData);
+    const normalizedUser = {
+      ...userData,
+      role: resolvedRole,
+    };
+
+    setUser(normalizedUser);
+    localStorage.setItem('auth_user', JSON.stringify(normalizedUser));
 
     if (authToken) {
       setToken(authToken);
@@ -40,11 +56,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('auth_token');
   };
 
+  const currentRole = extractRole(user);
+
   return (
     <AuthContext.Provider
       value={{
         user,
-        role: user?.role || null,
+        role: currentRole,
         token,
         login,
         logout,

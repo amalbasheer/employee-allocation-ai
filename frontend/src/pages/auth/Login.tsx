@@ -16,43 +16,40 @@ export const Login: React.FC = () => {
   const location = useLocation();
 
   const successMessage = location.state?.message;
+  // Capture original route if user was redirected to login
+  const from = location.state?.from?.pathname;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    console.log('⚡ STEP 1: Form submitted for:', email);
-
     try {
-      console.log('⚡ STEP 2: Sending request to /api/auth/login...');
-      
-      // Axios wraps the backend payload in .data
       const response = await api.post('/api/auth/login', { email, password });
-      
-      console.log('⚡ STEP 3: API Response received:', response.data);
-
       const { user: userData, token } = response.data;
 
-      console.log('⚡ STEP 4: Calling login() in AuthContext...');
+      // Update AuthContext session state
       login(userData, token);
-      console.log('⚡ STEP 5: AuthContext updated successfully.');
 
-      const role = userData?.role?.toLowerCase();
-      console.log('⚡ STEP 6: User role detected as:', role);
+      // Extract role with metadata fallback
+      const rawRole = userData?.role || userData?.user_metadata?.role || '';
+      const role = rawRole.toUpperCase();
 
-      if (role === 'admin') {
-        console.log('⚡ STEP 7: Navigating to /admin/overview');
+      // If user came from a protected route, send them back there
+      if (from) {
+        navigate(from, { replace: true });
+        return;
+      }
+
+      // Default role-based redirection
+      if (role === 'ADMIN') {
         navigate('/admin/overview', { replace: true });
-      } else if (role === 'student' || role === 'intern') {
-        console.log('⚡ STEP 7: Navigating to /student/dashboard');
+      } else if (role === 'STUDENT' || role === 'INTERN') {
         navigate('/student/dashboard', { replace: true });
       } else {
-        console.log('⚡ STEP 7: Navigating to /employee/dashboard');
         navigate('/employee/dashboard', { replace: true });
       }
     } catch (err: any) {
-      console.error('❌ STEP ERROR: Login failed with error:', err);
       const msg =
         err?.response?.data?.detail ||
         err?.response?.data?.message ||
@@ -60,7 +57,6 @@ export const Login: React.FC = () => {
         'Invalid email or password. Please try again.';
       setError(msg);
     } finally {
-      console.log('⚡ STEP 8: Cleaning up loading state.');
       setLoading(false);
     }
   };

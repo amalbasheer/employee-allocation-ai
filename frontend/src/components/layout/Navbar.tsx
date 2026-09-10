@@ -1,6 +1,7 @@
+// src/components/Navbar.tsx
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bot, LogOut, Bell, User } from 'lucide-react';
+import { LogOut, Bell, User } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { Badge } from '../common/Badge';
 import { AlignIQLogo } from '../common/AlignIQLogo';
@@ -14,16 +15,18 @@ export const Navbar: React.FC = () => {
     navigate('/login', { replace: true });
   };
 
-  const normalizedRole = role?.toUpperCase();
+  // Safely extract role & name across custom User and Supabase user metadata
+  const userMetadata = (user as any)?.user_metadata;
+  const activeRole = role || userMetadata?.role || user?.role;
+  const normalizedRole = activeRole?.toUpperCase();
+  const userName = userMetadata?.name || user?.name || 'User';
 
   return (
     <header className="h-16 bg-slate-900 border-b border-slate-800 px-6 flex items-center justify-between sticky top-0 z-40">
       <div className="flex items-center gap-3">
-        
-          <AlignIQLogo className="w-6 h-6 text-indigo-400" />
-        
+        <AlignIQLogo className="w-6 h-6 text-indigo-400" />
         <div>
-          <span className="text-sm font-bold text-white tracking-wide">AllignIQ</span>
+          <span className="text-sm font-bold text-white tracking-wide">AlignIQ</span>
           <span className="hidden sm:inline-block ml-2 text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded border border-slate-700 font-mono">
             v2.4 Engine
           </span>
@@ -64,7 +67,7 @@ export const Navbar: React.FC = () => {
             <User className="w-4 h-4" />
           </div>
           <div className="hidden md:block text-left">
-            <p className="text-xs font-semibold text-white">{user?.name || 'User'}</p>
+            <p className="text-xs font-semibold text-white">{userName}</p>
             <p className="text-[10px] text-slate-400 truncate max-w-[120px]">{user?.email}</p>
           </div>
         </div>
