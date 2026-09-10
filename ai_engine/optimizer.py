@@ -1,20 +1,13 @@
-"""
-optimizer.py
+import importlib
 
-PuLP-based workload optimization.
+try:
+    pulp = importlib.import_module("pulp")
+except ModuleNotFoundError as exc:
+    raise ModuleNotFoundError(
+        "PuLP is required for workload optimization. "
+        "Install it with: python -m pip install pulp"
+    ) from exc
 
-Unlike matching.py (which ranks candidates for ONE project), this solves
-allocation across MULTIPLE open projects at once so the same mentor isn't
-assigned to every project.
-
-Maximizes total suitability score across all assignments, subject to:
-    - each project gets at most one mentor
-    - mentors do not exceed the maximum allowed active projects
-"""
-
-import pulp
-
-# Business rule (can later move to config.py if needed)
 MAX_ACTIVE_PROJECTS = 2
 
 
@@ -22,102 +15,61 @@ def optimize_allocations(
     projects: list[dict],
     candidates: list[dict],
     score_matrix: dict[tuple[str, str], float],
+    time_limit_seconds: int = 3,
 ) -> list[dict]:
     """
-    Args:
-        projects:
-            [{"project_id": ...}, ...]
-
-        candidates:
-            [{
-                "id": ...,
-                "active_project_count": int
-            }, ...]
-
-        score_matrix:
-            {(project_id, candidate_id): suitability_score}
-
-    Returns:
-        [
-            {
-                "project_id": ...,
-                "candidate_id": ...,
-                "score": ...
-            }
-        ]
+    Solves workforce allocation using PuLP MIP solver.
     """
+    if not score_matrix or not projects:
+        return []
 
     prob = pulp.LpProblem("WorkforceAllocation", pulp.LpMaximize)
 
-    # Binary decision variable for every valid project-candidate pair
-    x = {
-        (p_id, c_id): pulp.LpVariable(f"x_{p_id}_{c_id}", cat="Binary")
-        for (p_id, c_id) in score_matrix
-    }
+    # 1. Decision variables & O(1) indexed variable lookup groups
+    x = {}
+    project_vars = {p["project_id"]: [] for p in projects}
+    candidate_vars = {c["id"]: [] for c in candidates}
+
+    for (p_id, c_id), score in score_matrix.items():
+        var = pulp.LpVariable(f"x_{p_id}_{c_id}", cat="Binary")
+        x[(p_id, c_id)] = var
+        if p_id in project_vars:
+            project_vars[p_id].append(var)
+        if c_id in candidate_vars:
+            candidate_vars[c_id].append(var)
 
     # Objective: maximize total suitability score
-    prob += pulp.lpSum(
-        score_matrix[pair] * x[pair]
-        for pair in x
-    )
+    prob += pulp.lpSum(score_matrix[pair] * x[pair] for pair in x)
 
     # ---------------------------------------------------------
-    # Constraint 1:
-    # Each project gets at most ONE mentor
+    # Constraint 1: Each project gets at most ONE mentor
     # ---------------------------------------------------------
-    for project in projects:
-        p_id = project["project_id"]
-
-        relevant_vars = [
-            x[pair]
-            for pair in x
-            if pair[0] == p_id
-        ]
-
-        if relevant_vars:
-            prob += pulp.lpSum(relevant_vars) <= 1
+    for p_id, vars_list in project_vars.items():
+        if vars_list:
+            prob += pulp.lpSum(vars_list) <= 1
 
     # ---------------------------------------------------------
-    # Constraint 2:
-    # Mentor cannot exceed maximum active projects
+    # Constraint 2: Mentor cannot exceed maximum active projects
     # ---------------------------------------------------------
     for candidate in candidates:
-
         c_id = candidate["id"]
+        vars_list = candidate_vars.get(c_id, [])
+        if not vars_list:
+            continue
 
-        active_projects = candidate.get(
-            "active_project_count",
-            0
-        )
+        active_projects = candidate.get("active_project_count", 0)
+        remaining_slots = max(0, MAX_ACTIVE_PROJECTS - active_projects)
+        prob += pulp.lpSum(vars_list) <= remaining_slots
 
-        remaining_slots = max(
-            0,
-            MAX_ACTIVE_PROJECTS - active_projects
-        )
-
-        relevant_pairs = [
-            pair
-            for pair in x
-            if pair[1] == c_id
-        ]
-
-        if relevant_pairs:
-            prob += (
-                pulp.lpSum(
-                    x[pair]
-                    for pair in relevant_pairs
-                )
-                <= remaining_slots
-            )
-
-    prob.solve(pulp.PULP_CBC_CMD(msg=0))
+    # Solve with a tight time limit to prevent web request timeouts
+    solver = pulp.PULP_CBC_CMD(msg=0, timeLimit=time_limit_seconds)
+    prob.solve(solver)
 
     results = []
-
     for (p_id, c_id), var in x.items():
-
-        if var.value() == 1:
-
+        val = var.value()
+        # Check against float precision tolerance (> 0.5 instead of == 1)
+        if val is not None and val > 0.5:
             results.append(
                 {
                     "project_id": p_id,
@@ -133,38 +85,20 @@ def build_score_matrix(
     projects_with_ranked_candidates: dict[str, list[dict]],
     min_score: float = 40.0,
 ) -> dict:
-
     matrix = {}
-
     for project_id, ranked_candidates in projects_with_ranked_candidates.items():
-
         for c in ranked_candidates:
-
-            if c["suitability_score"] >= min_score:
-
+            if c.get("suitability_score", 0) >= min_score:
                 matrix[(project_id, c["id"])] = c["suitability_score"]
-
     return matrix
 
 
 if __name__ == "__main__":
-
-    fake_projects = [
-        {"project_id": "p1"},
-        {"project_id": "p2"},
-    ]
-
+    fake_projects = [{"project_id": "p1"}, {"project_id": "p2"}]
     fake_candidates = [
-        {
-            "id": "alice",
-            "active_project_count": 1,
-        },
-        {
-            "id": "bob",
-            "active_project_count": 0,
-        },
+        {"id": "alice", "active_project_count": 1},
+        {"id": "bob", "active_project_count": 0},
     ]
-
     fake_scores = {
         ("p1", "alice"): 95,
         ("p1", "bob"): 90,
@@ -177,5 +111,4 @@ if __name__ == "__main__":
         fake_candidates,
         fake_scores,
     )
-
     print(assignments)

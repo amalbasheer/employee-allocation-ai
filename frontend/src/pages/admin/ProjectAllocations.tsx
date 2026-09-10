@@ -56,6 +56,23 @@ export interface Project {
   isSubstituting?: boolean;
 }
 
+// --- Optimization API Interfaces ---
+export interface ProjectAssignment {
+  project_id: string;
+  candidate_id: string;
+  candidate_name: string;
+  candidate_skills: string[];
+  score: number;
+  suggested_intern_id: string | null;
+  suggested_intern_name: string | null;
+  suggested_intern_skills: string[];
+}
+
+export interface ProjectOptimizeResponse {
+  assignments: ProjectAssignment[];
+  unstaffed_projects: string[];
+}
+
 // --- Mock Data ---
 const mockMentors: Mentor[] = [
   { id: 'm-1', name: 'Dr. Sarah Jenkins', role: 'Principal AI Engineer', matchScore: 98, skills: ['PyTorch', 'CUDA', 'FastAPI'] },
@@ -104,10 +121,17 @@ export const ProjectAllocation: React.FC = () => {
   // --- New Filter States ---
   const [projectStatusFilter, setProjectStatusFilter] = useState<string>('all');
   const [allocationStatusFilter, setAllocationStatusFilter] = useState<string>('all');
+  
+  // --- New Optimization State ---
+  const [isOptimizing, setIsOptimizing] = useState<boolean>(false);
+  const [optimizationResult, setOptimizationResult] = useState<ProjectOptimizeResponse | null>(null);
+  const [optimizationError, setOptimizationError] = useState<string | null>(null);
 
   // --- New Multi-Select State ---
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
-
+  
+  const API_BASE = import.meta.env.VITE_BACKEND_URL || 'https://employee-allocation-ai.onrender.com';
+  
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setIsModalOpen(false);
@@ -223,7 +247,7 @@ export const ProjectAllocation: React.FC = () => {
   const fetchProjects = async () => {
     setLoadingProjects(true);
     try {
-      const res = await api.get('/api/projects/details');
+      const res = await api.get(`${API_BASE}/api/projects/details`);
 
     // Map database response (snake_case) to React state model
       const mappedProjects: Project[] = res.data.map((p: any) => {
@@ -352,7 +376,7 @@ export const ProjectAllocation: React.FC = () => {
       };
 
       res = await api.post(
-        `api/allocations/${targetId}/substitute`,
+        `${API_BASE}/api/allocations/${targetId}/substitute`,
         substitutePayload
       );
     } else {
@@ -369,7 +393,7 @@ export const ProjectAllocation: React.FC = () => {
         suitability_score: mentor.matchScore || 0.85,
       };
 
-      res = await api.post('api/allocations/propose', proposePayload);
+      res = await api.post(`${API_BASE}/api/allocations/propose`, proposePayload);
     }
 
     const data = res.data;
@@ -405,7 +429,7 @@ export const ProjectAllocation: React.FC = () => {
   ) => {
     try {
       const targetStatus = response === 'ACCEPT' ? 'accepted' : 'rejected';
-      const res = await api.patch(`/allocations/${allocationId}/status`, {
+      const res = await api.patch(`${API_BASE}/api/allocations/${allocationId}/status`, {
         status: targetStatus,
         reason: `Mentor ${response.toLowerCase()}ed project proposal.`
       });
@@ -438,7 +462,7 @@ export const ProjectAllocation: React.FC = () => {
 
     try {
     // 2. Call backend PATCH endpoint (backend handles reference_id or allocation_id)
-      const res = await api.patch(`api/allocations/${targetId}/assign`, {
+      const res = await api.patch(`${API_BASE}/api/allocations/${targetId}/assign`, {
         status: 'assigned'
       });
 
@@ -470,7 +494,7 @@ export const ProjectAllocation: React.FC = () => {
 // 3. Reset or Cancel Proposal (Admin Action)
   const handleResetMentorProposal = async (allocationId: string) => {
     try {
-      const res = await api.patch(`api/allocations/${allocationId}/status`, {
+      const res = await api.patch(`${API_BASE}/api/allocations/${allocationId}/status`, {
         status: 'cancelled',
         reason: 'Admin reset the mentor proposal.'
       });
@@ -530,7 +554,7 @@ export const ProjectAllocation: React.FC = () => {
           suitability_score: (studentData?.matchScore || 85) / 100, // Converts percentage to decimal
         };
 
-        const res = await api.post('api/allocations/assign-student', assignPayload);
+        const res = await api.post(`${API_BASE}/api/allocations/assign-student`, assignPayload);
 
       // Update local state with newly assigned student ID
         setProjects((prev) =>
@@ -560,6 +584,42 @@ export const ProjectAllocation: React.FC = () => {
     setRecommendationSubTab(initialSubTab);
     setActiveTab('RECOMMENDATIONS');
   };
+
+    const handleOptimizeProjects = async () => {
+  // 1. Immediately switch to the OPTIMIZATION tab
+  setActiveTab('OPTIMIZATIONS');
+  setIsOptimizing(true);
+  setOptimizationError(null);
+
+  // 2. Target selected projects, or fallback to all open project IDs
+  const targetProjectIds = selectedProjectIds.length > 0 
+    ? selectedProjectIds 
+    : projects.filter(p => p.status === 'open').map(p => p.id);
+
+  if (targetProjectIds.length === 0) {
+    setOptimizationError('No open or selected projects available to optimize.');
+    setIsOptimizing(false);
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/optimize/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project_ids: targetProjectIds }),
+    });
+
+    if (!res.ok) throw new Error(`Optimization failed with status ${res.status}`);
+
+    const data: ProjectOptimizeResponse = await res.json();
+    setOptimizationResult(data);
+  } catch (err: any) {
+    console.error('Optimization API error:', err);
+    setOptimizationError(err.message || 'Failed to calculate optimal assignments.');
+  } finally {
+    setIsOptimizing(false);
+  }
+};
 
   const renderStatusBadge = (
     ProjectStatus?: string,
@@ -642,7 +702,7 @@ export const ProjectAllocation: React.FC = () => {
     setSyncStatus(null);
 
     try {
-      const res = await api.post('api/projects/sync-completed-projects');
+      const res = await api.post(`${API_BASE}/api/projects/sync-completed-projects`);
 
       if (res.data && res.data.success) {
         const syncedCount = res.data.count ?? res.data.synced_count ?? 0;
@@ -679,7 +739,7 @@ export const ProjectAllocation: React.FC = () => {
     // Map 'MENTORS' subtab to fetch 'team_leads' from backend
       const apiType = subTab === 'MENTORS' ? 'team_leads' : 'students';
 
-      const res = await api.post(`/api/projects/${projectId}/recommendations`, {
+      const res = await api.post(`${API_BASE}/api/projects/${projectId}/recommendations`, {
         type: apiType,
       });
 
@@ -815,7 +875,7 @@ export const ProjectAllocation: React.FC = () => {
         <div className="flex justify-end">
          {/* Sync Completed Projects Refresh Button */}
         <button
-          onClick={handleSyncCompletedProjects}
+          onClick={handleOptimizeProjects}
   
           className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg transition-all"
           type="button"
