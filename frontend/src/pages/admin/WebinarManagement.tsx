@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Card } from '../../components/common/Card';
 import { 
   Video, Plus, Clock, CheckCircle2, XCircle, Send, 
-  UserCheck, Star, UserPlus, Sliders, ArrowRight, Download, FolderSync,
+  UserCheck, Star, UserPlus, Sliders, ArrowRight, Download, FolderSync, Hourglass,
   GraduationCap, RefreshCw, Sparkles, Filter, AlertCircle, X, Loader2, Crown, Users
 } from 'lucide-react';
 
@@ -297,7 +297,7 @@ export const TrainingManagement: React.FC = () => {
     setSubTab('optimizations');
 
     try {
-      const res = await fetch(`${API_BASE}/api/trainings`, {
+      const res = await fetch(`${API_BASE}/api/optimize/trainings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ engagement_ids: idsToOptimize }),
@@ -720,7 +720,7 @@ export const TrainingManagement: React.FC = () => {
     title="Training Engagements"
     action={
       <button
-        onClick={handleAutoGenerateBatch}
+        onClick={handleOptimizeTrainings}
         className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg transition-all"
         type="button"
       >
@@ -889,7 +889,316 @@ export const TrainingManagement: React.FC = () => {
         )}
       </div>
     )}
+    {/* Subtab: Optimizations View */}
+{subTab === 'optimizations' && (
+  <div className="space-y-6">
+    {/* Header & Control Bar */}
+    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-slate-900/60 p-5 rounded-xl border border-slate-800">
+      <div>
+        <h3 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-amber-400" /> Global Speaker Optimization Results
+        </h3>
+        <p className="text-sm text-slate-400 mt-0.5">
+          AI-driven candidate matching based on engagement requirements, domain expertise, and availability.
+        </p>
+      </div>
 
+      <button
+        onClick={handleOptimizeTrainings}
+        disabled={isOptimizing}
+        className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white text-sm font-medium rounded-lg transition-colors shadow-lg shadow-indigo-600/20 shrink-0"
+      >
+        {isOptimizing ? (
+          <>
+            <Loader2 className="w-4 h-4 animate-spin text-white" />
+            Optimizing...
+          </>
+        ) : (
+          <>
+            <RefreshCw className="w-4 h-4" />
+            Re-run Optimization
+          </>
+        )}
+      </button>
+    </div>
+
+    {/* Loading State */}
+    {isOptimizing && (
+      <Card className="p-12 text-center bg-slate-900/40 border-slate-800">
+        <div className="flex flex-col items-center justify-center space-y-4">
+          <div className="p-4 rounded-full bg-indigo-500/10 text-indigo-400 animate-pulse">
+            <Sparkles className="w-8 h-8 animate-spin" />
+          </div>
+          <div>
+            <h4 className="text-base font-semibold text-slate-200">Analyzing Trainer Matches</h4>
+            <p className="text-sm text-slate-400 max-w-md mx-auto mt-1">
+              Evaluating candidate skills, required engagement hours, and availability metrics...
+            </p>
+          </div>
+        </div>
+      </Card>
+    )}
+
+    {/* Error State */}
+    {!isOptimizing && optimizationError && (
+      <Card className="p-6 bg-rose-950/20 border-rose-800/40">
+        <div className="flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+          <div>
+            <h4 className="text-sm font-semibold text-rose-300">Optimization Failed</h4>
+            <p className="text-sm text-rose-400/80 mt-1">{optimizationError}</p>
+          </div>
+        </div>
+      </Card>
+    )}
+
+    {/* Empty State */}
+    {!isOptimizing && !optimizationResult && !optimizationError && (
+      <Card className="p-12 text-center bg-slate-900/40 border-slate-800">
+        <Sliders className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+        <h4 className="text-base font-semibold text-slate-300">No Optimization Results Available</h4>
+        <p className="text-sm text-slate-500 max-w-sm mx-auto mt-1 mb-4">
+          Run global optimization to generate recommended speaker allocations based on current demand.
+        </p>
+        <button
+          onClick={handleOptimizeTrainings}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-lg transition-colors"
+        >
+          <Sparkles className="w-4 h-4" /> Run Speaker Optimization
+        </button>
+      </Card>
+    )}
+
+    {/* Results View */}
+    {!isOptimizing && optimizationResult && (
+      <div className="space-y-6">
+        {/* Metric Overview Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800">
+            <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Optimized Assignments</span>
+            <div className="text-2xl font-bold text-white mt-1 flex items-center gap-2">
+              {optimizationResult.assignments.length}
+              <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800">
+            <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Unstaffed Engagements</span>
+            <div className="text-2xl font-bold text-amber-400 mt-1 flex items-center gap-2">
+              {optimizationResult.unstaffed_engagements?.length || 0}
+              {(optimizationResult.unstaffed_engagements?.length || 0) > 0 && (
+                <Clock className="w-5 h-5 text-amber-400" />
+              )}
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800">
+            <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Average Match Score</span>
+            <div className="text-2xl font-bold text-indigo-400 mt-1 flex items-center gap-1">
+              {(
+                (optimizationResult.assignments.reduce((acc, curr) => acc + curr.score, 0) /
+                  (optimizationResult.assignments.length || 1))
+              ).toFixed(1)}%
+              <Star className="w-5 h-5 text-indigo-400 fill-indigo-400/20" />
+            </div>
+          </div>
+        </div>
+
+        {/* Assignments Matrix Grid */}
+        <div className="space-y-4">
+          <h3 className="text-base font-semibold text-white flex items-center gap-2">
+            <Crown className="w-4 h-4 text-amber-400" /> Optimal Speaker Allocations
+          </h3>
+
+          <div className="grid grid-cols-1 gap-4">
+            {optimizationResult.assignments.map((assignment) => {
+              const engagement = engagements.find((e) => e.engagement_id === assignment.engagement_id);
+              const scorePct = (assignment.score).toFixed(1);
+
+              const currentStatus = engagement?.status || 'open';
+              const isProposed = currentStatus === 'proposed';
+              const isAccepted = currentStatus === 'accepted';
+              const isRejected = currentStatus === 'rejected';
+              const isAllocated = currentStatus === 'allocated';
+
+              return (
+                <div
+                  key={assignment.engagement_id}
+                  className="bg-slate-900/70 border border-slate-800 hover:border-slate-700/80 rounded-xl p-5 transition-all space-y-4"
+                >
+                  {/* Top Bar: Engagement Info & Match Score */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">
+                          {assignment.engagement_id}
+                        </span>
+                        <h4 className="text-base font-semibold text-white">
+                          {engagement ? engagement.title : `Engagement ${assignment.engagement_id}`}
+                        </h4>
+                        {renderStatusBadge(currentStatus)}
+                      </div>
+                      <div className="flex items-center gap-4 text-xs text-slate-400 mt-1">
+                        <span>{engagement?.required_hours || 0} Hours Required</span>
+                        <span>•</span>
+                        <span>{engagement?.engagement_type || 'Training'}</span>
+                        {engagement?.location && (
+                          <>
+                            <span>•</span>
+                            <span>{engagement.location}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 shrink-0">
+                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-medium">
+                        <Star className="w-3.5 h-3.5 fill-indigo-400" />
+                        <span>{scorePct}% Compatibility</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Allocation Details: Recommended Candidate & Action */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Suggested Speaker Details */}
+                    <div className="bg-slate-800/40 rounded-lg p-4 border border-slate-800/80 flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-semibold text-indigo-400 uppercase tracking-wide flex items-center gap-1">
+                            <Users className="w-3.5 h-3.5" /> Optimal Lead Speaker
+                          </span>
+                        </div>
+
+                        <div className="font-medium text-white text-sm">{assignment.candidate_name}</div>
+                        <div className="text-xs text-slate-400 font-mono mt-0.5">ID: {assignment.candidate_id}</div>
+
+                        {/* Candidate Skills */}
+                        {assignment.candidate_skills && assignment.candidate_skills.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 mt-3">
+                            {assignment.candidate_skills.map((skill, idx) => (
+                              <span
+                                key={idx}
+                                className="text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700"
+                              >
+                                {skill}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Action & Status Workflow Control Box */}
+                    <div className="bg-slate-800/40 rounded-lg p-4 border border-slate-800/80 flex flex-col justify-center items-center text-center">
+                      {/* State 1: Open -> Propose Speaker */}
+                      {currentStatus === 'open' && (
+                        <div className="w-full space-y-2">
+                          <p className="text-xs text-slate-400">Ready to send candidate proposal</p>
+                          <button
+                            onClick={() =>
+                              handleProposeMentor(assignment.engagement_id, {
+                                employee_id: assignment.candidate_id,
+                                name: assignment.candidate_name,
+                                designation: 'AI Recommended Speaker',
+                                match_score: assignment.score,
+                                skills: assignment.candidate_skills,
+                              })
+                            }
+                            className="w-full py-2.5 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors flex items-center justify-center gap-2 shadow-md shadow-indigo-600/20"
+                          >
+                            <Send className="w-3.5 h-3.5" /> Propose Speaker
+                          </button>
+                        </div>
+                      )}
+
+                      {/* State 2: Proposed -> Awaiting Employee Response */}
+                      {isProposed && (
+                        <div className="w-full p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-medium flex items-center justify-center gap-2">
+                          <Hourglass className="w-4 h-4 animate-spin shrink-0" />
+                          <span>Proposal Sent (Awaiting Employee Response)</span>
+                        </div>
+                      )}
+
+                      {/* State 3: Accepted by Employee -> Show Confirm Button */}
+                      {isAccepted && (
+                        <div className="w-full space-y-2">
+                          <p className="text-xs text-emerald-400 font-medium flex items-center justify-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Employee Accepted Proposal
+                          </p>
+                          <button
+                            onClick={() => handleConfirmAllocation(assignment.engagement_id)}
+                            className="w-full py-2.5 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium transition-colors flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Confirm Final Allocation
+                          </button>
+                        </div>
+                      )}
+
+                      {/* State 4: Rejected -> Substitute Required */}
+                      {isRejected && (
+                        <div className="w-full space-y-2">
+                          <p className="text-xs text-rose-400 font-medium flex items-center justify-center gap-1">
+                            <XCircle className="w-3.5 h-3.5" /> Employee Declined Proposal
+                          </p>
+                          <button
+                            onClick={() => {
+                              setSelectedEngagementId(assignment.engagement_id);
+                              setSubTab('allocation');
+                            }}
+                            className="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                          >
+                            <UserPlus className="w-3.5 h-3.5 text-indigo-400" /> Find Substitute
+                          </button>
+                        </div>
+                      )}
+
+                      {/* State 5: Fully Allocated */}
+                      {isAllocated && (
+                        <div className="w-full p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold flex items-center justify-center gap-2">
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Speaker Fully Allocated</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Unstaffed Engagements Warning Box */}
+        {optimizationResult.unstaffed_engagements &&
+          optimizationResult.unstaffed_engagements.length > 0 && (
+            <div className="p-5 rounded-xl bg-amber-500/10 border border-amber-500/20 space-y-3">
+              <div className="flex items-center gap-2 text-amber-400 font-medium text-sm">
+                <XCircle className="w-4 h-4" /> Unstaffed Engagements ({optimizationResult.unstaffed_engagements.length})
+              </div>
+              <p className="text-xs text-slate-400">
+                The constraint solver could not fulfill resource requirements for the following engagements without breaking allocation parameters:
+              </p>
+              <div className="flex flex-wrap gap-2 pt-1">
+                {optimizationResult.unstaffed_engagements.map((engId) => (
+                  <button
+                    key={engId}
+                    onClick={() => {
+                      setSelectedEngagementId(engId);
+                      setSubTab('allocation');
+                    }}
+                    className="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-mono border border-amber-500/30 transition-colors flex items-center gap-1"
+                  >
+                    <span>{engId}</span>
+                    <ArrowRight className="w-3 h-3 opacity-60" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+      </div>
+    )}
+  </div>
+)}
     {/* STUDENT BATCH TAB CONTENT */}
       {mainTab === 'student_batch' && (
         <div className="space-y-6">
