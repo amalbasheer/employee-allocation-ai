@@ -1,7 +1,7 @@
 # app/api/router.py
 from fastapi import APIRouter
 from app.api import (
-    auth, taxonomy, employees, interns, projects, allocations,
+    auth, taxonomy, employees, interns, projects, allocations, optimizer,
     chat_queries, dashboard, training, ai_project_helper, batches, ai_event_helper
 )
 
@@ -19,3 +19,4 @@ api_router.include_router(training.router, prefix="/training", tags=["Training M
 api_router.include_router(ai_project_helper.router, prefix="/ai-projects", tags=["AI Project Generator"])
 api_router.include_router(batches.router, prefix="/batches", tags=["Batches"])
 api_router.include_router(ai_event_helper.router,prefix="/ai_events", tags=["Webinars & Workshops"])
+api_router.include_router(optimizer.router, prefix="/optimize", tags=["Allocation Optimizer"])
