@@ -1,33 +1,37 @@
 import React from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
+import { Navigate, useLocation, Outlet } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 
 interface ProtectedRouteProps {
   allowedRoles?: string[];
-  children: React.ReactElement;
+  children?: React.ReactNode;
 }
 
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ allowedRoles, children }) => {
+  const { user, role: contextRole, isAuthenticated } = useAuth();
   const location = useLocation();
 
-  // Retrieve user session from localStorage (or update to your auth context hook)
-  const storedUser = localStorage.getItem('user');
-  const user = storedUser ? JSON.parse(storedUser) : null;
-
   // 1. Redirect to login if unauthenticated
-  if (!user) {
+  if (!isAuthenticated && !user) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // 2. Case-insensitive role verification
+  // 2. Extract role safely (Context -> user.role -> user_metadata.role)
+  const userMetadata = (user as any)?.user_metadata;
+  const activeRole = (contextRole || user?.role || userMetadata?.role || '').toString().toUpperCase();
+
+  // 3. Case-insensitive role verification & smart redirect
   if (allowedRoles && allowedRoles.length > 0) {
-    const userRole = (user.role || user.userType || '').toString().toUpperCase();
-    const hasAccess = allowedRoles.some((role) => role.toUpperCase() === userRole);
+    const hasAccess = allowedRoles.some((role) => role.toUpperCase() === activeRole);
 
     if (!hasAccess) {
-      return <Navigate to="/unauthorized" replace />;
+      if (activeRole === 'ADMIN') return <Navigate to="/admin/overview" replace />;
+      if (activeRole === 'EMPLOYEE') return <Navigate to="/employee/dashboard" replace />;
+      if (activeRole === 'STUDENT' || activeRole === 'INTERN') return <Navigate to="/student/dashboard" replace />;
+      return <Navigate to="/login" replace />;
     }
   }
 
-  // 3. Render dashboard if authorized
-  return children;
+  // 4. Support both explicit wrapper components and nested <Outlet /> routes
+  return children ? <>{children}</> : <Outlet />;
 };

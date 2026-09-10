@@ -1,11 +1,10 @@
 import React from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   GitMerge, 
   Users, 
   Video, 
-  CheckSquare, 
   GraduationCap, 
   DockIcon,
   Clock,
@@ -14,7 +13,8 @@ import {
 import { useAuth } from '../../context/AuthContext';
 
 export const Sidebar: React.FC = () => {
-  const { role } = useAuth();
+  const { role, user } = useAuth();
+  const location = useLocation();
 
   const adminNav = [
     { label: 'Overview', path: '/admin/overview', icon: LayoutDashboard },
@@ -25,24 +25,61 @@ export const Sidebar: React.FC = () => {
 
   const employeeNav = [
     { label: 'My Proposal & Projects', path: '/employee/dashboard', icon: DockIcon },
-    { label: 'Training & Engagements', path: '/employee/engagement', icon: WrapText},
+    { label: 'Training & Engagements', path: '/employee/engagement', icon: WrapText },
     { label: 'Availability Check', path: '/employee/availability', icon: Clock },
-    
-  
   ];
 
   const studentNav = [
     { label: 'Intern Allocations', path: '/student/dashboard', icon: GraduationCap },
   ];
 
-  const navItems = role === 'ADMIN' ? adminNav : role === 'EMPLOYEE' ? employeeNav : studentNav;
+  // 1. Multi-source role resolution
+  const resolveRole = (): string => {
+    if (typeof role === 'string' && role.trim()) return role;
+    if (user?.role) return user.role;
+    if ((user as any)?.user_metadata?.role) return (user as any).user_metadata.role;
+
+    // LocalStorage fallback for slow/hydrating context
+    try {
+      const stored = localStorage.getItem('user');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return parsed.role || parsed.user_metadata?.role || '';
+      }
+    } catch {
+      /* ignore JSON error */
+    }
+    return '';
+  };
+
+  const activeRole = resolveRole().toUpperCase();
+  const currentPath = location.pathname;
+
+  // 2. Determine Navigation Menu (Role-based WITH URL Path Fail-safe)
+  let navItems = studentNav;
+  let menuTitle = 'STUDENT';
+
+  if (activeRole.includes('ADMIN') || currentPath.startsWith('/admin')) {
+    navItems = adminNav;
+    menuTitle = 'ADMIN';
+  } else if (activeRole.includes('EMPLOYEE') || currentPath.startsWith('/employee')) {
+    navItems = employeeNav;
+    menuTitle = 'EMPLOYEE';
+  } else if (
+    activeRole.includes('STUDENT') ||
+    activeRole.includes('INTERN') ||
+    currentPath.startsWith('/student')
+  ) {
+    navItems = studentNav;
+    menuTitle = 'INTERN / STUDENT';
+  }
 
   return (
     <aside className="w-64 bg-slate-950 border-r border-slate-800 flex flex-col justify-between p-4 shrink-0 min-h-[calc(100vh-4rem)]">
       <div className="space-y-6">
         <div>
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 px-3">
-            Navigation Menu
+            {menuTitle} NAVIGATION
           </span>
           <nav className="mt-2 space-y-1">
             {navItems.map((item) => {
