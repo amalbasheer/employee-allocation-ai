@@ -192,7 +192,7 @@ async def schedule_engagement(payload: CreateEngagementSchema, db: Session = Dep
             logger.warning(f"Embedding generation failed: {e}")
 
     for skill_name in final_skill_names:
-        skill_id = get_or_create_skill(db, skill_name)
+        skill_id = get_or_create_skill(skill_name)
         training_req = TrainingRequirement(
             engagement_id=new_engagement.engagement_id,
             skill_id=skill_id,
