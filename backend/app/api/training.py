@@ -15,6 +15,7 @@ from ai_engine.extraction import extract_skills_from_text
 from ai_engine.embedding import generate_embedding
 from ai_engine.recommend import recommend_mentor_for_training
 from ai_engine.db import get_next_mentor_for_batch
+from skill_utils import get_or_create_skill
 
 logger = logging.getLogger(__name__)
 
