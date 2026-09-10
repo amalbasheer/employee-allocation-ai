@@ -3,7 +3,7 @@ import { Card } from '../../components/common/Card';
 import { 
   Video, Plus, Clock, CheckCircle2, XCircle, Send, 
   UserCheck, Star, UserPlus, Sliders, ArrowRight, Download, FolderSync,
-  GraduationCap, RefreshCw, Sparkles, Filter, AlertCircle, X, Loader2
+  GraduationCap, RefreshCw, Sparkles, Filter, AlertCircle, X, Loader2, Crown, Users
 } from 'lucide-react';
 
 export type EngagementTypeFilter = 'all' | 'webinar' | 'demo' | 'workshop' | 'seminar';
@@ -60,6 +60,19 @@ export interface StudentBatch {
   trainer_name?: string;
   status: string;
   delivery_mode?: string;
+}
+
+export interface TrainingAssignment {
+  engagement_id: string;
+  candidate_id: string;
+  candidate_name: string;
+  score: number;
+  candidate_skills: string[];
+}
+
+export interface TrainingOptimizeResponse {
+  assignments: TrainingAssignment[];
+  unstaffed_engagements: string[];
 }
 
 // Fallback Data (Used only if API calls fail)
@@ -130,13 +143,18 @@ const fallbackEngagements: TrainingEngagement[] = [
 export const TrainingManagement: React.FC = () => {
   const [mainTab, setMainTab] = useState<'engagements' | 'student_batch'>('engagements');
   const [typeFilter, setTypeFilter] = useState<EngagementTypeFilter>('all');
-  const [subTab, setSubTab] = useState<'list' | 'allocation'>('list');
+  const [subTab, setSubTab] = useState<'list' | 'allocation' | 'optimizations'>('list');
 
-  // Real Data States (Default to empty until loaded from API)
+  // Real Data States
   const [engagements, setEngagements] = useState<TrainingEngagement[]>([]);
   const [batches, setBatches] = useState<StudentBatch[]>([]);
   const [selectedEngagementId, setSelectedEngagementId] = useState<string>('');
   const [recommendedMentors, setRecommendedMentors] = useState<RecommendedMentor[]>([]);
+
+  // Optimization States
+  const [isOptimizing, setIsOptimizing] = useState(false);
+  const [optimizationResult, setOptimizationResult] = useState<TrainingOptimizeResponse | null>(null);
+  const [optimizationError, setOptimizationError] = useState<string | null>(null);
 
   // Active Batch Mentor Recommendation Expansion State
   const [selectedBatchIdForMentor, setSelectedBatchIdForMentor] = useState<string | null>(null);
@@ -168,13 +186,13 @@ export const TrainingManagement: React.FC = () => {
   const [webinarHours, setWebinarHours] = useState(2);
   const [webinarDesc, setWebinarDesc] = useState('');
   const [suggestedWebinars, setSuggestedWebinars] = useState<WebinarIdea[]>([]);
-  
+
   const API_BASE = import.meta.env.VITE_BACKEND_URL || 'https://employee-allocation-ai.onrender.com';
-  
+
   // Status Filter & Multi-Select States
   const [engagementStatusFilter, setEngagementStatusFilter] = useState<string>('all');
   const [selectedEngagementIds, setSelectedEngagementIds] = useState<string[]>([]);
-  
+
   // 1. Fetch Real Engagements from API
   useEffect(() => {
     fetch(`${API_BASE}/api/training/engagements`)
@@ -230,41 +248,76 @@ export const TrainingManagement: React.FC = () => {
     engagements.find((e) => e.engagement_id === selectedEngagementId) || engagements[0];
 
   // --- Filtering Logic ---
-const filteredEngagements = useMemo(() => {
-  return engagements.filter((e) => {
-    const matchesType = typeFilter === 'all' || e.engagement_type === typeFilter;
-    const matchesStatus = engagementStatusFilter === 'all' || e.status === engagementStatusFilter;
-    return matchesType && matchesStatus;
-  });
-}, [engagements, typeFilter, engagementStatusFilter]);
+  const filteredEngagements = useMemo(() => {
+    return engagements.filter((e) => {
+      const matchesType = typeFilter === 'all' || e.engagement_type === typeFilter;
+      const matchesStatus = engagementStatusFilter === 'all' || e.status === engagementStatusFilter;
+      return matchesType && matchesStatus;
+    });
+  }, [engagements, typeFilter, engagementStatusFilter]);
 
-// --- Multi-Select Handles ---
-const toggleSelectEngagement = (engagementId: string) => {
-  setSelectedEngagementIds((prev) =>
-    prev.includes(engagementId)
-      ? prev.filter((id) => id !== engagementId)
-      : [...prev, engagementId]
-  );
-};
+  // --- Multi-Select & Selection Handlers ---
+  const handleSelectEngagement = (engagementId: string) => {
+    setSelectedEngagementIds((prev) =>
+      prev.includes(engagementId)
+        ? prev.filter((id) => id !== engagementId)
+        : [...prev, engagementId]
+    );
+  };
 
-const toggleSelectAllFiltered = () => {
-  const filteredIds = filteredEngagements.map((e) => e.engagement_id);
-  const areAllSelected =
-    filteredIds.length > 0 && filteredIds.every((id) => selectedEngagementIds.includes(id));
+  const handleToggleSelectAll = () => {
+    const filterableIds = filteredEngagements.map((e) => e.engagement_id);
+    const areAllSelected = filterableIds.length > 0 && filterableIds.every((id) => selectedEngagementIds.includes(id));
 
-  if (areAllSelected) {
-    setSelectedEngagementIds((prev) => prev.filter((id) => !filteredIds.includes(id)));
-  } else {
-    setSelectedEngagementIds((prev) => Array.from(new Set([...prev, ...filteredIds])));
-  }
-};
+    if (areAllSelected) {
+      setSelectedEngagementIds((prev) => prev.filter((id) => !filterableIds.includes(id)));
+    } else {
+      setSelectedEngagementIds((prev) => Array.from(new Set([...prev, ...filterableIds])));
+    }
+  };
 
-const clearSelection = () => {
-  setSelectedEngagementIds([]);
-};
+  const clearSelection = () => {
+    setSelectedEngagementIds([]);
+  };
 
-  
-  
+  // --- Global Training Speaker Optimization ---
+  const handleOptimizeTrainings = async () => {
+    const idsToOptimize =
+      selectedEngagementIds.length > 0
+        ? selectedEngagementIds
+        : engagements.filter((e) => e.status === 'open' || e.status === 'proposed').map((e) => e.engagement_id);
+
+    if (idsToOptimize.length === 0) {
+      alert('Please select at least one engagement or ensure there are open/proposed engagements to optimize.');
+      return;
+    }
+
+    setIsOptimizing(true);
+    setOptimizationError(null);
+    setSubTab('optimizations');
+
+    try {
+      const res = await fetch(`${API_BASE}/api/trainings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ engagement_ids: idsToOptimize }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || `Server returned status ${res.status}`);
+      }
+
+      const data: TrainingOptimizeResponse = await res.json();
+      setOptimizationResult(data);
+    } catch (err: any) {
+      console.error('Training optimization failed:', err);
+      setOptimizationError(err.message || 'Failed to complete global speaker optimization.');
+    } finally {
+      setIsOptimizing(false);
+    }
+  };
+
   // 4. Fetch Real Recommended Mentors for Student Batch Drawer
   const handleToggleBatchMentorDrawer = async (batch: StudentBatch) => {
     if (selectedBatchIdForMentor === batch.batch_id) {
@@ -399,91 +452,88 @@ const clearSelection = () => {
 
   // Auto Generate Next Batch
   const handleAutoGenerateBatch = async () => {
-  try {
-    const res = await fetch(`${API_BASE}/api/training/student-batches/auto-generate-next`, { method: 'POST' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    
-    const generated = await res.json(); // this is an ARRAY of 2 batches
-    setBatches([...generated, ...batches]); // spread BOTH new batches into the list
-  } catch (e) {
-    console.error('Failed to auto-generate batch:', e);
-    alert('Failed to generate batch. Please try again or contact support.');
-    // NO fallback to fake data — show a real error instead
-  }
-};
+    try {
+      const res = await fetch(`${API_BASE}/api/training/student-batches/auto-generate-next`, { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      
+      const generated = await res.json();
+      setBatches([...generated, ...batches]);
+    } catch (e) {
+      console.error('Failed to auto-generate batch:', e);
+      alert('Failed to generate batch. Please try again or contact support.');
+    }
+  };
 
   const handleGenerateWebinarIdeas = async (e: React.FormEvent) => {
-  e.preventDefault();
-  setIsGeneratingWebinars(true);
+    e.preventDefault();
+    setIsGeneratingWebinars(true);
 
-  try {
-    const res = await fetch(`${API_BASE}/api/ai_events/suggest`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        domain: webinarDomain,
-        format_type: webinarFormat,
-        target_audience: webinarAudience,
-        duration_hours: webinarHours,
-        description: webinarDesc,
-      }),
-    });
+    try {
+      const res = await fetch(`${API_BASE}/api/ai_events/suggest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          domain: webinarDomain,
+          format_type: webinarFormat,
+          target_audience: webinarAudience,
+          duration_hours: webinarHours,
+          description: webinarDesc,
+        }),
+      });
 
-    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
 
-    const data = await res.json();
-    const rawList = Array.isArray(data) ? data : (data.webinars || []);
-    
-    setSuggestedWebinars(rawList);
-    // REMOVED: setIsWebinarModalOpen(false); -> Keep modal open to display results inside
-  } catch (err) {
-    console.error('Failed to generate webinar ideas:', err);
-  } finally {
-    setIsGeneratingWebinars(false);
-  }
-};
+      const data = await res.json();
+      const rawList = Array.isArray(data) ? data : (data.webinars || []);
+      
+      setSuggestedWebinars(rawList);
+    } catch (err) {
+      console.error('Failed to generate webinar ideas:', err);
+    } finally {
+      setIsGeneratingWebinars(false);
+    }
+  };
 
-// Download Webinar / Workshop Proposal PDF Handler
-const handleDownloadWebinarPdf = async (idea: WebinarIdea) => {
-  // Use idea.id or fallback to idea.title to isolate loading state per card
-  const targetId = idea.id || idea.title;
-  setDownloadingPdfId(targetId);
+  // Download Webinar / Workshop Proposal PDF Handler
+  const handleDownloadWebinarPdf = async (idea: WebinarIdea) => {
+    const targetId = idea.id || idea.title;
+    setDownloadingPdfId(targetId);
 
-  try {
-    const res = await fetch(`${API_BASE}/api/ai_events/generate-proposal-pdf`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: idea.title,
-        summary: idea.summary,
-        format_type: idea.format_type,
-        target_audience: idea.target_audience,
-        duration_hours: idea.duration_hours,
-      }),
-    });
+    try {
+      const res = await fetch(`${API_BASE}/api/ai_events/generate-proposal-pdf`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: idea.title,
+          summary: idea.summary,
+          format_type: idea.format_type,
+          target_audience: idea.target_audience,
+          duration_hours: idea.duration_hours,
+        }),
+      });
 
-    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
 
-    const blob = await res.blob();
-    const downloadUrl = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    
-    const safeTitle = (idea.title || 'Proposal').replace(/[^a-zA-Z0-9]/g, '_');
-    link.download = `Syllabus_${safeTitle}.pdf`;
-    
-    document.body.appendChild(link);
-    link.click();
-    
-    link.remove();
-    window.URL.revokeObjectURL(downloadUrl);
-  } catch (err) {
-    console.error('PDF download error:', err);
-    alert('Failed to download proposal PDF.');
-  } finally {
-    setDownloadingPdfId(null);
-  }
-};
+      const blob = await res.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      
+      const safeTitle = (idea.title || 'Proposal').replace(/[^a-zA-Z0-9]/g, '_');
+      link.download = `Syllabus_${safeTitle}.pdf`;
+      
+      document.body.appendChild(link);
+      link.click();
+      
+      link.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (err) {
+      console.error('PDF download error:', err);
+      alert('Failed to download proposal PDF.');
+    } finally {
+      setDownloadingPdfId(null);
+    }
+  };
 
   const renderStatusBadge = (status: EngagementStatus | string) => {
     switch (status) {
@@ -651,7 +701,7 @@ const handleDownloadWebinarPdf = async (idea: WebinarIdea) => {
         filteredEngagements.length > 0 &&
         filteredEngagements.every((e) => selectedEngagementIds.includes(e.engagement_id))
       }
-      onChange={toggleSelectAllFiltered}
+      onChange={handleToggleSelectAll}
       className="rounded bg-slate-900 border-slate-700 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
     />
     <span>Select All ({selectedEngagementIds.length} selected)</span>
@@ -692,7 +742,7 @@ const handleDownloadWebinarPdf = async (idea: WebinarIdea) => {
               <input
                 type="checkbox"
                 checked={isSelected}
-                onChange={() => toggleSelectEngagement(item.engagement_id)}
+                onChange={() => handleSelectEngagement(item.engagement_id)}
                 className="mt-1 rounded bg-slate-900 border-slate-700 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
               />
               <div className="p-2.5 bg-indigo-500/10 border border-indigo-500/20 rounded-lg text-indigo-400 mt-1">
