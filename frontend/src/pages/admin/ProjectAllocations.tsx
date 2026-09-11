@@ -217,7 +217,7 @@ const handleAIProjectGenerated = (aiData: any) => {
       };
 
     // 2. Call FastAPI backend
-      const res = await api.post('${API_BASE}/api/projects', payload);
+      const res = await api.post('/api/projects', payload);
       const createdProject = res.data;
 
     // 3. Map backend response to React state model
