@@ -3,7 +3,8 @@ import {
   Plus, Layers, Sliders, Clock, Send, UserCheck, XCircle, CheckCircle2, 
   Tag, Calendar, ArrowRight, ThumbsUp, ThumbsDown, GraduationCap, CheckCircle,
   Star, UserPlus, RefreshCw, Users, FolderPlus, X, PlayCircle, Crown, Sparkles, 
-  FolderSync
+  FolderSync,
+  User
 } from 'lucide-react';
 import { Card } from '../../components/common/Card';
 import AIProjectModal from "../../components/AIProjectModal";
@@ -648,7 +649,7 @@ const handleAIProjectGenerated = (aiData: any) => {
   // 1. Prioritize direct project status (In Progress / Completed)
     if (pStatus === 'in_progress') {
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
           <PlayCircle className="w-3 h-3" /> In Progress
         </span>
       );
@@ -660,6 +661,14 @@ const handleAIProjectGenerated = (aiData: any) => {
           <CheckCircle className="w-3 h-3" /> Completed
         </span>
       );
+    }
+
+    if (pStatus === 'on_leave') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20">
+          <User className="w-3 h-3" /> On Leave
+        </span>
+      );  
     }
 
   // 2. If Project Status is 'OPEN', check Allocation Status
@@ -692,6 +701,12 @@ const handleAIProjectGenerated = (aiData: any) => {
           return (
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-purple-500/10 text-purple-400 border border-purple-500/20">
               <RefreshCw className="w-3 h-3" /> Mentor Substituted
+            </span>
+          );
+        case 'on_leave':
+          return (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-500/10 text-gray-400 border border-gray-500/20">
+              <User className="w-3 h-3" /> On Leave
             </span>
           );
         
