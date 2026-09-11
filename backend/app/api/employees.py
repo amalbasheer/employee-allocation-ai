@@ -221,11 +221,20 @@ def normalize_to_monday(d: date) -> date:
 
 def generate_availability_id(db: Session) -> str:
     """
-    Generates sequential availability IDs in the format: rp2-avail-0001
+    Generates sequential availability IDs based on the highest existing ID.
     """
-    # Get the total count of availability records to determine the next index
-    count = db.query(func.count(Availability.availability_id)).scalar() or 0
-    next_num = count + 1
+    # Fetch the lexicographically highest availability_id
+    max_id = db.query(func.max(Availability.availability_id)).scalar()
+    
+    if not max_id:
+        next_num = 1
+    else:
+        # Extract trailing numbers (e.g., 'rp2-avail-0005' -> 5)
+        try:
+            next_num = int(max_id.split("-")[-1]) + 1
+        except (ValueError, IndexError):
+            next_num = 1
+
     return f"rp2-avail-{next_num:04d}"
 
 @router.get(
@@ -437,6 +446,7 @@ def submit_urgent_leave(
                 is_on_leave=True,
             )
             db.add(new_avail)
+            db.flush()  # Ensure the new record is assigned an ID before committing
 
         updated_weeks_summary.append(
             {

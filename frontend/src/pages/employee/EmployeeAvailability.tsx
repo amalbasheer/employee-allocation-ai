@@ -10,7 +10,8 @@ import {
   CheckCircle2, 
   AlertCircle,
   TrendingDown,
-  ChevronRight
+  ChevronRight,
+  AlertTriangle
 } from 'lucide-react';
 
 // Data Contracts matching FastAPI backend schemas
@@ -434,7 +435,62 @@ export const EmployeeAvailabilityPage: React.FC<{ employeeId?: string }> = ({
               </button>
             </form>
           </Card>
-        </div>
+          {/* Form 3: Urgent Leave Application */}
+        <Card>
+          <div className="flex items-center gap-2 mb-4">
+            <AlertTriangle className="w-5 h-5 text-amber-400" />
+            <h2 className="text-lg font-bold text-white">Urgent Leave Application</h2>
+          </div>
+
+          <form onSubmit={handleUrgentLeaveSubmit} className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Duration</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={urgentDurationValue}
+                  onChange={(e) => setUrgentDurationValue(Number(e.target.value))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-amber-500"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Unit</label>
+                <select
+                  value={urgentDurationUnit}
+                  onChange={(e) => setUrgentDurationUnit(e.target.value as 'days' | 'weeks')}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-amber-500"
+                >
+                  <option value="days">Days</option>
+                  <option value="weeks">Weeks</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Urgent Reason</label>
+              <textarea
+                rows={2}
+                placeholder="Medical emergency, family necessity..."
+                value={urgentReason}
+                onChange={(e) => setUrgentReason(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-amber-500 resize-none"
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="w-full bg-amber-600 hover:bg-amber-500 text-white font-medium text-sm rounded-xl py-2.5 flex items-center justify-center gap-2 transition-colors"
+            >
+              <AlertTriangle className="w-4 h-4" />
+              Submit Urgent Leave
+            </button>
+          </form>
+        </Card>
+
+      </div>
 
         {/* Right Column: 8-Week Bandwidth Forecast (7 cols) */}
         <div className="lg:col-span-7">
