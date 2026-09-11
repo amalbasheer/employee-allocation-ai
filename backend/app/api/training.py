@@ -147,11 +147,11 @@ def list_engagements(
 async def schedule_engagement(payload: CreateEngagementSchema, db: Session = Depends(get_db)):
     last_id = db.query(TrainingEngagement.engagement_id).order_by(TrainingEngagement.engagement_id.desc()).limit(1).scalar()
     if last_id:
-        prefix, num_str = last_id.rsplit('-', 1)
-        next_num = int(num_str) + 1
-        new_id = f"{prefix}-{next_num:04d}"
+      prefix, num_str = last_id.rsplit('-', 1)  # Splits 'rp2-train-0005' -> ['rp2-train', '0005']
+      next_num = int(num_str) + 1
+      new_id = f"{prefix}-{next_num:04d}"       # Formats back to 'rp2-train-0006'
     else:
-        new_id = "rp2-train-0001"
+      new_id = "rp2-train-0001"
 
     new_engagement = TrainingEngagement(
         engagement_id=new_id,
@@ -169,20 +169,26 @@ async def schedule_engagement(payload: CreateEngagementSchema, db: Session = Dep
         domain=payload.domain,
         mode=payload.mode,
     )
+
     db.add(new_engagement)
     db.flush()
 
     req_text = f"{payload.title} {payload.description or ''}"
 
+    # 1. Extract skills automatically from text
     final_skill_names = []
     if extract_skills_from_text and callable(extract_skills_from_text):
         try:
             raw_extracted = extract_skills_from_text(req_text, source_type="training")
             skill_list = raw_extracted.get("skills", []) if isinstance(raw_extracted, dict) else raw_extracted
-            final_skill_names = [item.get("name") for item in skill_list if isinstance(item, dict) and item.get("name")]
+            final_skill_names = [
+                item.get("name") for item in skill_list
+                if isinstance(item, dict) and item.get("name")
+            ]
         except Exception as e:
             logger.warning(f"Skill extraction failed: {e}")
 
+    # 2. Generate one embedding representing all extracted skills together
     req_embedding = None
     if generate_embedding and callable(generate_embedding):
         try:
@@ -191,20 +197,27 @@ async def schedule_engagement(payload: CreateEngagementSchema, db: Session = Dep
         except Exception as e:
             logger.warning(f"Embedding generation failed: {e}")
 
+    # 3. Convert each skill NAME into a real skill_id (creating it if new),
+    #    then save the actual requirement row
     for skill_name in final_skill_names:
-        skill_id = get_or_create_skill(skill_name)
-        training_req = TrainingRequirement(
-            engagement_id=new_engagement.engagement_id,
-            skill_id=skill_id,
-            min_proficiency=1,
-            is_mandatory=True,
-            requirement_embedding=req_embedding
-        )
-        db.add(training_req)
+        try:
+            skill_id = get_or_create_skill(skill_name)
+            training_req = TrainingRequirement(
+                engagement_id=new_engagement.engagement_id,
+                skill_id=skill_id,
+                min_proficiency=1,
+                is_mandatory=True,
+                requirement_embedding=req_embedding
+            )
+            db.add(training_req)
+        except Exception as e:
+            logger.warning(f"Failed to save requirement for skill '{skill_name}': {e}")
 
     db.commit()
     db.refresh(new_engagement)
     return new_engagement
+
+
 
 
 def parse_skill_label(skill_item, skill_map: dict) -> str | None:
