@@ -12,8 +12,8 @@ import api from '../../services/api'
 
 
 // --- Types ---
-export type ProjectStatus = 'open' | 'completed' |'in_progress';
-export type AllocatedStatus = 'proposed' | 'accepted' |'rejected' | 'assigned' | 'substituted' | 'unassigned';
+export type ProjectStatus = 'open' | 'completed' |'in_progress' | 'on_leave' | 'cancelled';
+export type AllocatedStatus = 'proposed' | 'accepted' |'rejected' | 'assigned' | 'substituted' | 'unassigned' | 'on_leave' | 'reset';
 export type MainTab = 'ALL_PROJECTS' | 'RECOMMENDATIONS' | 'OPTIMIZATIONS';
 export type RecommendationSubTab = 'MENTORS' | 'STUDENTS';
 
@@ -1038,248 +1038,260 @@ const handleAIProjectGenerated = (aiData: any) => {
   </Card>
 )}
 
-      {/* TAB 2: RECOMMENDATIONS & ALLOCATION */}
-      {activeTab === 'RECOMMENDATIONS' && (
-        <Card title="Resource Recommendation Portal">
-          {!selectedProject ? (
-            <div className="p-8 text-center text-slate-400">No project selected.</div>
-          ) : (
-            <div className="space-y-6">
-              {/* Project Selector Header */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-slate-900 border border-slate-800 rounded-xl">
-                <div>
-                  <label htmlFor="project-select" className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1">
-                    Select Target Project
-                  </label>
-                  <select
-                    id="project-select"
-                    value={selectedProject.id}
-                    onChange={(e) => setSelectedProjectId(e.target.value)}
-                    className="bg-slate-950 text-white text-sm font-semibold rounded-lg border border-slate-700 px-3 py-2 focus:outline-none focus:border-indigo-500"
+              {/* TAB 2: RECOMMENDATIONS & ALLOCATION */}
+{activeTab === 'RECOMMENDATIONS' && (
+  <Card title="Resource Recommendation Portal">
+    {!selectedProject ? (
+      <div className="p-8 text-center text-slate-400">No project selected.</div>
+    ) : (
+      <div className="space-y-6">
+        {/* Project Selector Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-slate-900 border border-slate-800 rounded-xl">
+          <div>
+            <label htmlFor="project-select" className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1">
+              Select Target Project
+            </label>
+            <select
+              id="project-select"
+              value={selectedProject.id}
+              onChange={(e) => setSelectedProjectId(e.target.value)}
+              className="bg-slate-950 text-white text-sm font-semibold rounded-lg border border-slate-700 px-3 py-2 focus:outline-none focus:border-indigo-500"
+            >
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.project_type})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400">
+            <div>
+              Mentor:{' '}
+              <span className="font-semibold text-slate-200">
+                {selectedProject.proposedMentorName || <span className="text-amber-400/80 italic">Unassigned</span>}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span>Status:</span>
+              {renderStatusBadge(selectedProject.status, selectedProject.proposedMentorStatus)}
+            </div>
+          </div>
+        </div>
+
+        {/* SIMULATED EMPLOYEE DASHBOARD ACTION BANNER */}
+        {selectedProject.proposedMentorStatus === 'proposed' && (
+          <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-between">
+            <div>
+              <p className="text-sm font-bold text-amber-300">Employee Dashboard Simulation</p>
+              <p className="text-xs text-slate-400">Project proposed to {selectedProject.proposedMentorName}. Simulate employee decision:</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleSimulateMentorResponse(selectedProject.id, 'ACCEPT')}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1 transition-all"
+              >
+                <ThumbsUp className="w-3.5 h-3.5" /> Employee Accept
+              </button>
+              <button
+                onClick={() => handleSimulateMentorResponse(selectedProject.id, 'REJECT')}
+                className="bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1 transition-all"
+              >
+                <ThumbsDown className="w-3.5 h-3.5" /> Employee Reject
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Sub-Tabs */}
+        <div className="flex border-b border-slate-800 gap-4 pt-2">
+          <button
+            onClick={() => setRecommendationSubTab('MENTORS')}
+            className={`pb-2 text-xs font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-all ${
+              recommendationSubTab === 'MENTORS'
+                ? 'border-indigo-500 text-indigo-400'
+                : 'border-transparent text-slate-500 hover:text-slate-300'
+            }`}
+          >
+            <UserCheck className="w-4 h-4" /> Recommended Mentors
+          </button>
+          <button
+            onClick={() => setRecommendationSubTab('STUDENTS')}
+            className={`pb-2 text-xs font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-all ${
+              recommendationSubTab === 'STUDENTS'
+                ? 'border-indigo-500 text-indigo-400'
+                : 'border-transparent text-slate-500 hover:text-slate-300'
+            }`}
+          >
+            <GraduationCap className="w-4 h-4" /> Recommended Interns
+          </button>
+        </div>
+
+        {/* MENTOR RECOMMENDATIONS */}
+        {recommendationSubTab === 'MENTORS' && (
+          <div className="space-y-3">
+            <p className="text-xs text-slate-400">
+              Top mentors matching skills ({selectedProject.requiredSkills?.join(', ') || 'None specified'}).
+            </p>
+
+            <div className="grid grid-cols-1 gap-4 pt-2">
+              {recommendedMentors.map((mentor, idx) => {
+                const isThisMentorProposed = selectedProject.proposedMentorId === mentor.id;
+                const hasAnyMentorProposed = Boolean(selectedProject.proposedMentorId);
+                const isTopMentor = idx === 0;
+
+                return (
+                  <div
+                    key={mentor.id}
+                    className={`relative bg-slate-950 border rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
+                      isTopMentor ? 'pt-7 pb-4 px-5 border-[#c59b27]/40' : 'p-5 border-slate-800'
+                    } ${isThisMentorProposed ? 'border-indigo-500/50 bg-indigo-950/10' : ''}`}
                   >
-                    {projects.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({p.project_type})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                    {/* MATTE METALLIC GOLD OVERFLOWING CORNER BADGE ONLY */}
+                    {isTopMentor && (
+                      <div className="absolute -top-px -left-px bg-[#c59b27] text-slate-950 text-[10px] font-bold tracking-wide px-3 py-1 rounded-tl-xl rounded-br-lg border-b border-r border-[#d4af37] flex items-center gap-1.5">
+                        <Crown className="w-3 h-3 text-slate-950 fill-slate-950" />
+                        Top Best Mentor Matched
+                      </div>
+                    )}
 
-                <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400">
-                  <div>
-                    Mentor:{' '}
-                    <span className="font-semibold text-slate-200">
-                      {selectedProject.proposedMentorName || <span className="text-amber-400/80 italic">Unassigned</span>}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span>Status:</span>
-                    {renderStatusBadge(selectedProject.status, selectedProject.proposedMentorStatus)}
-                  </div>
-                </div>
-              </div>
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h5 className="font-bold text-white text-sm">{mentor.name}</h5>
+                        <span className="text-[10px] bg-emerald-500/10 text-emerald-400 font-mono px-2 py-0.5 rounded border border-emerald-500/20 flex items-center gap-1">
+                          <Star className="w-3 h-3 fill-emerald-400" /> {mentor.matchScore}% Match
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400">{mentor.role}</p>
 
-              {/* SIMULATED EMPLOYEE DASHBOARD ACTION BANNER */}
-              {selectedProject.proposedMentorStatus === 'proposed' && (
-                <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-bold text-amber-300">Employee Dashboard Simulation</p>
-                    <p className="text-xs text-slate-400">Project proposed to {selectedProject.proposedMentorName}. Simulate employee decision:</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleSimulateMentorResponse(selectedProject.id, 'ACCEPT')}
-                      className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1 transition-all"
-                    >
-                      <ThumbsUp className="w-3.5 h-3.5" /> Employee Accept
-                    </button>
-                    <button
-                      onClick={() => handleSimulateMentorResponse(selectedProject.id, 'REJECT')}
-                      className="bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1 transition-all"
-                    >
-                      <ThumbsDown className="w-3.5 h-3.5" /> Employee Reject
-                    </button>
-                  </div>
-                </div>
-              )}
+                      <div className="flex flex-wrap gap-1 pt-1">
+                        {mentor.skills.map((skill, i) => (
+                          <span key={i} className="text-[10px] bg-slate-900 text-slate-400 px-2 py-0.5 rounded border border-slate-800">
+                            {skill}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
 
-              {/* Sub-Tabs */}
-              <div className="flex border-b border-slate-800 gap-4 pt-2">
-                <button
-                  onClick={() => setRecommendationSubTab('MENTORS')}
-                  className={`pb-2 text-xs font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-all ${
-                    recommendationSubTab === 'MENTORS'
-                      ? 'border-indigo-500 text-indigo-400'
-                      : 'border-transparent text-slate-500 hover:text-slate-300'
-                  }`}
-                >
-                  <UserCheck className="w-4 h-4" /> Recommended Mentors
-                </button>
-                <button
-                  onClick={() => setRecommendationSubTab('STUDENTS')}
-                  className={`pb-2 text-xs font-bold uppercase tracking-wider flex items-center gap-2 border-b-2 transition-all ${
-                    recommendationSubTab === 'STUDENTS'
-                      ? 'border-indigo-500 text-indigo-400'
-                      : 'border-transparent text-slate-500 hover:text-slate-300'
-                  }`}
-                >
-                  <GraduationCap className="w-4 h-4" /> Recommended Interns
-                </button>
-              </div>
+                    <div className="flex items-center gap-2">
+                      {/* 1. Proposed State: Waiting for Mentor Acceptance */}
+                      {isThisMentorProposed && selectedProject.proposedMentorStatus === 'proposed' && (
+                        <div className="flex flex-col items-end gap-1">
+                          <button
+                            disabled
+                            className="bg-slate-800 text-slate-400 cursor-not-allowed text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 border border-slate-700 opacity-80"
+                          >
+                            <Send className="w-3.5 h-3.5 text-amber-400" /> Proposed
+                          </button>
+                          <span className="text-[10px] text-amber-400 font-medium italic">
+                            Waiting for acceptance...
+                          </span>
+                        </div>
+                      )}
 
-              {/* MENTOR RECOMMENDATIONS */}
-              {recommendationSubTab === 'MENTORS' && (
-                <div className="space-y-3">
-                  <p className="text-xs text-slate-400">
-                    Top mentors matching skills ({selectedProject.requiredSkills?.join(', ') || 'None specified'}).
-                  </p>
+                      {/* 2. Substituted State */}
+                      {isThisMentorProposed && selectedProject.proposedMentorStatus === 'substituted' && (
+                        <div className="flex flex-col items-end gap-1">
+                          <button
+                            disabled
+                            className="bg-slate-800 text-slate-400 cursor-not-allowed text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 border border-slate-700 opacity-80"
+                          >
+                            <Send className="w-3.5 h-3.5 text-amber-400" /> Substituted
+                          </button>
+                          <span className="text-[10px] text-amber-400 font-medium italic">
+                            Waiting for acceptance...
+                          </span>
+                        </div>
+                      )}
 
-                  <div className="grid grid-cols-1 gap-4 pt-2">
-                    {recommendedMentors.map((mentor, idx) => {
-                      const isThisMentorProposed = selectedProject.proposedMentorId === mentor.id;
-                      const hasAnyMentorProposed = Boolean(selectedProject.proposedMentorId);
-                      const isRejected = selectedProject.proposedMentorStatus === 'rejected';
-                      const isTopMentor = idx === 0;
+                      {/* 3. Accepted State: Confirm Button */}
+                      {isThisMentorProposed && selectedProject.proposedMentorStatus === 'accepted' && (
+                        <div className="flex flex-col items-end gap-1">
+                          <button
+                            onClick={() => handleConfirmMentor(selectedProject.id)}
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-lg animate-pulse flex items-center gap-1.5"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Confirm Allocation
+                          </button>
+                          <span className="text-[10px] text-emerald-400 font-medium">
+                            Mentor accepted proposal!
+                          </span>
+                        </div>
+                      )}
 
-                      return (
-                        <div
-                          key={mentor.id}
-                          className={`relative bg-slate-950 border rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
-                            isTopMentor ? 'pt-7 pb-4 px-5 border-[#c59b27]/40' : 'p-5 border-slate-800'
-                          } ${isThisMentorProposed ? 'border-indigo-500/50 bg-indigo-950/10' : ''}`}
+                      {/* 4. Assigned State: Active Mentor */}
+                      {isThisMentorProposed && selectedProject.proposedMentorStatus === 'assigned' && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-emerald-400 font-bold flex items-center gap-1.5 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/20">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Assigned Mentor
+                          </span>
+                          <button
+                            onClick={() => handleResetMentorProposal(selectedProject.id)}
+                            className="text-xs text-slate-400 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800 transition-all flex items-center gap-1"
+                            title="Substitute Mentor"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" /> Substitute
+                          </button>
+                        </div>
+                      )}
+
+                      {/* 5. On Leave State: Assigned Mentor currently on leave */}
+                      {isThisMentorProposed && selectedProject.proposedMentorStatus === 'on_leave' && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-amber-400 font-bold flex items-center gap-1.5 bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/20">
+                            <Clock className="w-3.5 h-3.5" /> On Leave
+                          </span>
+                          <button
+                            onClick={() => handleResetMentorProposal(selectedProject.id)}
+                            className="text-xs text-slate-400 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800 transition-all flex items-center gap-1"
+                            title="Substitute Mentor"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" /> Substitute
+                          </button>
+                        </div>
+                      )}
+
+                      {/* 6. Unproposed State: Propose / Substitute Action */}
+                      {!isThisMentorProposed && (
+                        <button
+                          onClick={() => handleProposeMentor(selectedProject.id, mentor)}
+                          disabled={
+                            hasAnyMentorProposed &&
+                            !['rejected', 'reset', 'on_leave'].includes(selectedProject.proposedMentorStatus ?? '')
+                          }
+                          className={`text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all ${
+                            hasAnyMentorProposed &&
+                            !['rejected', 'reset', 'on_leave'].includes(selectedProject.proposedMentorStatus ?? '')
+                              ? 'bg-slate-800/60 text-slate-500 border border-slate-800 cursor-not-allowed'
+                              : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md'
+                          }`}
+                          title={
+                            hasAnyMentorProposed &&
+                            !['rejected', 'reset', 'on_leave'].includes(selectedProject.proposedMentorStatus ?? '')
+                              ? 'Another mentor is already proposed or assigned'
+                              : ['rejected', 'reset', 'on_leave'].includes(selectedProject.proposedMentorStatus ?? '')
+                                ? 'Propose as substituted mentor'
+                                : 'Propose this mentor'
+                          }
                         >
-                          {/* MATTE METALLIC GOLD OVERFLOWING CORNER BADGE ONLY */}
-                          {isTopMentor && (
-                            <div className="absolute -top-px -left-px bg-[#c59b27] text-slate-950 text-[10px] font-bold tracking-wide px-3 py-1 rounded-tl-xl rounded-br-lg border-b border-r border-[#d4af37] flex items-center gap-1.5">
-                              <Crown className="w-3 h-3 text-slate-950 fill-slate-950" />
-                              Top Best Mentor Matched
-                            </div>
-                          )}
-
-                          <div className="space-y-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <h5 className="font-bold text-white text-sm">{mentor.name}</h5>
-                              <span className="text-[10px] bg-emerald-500/10 text-emerald-400 font-mono px-2 py-0.5 rounded border border-emerald-500/20 flex items-center gap-1">
-                                <Star className="w-3 h-3 fill-emerald-400" /> {mentor.matchScore}% Match
-                              </span>
-                            </div>
-                            <p className="text-xs text-slate-400">{mentor.role}</p>
-
-                            <div className="flex flex-wrap gap-1 pt-1">
-                              {mentor.skills.map((skill, i) => (
-                                <span key={i} className="text-[10px] bg-slate-900 text-slate-400 px-2 py-0.5 rounded border border-slate-800">
-                                  {skill}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                          {/* 1. Proposed State: Waiting for Mentor Acceptance */}
-                          {isThisMentorProposed && selectedProject.proposedMentorStatus === 'proposed' && (
-                            <div className="flex flex-col items-end gap-1">
-                              <button
-                                disabled
-                                className="bg-slate-800 text-slate-400 cursor-not-allowed text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 border border-slate-700 opacity-80"
-                              >
-                                <Send className="w-3.5 h-3.5 text-amber-400" /> Proposed
-                              </button>
-                              <span className="text-[10px] text-amber-400 font-medium italic">
-                                Waiting for acceptance...
-                              </span>
-                            </div>
-                          )}
-
-                          {/* 2. Accepted State: Confirm Button (Handles Initial Allocation vs. Substitution) */}
-                          {isThisMentorProposed && selectedProject.proposedMentorStatus === 'accepted' && (
-                            <div className="flex flex-col items-end gap-1">
-                              <button
-                                onClick={() => handleConfirmMentor(selectedProject.id)}
-                                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-lg animate-pulse flex items-center gap-1.5"
-                              >
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                {selectedProject.status === 'open'
-                     } Confirm Allocation
-                                  
-                              </button>
-                              <span className="text-[10px] text-emerald-400 font-medium">
-                                {selectedProject.status === 'open'
-                     }
-                                   Mentor accepted proposal!
-                                </span>
-                              </div>
-                            )}
-
-                            {/* 3. Assigned State: Active Mentor */}
-                            {isThisMentorProposed && selectedProject.proposedMentorStatus === 'assigned' && (
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-emerald-400 font-bold flex items-center gap-1.5 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/20">
-                                  <CheckCircle2 className="w-3.5 h-3.5" /> Assigned Mentor
-                                </span>
-                                <button
-                                  onClick={() => handleResetMentorProposal(selectedProject.id)}
-                                  className="text-xs text-slate-400 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800 transition-all flex items-center gap-1"
-                                  title="Substitute Mentor"
-                                >
-                                  <RefreshCw className="w-3.5 h-3.5" /> Substitute
-                                </button>
-                              </div>
-                            )}
-
-                            {/* 4. Unproposed State: Propose / Substitute Action */}
-                            {!isThisMentorProposed && (
-                              <button
-                                onClick={() => handleProposeMentor(selectedProject.id, mentor)}
-                                disabled={
-                                  hasAnyMentorProposed &&
-                                  !['rejected', 'reset'].includes(selectedProject.proposedMentorStatus ?? '')
-                                }
-                                className={`text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all ${
-                                  hasAnyMentorProposed &&
-                                  !['rejected', 'reset'].includes(selectedProject.proposedMentorStatus ?? '')
-                                    ? 'bg-slate-800/60 text-slate-500 border border-slate-800 cursor-not-allowed'
-                                    : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md'
-                                }`}
-                                title={
-                                  hasAnyMentorProposed &&
-                                  !['rejected', 'reset'].includes(selectedProject.proposedMentorStatus ?? '')
-                                    ? 'Another mentor is already proposed or assigned'
-                                    : ['rejected', 'reset'].includes(selectedProject.proposedMentorStatus ?? '')
-                                      ? 'Propose as substituted mentor'
-                                      : 'Propose this mentor'
-                                }
-                              >
-                                <UserPlus className="w-3.5 h-3.5" />
-                                {['rejected', 'reset'].includes(selectedProject.proposedMentorStatus  ?? '')
-                                  ? 'Substitute Mentor'
-                                  : 'Propose as Mentor'}
-                              </button>
-                            )}
-                            {/* 1. Proposed State: Waiting for Mentor Acceptance */}
-                          {isThisMentorProposed && selectedProject.proposedMentorStatus === 'substituted' && (
-                            <div className="flex flex-col items-end gap-1">
-                              <button
-                                disabled
-                                className="bg-slate-800 text-slate-400 cursor-not-allowed text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 border border-slate-700 opacity-80"
-                              >
-                                <Send className="w-3.5 h-3.5 text-amber-400" /> Substituted
-                              </button>
-                              <span className="text-[10px] text-amber-400 font-medium italic">
-                                Waiting for acceptance...
-                              </span>
-                            </div>
-                          )}
-                            {/* 2. Accepted State: Confirm Button (Handles Initial Allocation vs. Substitution) */}
-                        
-
-                        </div>
-                        </div>
-                      );
-                    })}
+                          <UserPlus className="w-3.5 h-3.5" />
+                          {['rejected', 'reset', 'on_leave'].includes(selectedProject.proposedMentorStatus ?? '')
+                            ? 'Substitute Mentor'
+                            : 'Propose as Mentor'}
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
-
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    )}
+  </Card>
+)}
               {/* STUDENT RECOMMENDATIONS */}
               {recommendationSubTab === 'STUDENTS' && (
                 <div className="space-y-3">
@@ -1347,10 +1359,8 @@ const handleAIProjectGenerated = (aiData: any) => {
                   </div>
                 </div>
               )}
-            </div>
-          )}
-        </Card>
-      )}
+            
+      
       {/* --- TAB 3: OPTIMIZATIONS --- */}
 {activeTab === 'OPTIMIZATIONS' && (
   <div className="space-y-6">
