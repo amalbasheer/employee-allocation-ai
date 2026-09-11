@@ -49,6 +49,12 @@ export const EmployeeAvailabilityPage: React.FC<{ employeeId?: string }> = ({
   const [leaveStartDate, setLeaveStartDate] = useState<string>('');
   const [leaveEndDate, setLeaveEndDate] = useState<string>('');
   const [leaveReason, setLeaveReason] = useState<string>('');
+  
+  // Form State: Urgent Leave
+  const [urgentDurationValue, setUrgentDurationValue] = useState<number>(1);
+  const [urgentDurationUnit, setUrgentDurationUnit] = useState<'days' | 'weeks'>('days');
+  const [urgentReason, setUrgentReason] = useState<string>('');
+  
   const API_BASE = import.meta.env.VITE_BACKEND_URL || 'https://employee-allocation-ai.onrender.com';
   
   // Fetch initial data from APIs
@@ -133,6 +139,40 @@ export const EmployeeAvailabilityPage: React.FC<{ employeeId?: string }> = ({
       }
     } catch (err) {
       setStatusMessage({ type: 'error', text: 'Error submitting leave request.' });
+    }
+  };
+
+  // Handler: Submit Urgent Leave
+  const handleUrgentLeaveSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!urgentReason || urgentDurationValue <= 0) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/api/employees/${employeeId}/urgent-leave`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          duration_value: Number(urgentDurationValue),
+          duration_unit: urgentDurationUnit,
+          reason: urgentReason,
+        }),
+      });
+
+      if (res.ok) {
+        const responseData = await res.json();
+        setStatusMessage({
+          type: 'success',
+          text: responseData.message || 'Urgent leave submitted and statuses updated to on leave!',
+        });
+        setUrgentDurationValue(1);
+        setUrgentDurationUnit('days');
+        setUrgentReason('');
+        fetchDashboardData();
+      } else {
+        throw new Error('Failed to submit urgent leave');
+      }
+    } catch (err) {
+      setStatusMessage({ type: 'error', text: 'Error processing urgent leave request.' });
     }
   };
 
