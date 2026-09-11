@@ -173,8 +173,8 @@ export const TrainingManagement: React.FC = () => {
   const [newReg, setNewReg] = useState('');
   const [newInst, setNewInst] = useState('');
   const [newAud, setNewAud] = useState('');
-  const [newMode, setNewMode] = useState('');
-  const [newDom, setNewDom] = useState('');
+  const [newMode, setNewMode] = useState<'online' | 'offline'>('online');
+  const [newDom, setNewDom] = useState<'Data Science' | 'Data Analytics'>('Data Science');
 
   // AI Webinar Generator Modal & State
   const [isWebinarModalOpen, setIsWebinarModalOpen] = useState(false);
@@ -1487,7 +1487,7 @@ export const TrainingManagement: React.FC = () => {
                 <label className="text-xs text-slate-400 block mb-1">Domain</label>
                 <select
                   value={newDom}
-                  onChange={(e) => setNewDom(e.target.value)}
+                  onChange={(e) => setNewDom(e.target.value as any)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
                 >
                   <option value="Data Science">Data Science</option>
@@ -1528,7 +1528,7 @@ export const TrainingManagement: React.FC = () => {
                 <label className="text-xs text-slate-400 block mb-1">Mode</label>
                 <select
                   value={newMode}
-                  onChange={(e) => setNewMode(e.target.value)}
+                  onChange={(e) => setNewMode(e.target.value as any)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
                 >
                   <option value="online">online</option>
@@ -1540,7 +1540,7 @@ export const TrainingManagement: React.FC = () => {
                 <input
                   type="string"
                   value={newAud}
-                  onChange={(e) => setNewAud(e.target.value)}
+                  onChange={(e) => setNewAud(e.target.value as any)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
                   placeholder="college_students"
                 />

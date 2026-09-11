@@ -32,6 +32,12 @@ class CreateEngagementSchema(BaseModel):
     end_date: Optional[date] = None
     required_hours: int = 2
     required_skill_ids: Optional[List[str]] = []
+    institution_name: Optional[str] = None
+    location: Optional[str] = None
+    region: Optional[str] = None
+    audience: Optional[str] = None
+    domain: Optional[str] = None
+    mode: Optional[str] = "online"  # "online" or "offline"
 
 class ProposeMentorSchema(BaseModel):
     mentor_id: str
@@ -144,7 +150,7 @@ def list_engagements(
     return formatted_engagements
 
 @router.post("/engagements", status_code=status.HTTP_201_CREATED)
-async def schedule_engagement(payload: CreateEngagementSchema, db: Session = Depends(get_db)):
+def schedule_engagement(payload: CreateEngagementSchema, db: Session = Depends(get_db)):
     last_id = db.query(TrainingEngagement.engagement_id).order_by(TrainingEngagement.engagement_id.desc()).limit(1).scalar()
     if last_id:
       prefix, num_str = last_id.rsplit('-', 1)  # Splits 'rp2-train-0005' -> ['rp2-train', '0005']
