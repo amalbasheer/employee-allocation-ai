@@ -6,6 +6,7 @@ class ProjectStatus(str, enum.Enum):
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
+    ON_LEAVE = "on_leave"
 
 class AllocationStatus(str, enum.Enum):
     PROPOSED = "proposed"
@@ -14,6 +15,7 @@ class AllocationStatus(str, enum.Enum):
     ASSIGNED = "assigned"
     SUBSTITUTED = "substituted"
     CANCELLED = "cancelled"
+    ON_LEAVE = "on_leave"
 
 class UserRole(str, enum.Enum):
     ADMIN = "admin"

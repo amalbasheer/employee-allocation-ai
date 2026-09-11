@@ -446,7 +446,7 @@ def submit_urgent_leave(
                 is_on_leave=True,
             )
             db.add(new_avail)
-            db.flush()  # Ensure the new record is assigned an ID before committing
+            db.flush()  # Ensure the new record is written before proceeding
 
         updated_weeks_summary.append(
             {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../../components/common/Card';
 import { 
   Clock, 
@@ -19,8 +19,8 @@ interface DailyBandwidth {
   today: string;
   day_of_week: string;
   gross_weekly_hours: number;
-  elapsed_hours: number;
-  allocated_hours: number;
+  elapsed_hours_this_week: number;
+  assigned_project_hours: number;
   remaining_unallocated_hours: number;
 }
 
@@ -33,7 +33,7 @@ interface WeeklyBandwidth {
 }
 
 export const EmployeeAvailabilityPage: React.FC<{ employeeId?: string }> = ({ 
-  employeeId = 'rp2-emp-0001' 
+  employeeId : propEmployeeId
 }) => {
   // State for metrics & list projections
   const [dailyData, setDailyData] = useState<DailyBandwidth | null>(null);
@@ -57,7 +57,23 @@ export const EmployeeAvailabilityPage: React.FC<{ employeeId?: string }> = ({
   const [urgentReason, setUrgentReason] = useState<string>('');
   
   const API_BASE = import.meta.env.VITE_BACKEND_URL || 'https://employee-allocation-ai.onrender.com';
+
+  const getActiveEmployeeId = useCallback((): string => {
+      if (propEmployeeId) return propEmployeeId;
   
+      const authUserRaw = localStorage.getItem('auth_user');
+      if (authUserRaw) {
+        try {
+          const user = JSON.parse(authUserRaw);
+          return user.employee_id || user.id || user.resource_id || '';
+        } catch (e) {
+          console.error('Error parsing auth_user from localStorage', e);
+        }
+      }
+      return '';
+    }, [propEmployeeId]);
+
+  const employeeId = getActiveEmployeeId();
   // Fetch initial data from APIs
   const fetchDashboardData = async () => {
     setLoading(true);
@@ -187,14 +203,14 @@ export const EmployeeAvailabilityPage: React.FC<{ employeeId?: string }> = ({
     },
     {
       label: 'Allocated Project Hours',
-      value: dailyData ? `${dailyData.allocated_hours} hrs` : '--',
+      value: dailyData ? `${dailyData.assigned_project_hours} hrs` : '--',
       icon: Briefcase,
       color: 'text-indigo-400',
       subtext: 'Active commitments',
     },
     {
       label: 'Elapsed Working Hours',
-      value: dailyData ? `${dailyData.elapsed_hours} hrs` : '--',
+      value: dailyData ? `${dailyData.elapsed_hours_this_week} hrs` : '--',
       icon: TrendingDown,
       color: 'text-amber-400',
       subtext: 'Past days in week',
@@ -281,18 +297,18 @@ export const EmployeeAvailabilityPage: React.FC<{ employeeId?: string }> = ({
               {/* Allocated Hours Segment */}
               <div
                 style={{
-                  width: `${(dailyData.allocated_hours / dailyData.gross_weekly_hours) * 100}%`,
+                  width: `${(dailyData.assigned_project_hours / dailyData.gross_weekly_hours) * 100}%`,
                 }}
                 className="bg-indigo-500 h-full transition-all"
-                title={`Allocated: ${dailyData.allocated_hours} hrs`}
+                title={`Assigned Project Hours: ${dailyData.assigned_project_hours} hrs`}
               />
               {/* Elapsed Time Segment */}
               <div
                 style={{
-                  width: `${(dailyData.elapsed_hours / dailyData.gross_weekly_hours) * 100}%`,
+                  width: `${(dailyData.elapsed_hours_this_week / dailyData.gross_weekly_hours) * 100}%`,
                 }}
                 className="bg-amber-500/60 h-full transition-all"
-                title={`Elapsed Time: ${dailyData.elapsed_hours} hrs`}
+                title={`Elapsed Time: ${dailyData.elapsed_hours_this_week} hrs`}
               />
               {/* Remaining Free Capacity Segment */}
               <div
@@ -300,7 +316,7 @@ export const EmployeeAvailabilityPage: React.FC<{ employeeId?: string }> = ({
                   width: `${(dailyData.remaining_unallocated_hours / dailyData.gross_weekly_hours) * 100}%`,
                 }}
                 className="bg-emerald-500 h-full transition-all"
-                title={`Free Bandwidth: ${dailyData.remaining_unallocated_hours} hrs`}
+                title={`Unallocated Hours: ${dailyData.remaining_unallocated_hours} hrs`}
               />
             </div>
 
@@ -308,15 +324,15 @@ export const EmployeeAvailabilityPage: React.FC<{ employeeId?: string }> = ({
             <div className="flex items-center gap-6 text-xs text-slate-400 pt-1">
               <div className="flex items-center gap-2">
                 <span className="w-3 h-3 rounded-sm bg-indigo-500 inline-block" />
-                Allocated ({dailyData.allocated_hours}h)
+                Assigned Project ({dailyData.assigned_project_hours}h)
               </div>
               <div className="flex items-center gap-2">
                 <span className="w-3 h-3 rounded-sm bg-amber-500/60 inline-block" />
-                Elapsed ({dailyData.elapsed_hours}h)
+                Elapsed ({dailyData.elapsed_hours_this_week}h)
               </div>
               <div className="flex items-center gap-2">
                 <span className="w-3 h-3 rounded-sm bg-emerald-500 inline-block" />
-                Remaining Free ({dailyData.remaining_unallocated_hours}h)
+                Remaining Unallocated ({dailyData.remaining_unallocated_hours}h)
               </div>
             </div>
           </div>
