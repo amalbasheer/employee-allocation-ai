@@ -18,7 +18,12 @@ app = FastAPI(
 # Enable CORS for frontend integration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*", "https://main.d12rtouuvuicy7.amplifyapp.com", "https://employee-allocation-ai.onrender.com"],
+    allow_origins=["*", "https://main.d12rtouuvuicy7.amplifyapp.com", 
+                   "https://employee-allocation-ai.onrender.com",
+                   "http://localhost:3000",
+                   "http://localhost:5173",
+                   "http://localhost:8000", 
+                   "http://localhost:5174"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
