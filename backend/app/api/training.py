@@ -117,7 +117,7 @@ def list_engagements(
         if desig_ids:
             try:
                 desig_rows = db.execute(
-                    text("SELECT designation_id, designation_name FROM designations WHERE designation_id = ANY(:ids)"),
+                    text("SELECT designation_id, title FROM designations WHERE designation_id = ANY(:ids)"),
                     {"ids": desig_ids}
                 ).fetchall()
                 designation_map = {row[0]: row[1] for row in desig_rows}
@@ -151,13 +151,17 @@ def list_engagements(
 
 @router.post("/engagements", status_code=status.HTTP_201_CREATED)
 def schedule_engagement(payload: CreateEngagementSchema, db: Session = Depends(get_db)):
+    # 1. Safe ID Generation
     last_id = db.query(TrainingEngagement.engagement_id).order_by(TrainingEngagement.engagement_id.desc()).limit(1).scalar()
-    if last_id:
-      prefix, num_str = last_id.rsplit('-', 1)  # Splits 'rp2-train-0005' -> ['rp2-train', '0005']
-      next_num = int(num_str) + 1
-      new_id = f"{prefix}-{next_num:04d}"       # Formats back to 'rp2-train-0006'
+    if last_id and '-' in last_id:
+        try:
+            prefix, num_str = last_id.rsplit('-', 1)
+            next_num = int(num_str) + 1
+            new_id = f"{prefix}-{next_num:04d}"
+        except ValueError:
+            new_id = f"rp2-train-0001"
     else:
-      new_id = "rp2-train-0001"
+        new_id = "rp2-train-0001"
 
     new_engagement = TrainingEngagement(
         engagement_id=new_id,
@@ -179,22 +183,27 @@ def schedule_engagement(payload: CreateEngagementSchema, db: Session = Depends(g
     db.add(new_engagement)
     db.flush()
 
-    req_text = f"{payload.title} {payload.description or ''}"
+    req_text = f"{payload.title} {payload.description or ''}".strip()
 
-    # 1. Extract skills automatically from text
+    # 2. Flexible Skill Extraction (Handles both dicts and plain strings)
     final_skill_names = []
     if extract_skills_from_text and callable(extract_skills_from_text):
         try:
             raw_extracted = extract_skills_from_text(req_text, source_type="training")
             skill_list = raw_extracted.get("skills", []) if isinstance(raw_extracted, dict) else raw_extracted
-            final_skill_names = [
-                item.get("name") for item in skill_list
-                if isinstance(item, dict) and item.get("name")
-            ]
+            
+            for item in skill_list:
+                if isinstance(item, dict) and item.get("name"):
+                    final_skill_names.append(item.get("name"))
+                elif isinstance(item, str) and item.strip():
+                    final_skill_names.append(item.strip())
+            
+            # Deduplicate extracted skills preserving order
+            final_skill_names = list(dict.fromkeys(final_skill_names))
         except Exception as e:
             logger.warning(f"Skill extraction failed: {e}")
 
-    # 2. Generate one embedding representing all extracted skills together
+    # 3. Generate Skill Embedding
     req_embedding = None
     if generate_embedding and callable(generate_embedding):
         try:
@@ -203,11 +212,12 @@ def schedule_engagement(payload: CreateEngagementSchema, db: Session = Depends(g
         except Exception as e:
             logger.warning(f"Embedding generation failed: {e}")
 
-    # 3. Convert each skill NAME into a real skill_id (creating it if new),
-    #    then save the actual requirement row
+    # 4. Save Training Requirements Safely
     for skill_name in final_skill_names:
         try:
-            skill_id = get_or_create_skill(skill_name)
+            # Pass db session to get_or_create_skill helper
+            skill_id = get_or_create_skill(db, skill_name) if 'db' in get_or_create_skill.__code__.co_varnames else get_or_create_skill(skill_name)
+            
             training_req = TrainingRequirement(
                 engagement_id=new_engagement.engagement_id,
                 skill_id=skill_id,
@@ -219,10 +229,15 @@ def schedule_engagement(payload: CreateEngagementSchema, db: Session = Depends(g
         except Exception as e:
             logger.warning(f"Failed to save requirement for skill '{skill_name}': {e}")
 
-    db.commit()
-    db.refresh(new_engagement)
-    return new_engagement
+    try:
+        db.commit()
+        db.refresh(new_engagement)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Database commit failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to schedule engagement.")
 
+    return new_engagement
 
 
 
