@@ -1,5 +1,5 @@
 # app/api/employees.py
-from typing import List, Optional
+from typing import List, Optional, Literal
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from realtime import BaseModel
@@ -7,10 +7,12 @@ from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timezone, timedelta, date
+from pydantic import BaseModel, Field
 
 from app.database import get_db
 from app.models.employee import CompanyEmployee, EmployeeSkill, Availability
 from app.models.allocation import Allocation
+from app.models.webinar import TrainingEngagement
 from app.models.project import Project
 from app.schemas.employee import (
     CompanyEmployeeCreate,
@@ -366,10 +368,163 @@ def submit_date_range_leave(
         "message": f"Leave applied across {len(set(updated_weeks))} week(s).",
     }
 
+# --New API: Urgent leave submission
+class UrgentLeaveRequest(BaseModel):
+    duration_value: int = Field(..., gt=0, description="Number of days or weeks")
+    duration_unit: Literal["days", "weeks"]
+    reason: str
 
 
+@router.post("/{employee_id}/urgent-leave", status_code=status.HTTP_200_OK)
+def submit_urgent_leave(
+    employee_id: str,
+    payload: UrgentLeaveRequest,
+    db: Session = Depends(get_db),
+):
+    """Calculates start date (tomorrow) and end date, updates weekly availability hours,
+
+    and marks active training engagements and project allocations as 'on_leave'.
+    """
+    # 1. Calculate Start Date (Tomorrow) and End Date
+    start_date = date.today() + timedelta(days=1)
+
+    if payload.duration_unit == "weeks":
+        total_days = payload.duration_value * 7
+    else:
+        total_days = payload.duration_value
+
+    end_date = start_date + timedelta(days=total_days - 1)
+
+    # 2. Process Multi-Week Availability
+    start_monday = normalize_to_monday(start_date)
+    end_monday = normalize_to_monday(end_date)
+    current_monday = start_monday
+
+    updated_weeks_summary = []
+
+    while current_monday <= end_monday:
+        # Generate the 5 working days (Mon-Fri) for the week
+        work_days = [current_monday + timedelta(days=i) for i in range(5)]
+
+        # Count how many workdays fall within the leave period
+        leave_days_count = sum(
+            1 for d in work_days if start_date <= d <= end_date
+        )
+
+        available_days = 5 - leave_days_count
+        calculated_available_hours = available_days * 8
+
+        existing = (
+            db.query(Availability)
+            .filter(
+                Availability.resource_id == employee_id,
+                Availability.week_start_date == current_monday,
+            )
+            .first()
+        )
+
+        if existing:
+            existing.available_hours = calculated_available_hours
+            existing.is_on_leave = True if leave_days_count > 0 else existing.is_on_leave
+        else:
+            new_avail_id = generate_availability_id(db)
+            new_avail = Availability(
+                availability_id=new_avail_id,
+                resource_id=employee_id,
+                resource_type="employee",
+                week_start_date=current_monday,
+                available_hours=calculated_available_hours,
+                is_on_leave=True,
+            )
+            db.add(new_avail)
+
+        updated_weeks_summary.append(
+            {
+                "week_start": current_monday,
+                "leave_days": leave_days_count,
+                "available_hours": calculated_available_hours,
+            }
+        )
+
+        current_monday += timedelta(days=7)
+
+    # 3. Direct Status Update for Projects (Allocation & Project)
+    assigned_project_allocations = (
+        db.query(Allocation)
+        .filter(
+            Allocation.resource_id == employee_id,
+            Allocation.status == "assigned",
+            Allocation.reference_type == "project",
+        )
+        .all()
+    )
+
+    projects_updated = 0
+    for alloc in assigned_project_allocations:
+        project = (
+            db.query(Project)
+            .filter(
+                Project.project_id == alloc.reference_id,
+                Project.status == "in_progress",
+            )
+            .first()
+        )
+
+        if project:
+            project.status = "on_leave"
+            alloc.status = "on_leave"
+            projects_updated += 1
+
+    # 4. Direct Status Update for Trainings (Allocation & TrainingEngagement)
+    assigned_training_allocations = (
+        db.query(Allocation)
+        .filter(
+            Allocation.resource_id == employee_id,
+            Allocation.status == "assigned",
+            Allocation.reference_type == "training",
+        )
+        .all()
+    )
+
+    trainings_updated = 0
+    for alloc in assigned_training_allocations:
+        training = (
+            db.query(TrainingEngagement)
+            .filter(
+                TrainingEngagement.engagement_id == alloc.reference_id,
+                TrainingEngagement.status == "in_progress",
+            )
+            .first()
+        )
+
+        if training:
+            training.status = "on_leave"
+            alloc.status = "on_leave"
+            trainings_updated += 1
+
+    # 5. Commit Transaction
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process urgent leave: {str(e)}",
+        )
+
+    return {
+        "status": "success",
+        "message": f"Urgent leave applied from {start_date} to {end_date}.",
+        "start_date": start_date,
+        "end_date": end_date,
+        "availability_updated_weeks": len(updated_weeks_summary),
+        "trainings_marked_on_leave": trainings_updated,
+        "projects_marked_on_leave": projects_updated,
+        "schedule_breakdown": updated_weeks_summary,
+    }
 
 
+# -- daily bandwidth endpoint for employee
 
 @router.get("/{employee_id}/daily-bandwidth")
 def get_employee_daily_bandwidth(
