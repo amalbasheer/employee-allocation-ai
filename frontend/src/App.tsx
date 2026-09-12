@@ -12,6 +12,7 @@ import StudentDashboard from './pages/student/StudentDashboard';
 import { Role } from './types';
 import { ProjectAllocation } from './pages/admin/ProjectAllocations';
 import { EmployeeAvailabilityPage } from './pages/employee/EmployeeAvailability';
+import { EmployeeSkillsManager } from './pages/employee/profile';
 import { TrainingAllocationsDashboard } from './pages/employee/TrainingEngagement';
 
 interface ProtectedRouteProps {
@@ -108,6 +109,14 @@ export default function App() {
                 element={
                   <ProtectedRoute allowedRoles={['EMPLOYEE']}>
                     <EmployeeAvailabilityPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/employee/profile"
+                element={
+                  <ProtectedRoute allowedRoles={['EMPLOYEE']}>
+                    <EmployeeSkillsManager />
                   </ProtectedRoute>
                 }
               />

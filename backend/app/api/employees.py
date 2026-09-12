@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
-    
+
 from ai_engine.embedding import generate_embedding
 from app.database import get_db
 from app.models.employee import CompanyEmployee, EmployeeSkill, Availability
@@ -189,14 +189,14 @@ class SkillResponse(BaseModel):
 class EmployeeSkillRead(BaseModel):
     skill_id: str
     skill_name: str
-    proficiency_level: str
+    proficiency_level: int
 
 class AddEmployeeSkillRequest(BaseModel):
     skill_name: str  # Can be selected from dropdown or typed as new
-    proficiency_level: str
+    proficiency_level: int
 
 class UpdateProficiencyRequest(BaseModel):
-    proficiency_level: str
+    proficiency_level: int
 
 def generate_next_skill_id(db: Session) -> str:
     """
@@ -228,18 +228,24 @@ def generate_next_skill_id(db: Session) -> str:
 def get_skill_catalog(db: Session = Depends(get_db)):
     return db.query(Skill).all()
 
+
 # 2. Get all skills for a specific employee
 @router.get("/{employee_id}/skills", response_model=List[EmployeeSkillRead])
 def get_employee_skills(employee_id: str, db: Session = Depends(get_db)):
-    emp_skills = db.query(EmployeeSkill).filter(EmployeeSkill.employee_id == employee_id).all()
+    emp_skills = (
+        db.query(EmployeeSkill, Skill.skill_name)
+        .join(Skill, EmployeeSkill.skill_id == Skill.skill_id)
+        .filter(EmployeeSkill.employee_id == employee_id)
+        .all()
+    )
     
     return [
         EmployeeSkillRead(
             skill_id=es.skill_id,
-            skill_name=es.skill.skill_name,
+            skill_name=skill_name,
             proficiency_level=es.proficiency_level
         )
-        for es in emp_skills
+        for es, skill_name in emp_skills
     ]
 
 # 3. Add a skill to an employee (auto-creates skill in `skills` table if it doesn't exist)

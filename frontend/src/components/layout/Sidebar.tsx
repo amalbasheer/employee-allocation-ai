@@ -27,6 +27,7 @@ export const Sidebar: React.FC = () => {
     { label: 'My Proposal & Projects', path: '/employee/dashboard', icon: DockIcon },
     { label: 'Training & Engagements', path: '/employee/engagement', icon: WrapText },
     { label: 'Availability Check', path: '/employee/availability', icon: Clock },
+    { label: 'My Profile', path: '/employee/profile', icon: Users },
   ];
 
   const studentNav = [
