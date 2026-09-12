@@ -108,8 +108,10 @@ async def fetch_recommendations(
 
                 if cand_id and cand_id not in existing_ids:
                     # Provide fallback values for missing candidate attributes
-                    cand_dict.setdefault("id", cand_id)
-                    cand_dict.setdefault("suitability_score", 100.0)
+                    # Use the REAL score from "score" (what recommend.py actually returns),
+                    # falling back to suitability_score if present, only defaulting to 0 if truly missing
+                    real_score = cand_dict.get("score") or cand_dict.get("suitability_score") or 0.0
+                    cand_dict["suitability_score"] = real_score
                     cand_dict.setdefault("skills", [])
                     cand_dict.setdefault("university", "Assigned Intern")
                     merged_candidates.append(cand_dict)
