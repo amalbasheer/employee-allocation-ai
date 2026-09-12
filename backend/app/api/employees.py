@@ -8,9 +8,18 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timezone, timedelta, date
 from pydantic import BaseModel, Field
+import sys
+from pathlib import Path
 
+# Path to the shared root folder containing both backend and ai_engine
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
+    
+from ai_engine.embedding import generate_embedding
 from app.database import get_db
 from app.models.employee import CompanyEmployee, EmployeeSkill, Availability
+from app.models.taxonomy import Skill
 from app.models.allocation import Allocation
 from app.models.webinar import TrainingEngagement
 from app.models.project import Project
@@ -169,49 +178,159 @@ def delete_employee(employee_id: str, db: Session = Depends(get_db)):
 # ==========================================
 # EMPLOYEE SKILLS ENDPOINTS (Composite PK)
 # ==========================================
-@router.post("/{employee_id}/skills", response_model=EmployeeSkillResponse, status_code=status.HTTP_201_CREATED)
-def add_employee_skill(employee_id: str, skill_in: EmployeeSkillCreate, db: Session = Depends(get_db)):
-    """Add or update a skill link for an employee."""
-    employee = db.query(CompanyEmployee).filter(CompanyEmployee.employee_id == employee_id).first()
-    if not employee:
-        raise HTTPException(status_code=404, detail="Employee not found")
 
-    # Check if this skill link already exists
-    existing_skill = db.query(EmployeeSkill).filter(
-        EmployeeSkill.employee_id == employee_id,
-        EmployeeSkill.skill_id == skill_in.skill_id
+class SkillResponse(BaseModel):
+    skill_id: str
+    skill_name: str
+
+    class Config:
+        from_attributes = True
+
+class EmployeeSkillRead(BaseModel):
+    skill_id: str
+    skill_name: str
+    proficiency_level: str
+
+class AddEmployeeSkillRequest(BaseModel):
+    skill_name: str  # Can be selected from dropdown or typed as new
+    proficiency_level: str
+
+class UpdateProficiencyRequest(BaseModel):
+    proficiency_level: str
+
+def generate_next_skill_id(db: Session) -> str:
+    """
+    Finds the highest existing rp2-skill-XXXX ID in the DB, 
+    increments the counter, and returns the next formatted ID.
+    """
+    # Query the maximum skill_id with the target prefix
+    max_id = (
+        db.query(Skill.skill_id)
+        .filter(Skill.skill_id.like("rp2-skill-%"))
+        .order_by(Skill.skill_id.desc())
+        .first()
+    )
+
+    if not max_id or not max_id[0]:
+        return "rp2-skill-0001"
+
+    # Extract the numeric suffix and increment
+    try:
+        current_num = int(max_id[0].split("-")[-1])
+        next_num = current_num + 1
+    except ValueError:
+        next_num = 1
+
+    return f"rp2-skill-{next_num:04d}"
+
+# 1. Fetch all available skills for the frontend dropdown
+@router.get("/skills/catalog", response_model=List[SkillResponse])
+def get_skill_catalog(db: Session = Depends(get_db)):
+    return db.query(Skill).all()
+
+# 2. Get all skills for a specific employee
+@router.get("/{employee_id}/skills", response_model=List[EmployeeSkillRead])
+def get_employee_skills(employee_id: str, db: Session = Depends(get_db)):
+    emp_skills = db.query(EmployeeSkill).filter(EmployeeSkill.employee_id == employee_id).all()
+    
+    return [
+        EmployeeSkillRead(
+            skill_id=es.skill_id,
+            skill_name=es.skill.skill_name,
+            proficiency_level=es.proficiency_level
+        )
+        for es in emp_skills
+    ]
+
+# 3. Add a skill to an employee (auto-creates skill in `skills` table if it doesn't exist)
+@router.post("/{employee_id}/skills", status_code=status.HTTP_201_CREATED)
+def add_employee_skill(
+    employee_id: str, 
+    payload: AddEmployeeSkillRequest, 
+    db: Session = Depends(get_db)
+):
+    clean_skill_name = payload.skill_name.strip()
+    if not clean_skill_name:
+        raise HTTPException(status_code=400, detail="Skill name cannot be empty")
+
+    # Check if skill exists in `skills` table (case-insensitive)
+    existing_skill = db.query(Skill).filter(
+        func.lower(Skill.skill_name) == clean_skill_name.lower()
     ).first()
 
-    if existing_skill:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This skill is already assigned to the employee."
+    if not existing_skill:
+        # Create new skill entry
+        new_skill_id = generate_next_skill_id(db)
+        # 2. Compute vector embedding using ai_engine
+        try:
+            embedding_vector = generate_embedding(clean_skill_name)
+        except Exception as e:
+            # Fallback or error logging if embedding generation fails
+            embedding_vector = None
+            
+        existing_skill = Skill(
+            skill_id=new_skill_id,
+            skill_name=clean_skill_name,
+            skill_embedding=embedding_vector  # Can be generated by an embedding pipeline later
         )
+        db.add(existing_skill)
+        db.flush()
 
-    skill_data = skill_in.model_dump(exclude={"employee_id"})
-    new_skill = EmployeeSkill(employee_id=employee_id, **skill_data)
+    # Check if employee already has this skill
+    emp_skill = db.query(EmployeeSkill).filter(
+        EmployeeSkill.employee_id == employee_id,
+        EmployeeSkill.skill_id == existing_skill.skill_id
+    ).first()
 
-    db.add(new_skill)
+    if emp_skill:
+        # Update proficiency if skill already mapped
+        emp_skill.proficiency_level = payload.proficiency_level
+    else:
+        # Create mapping in `employee_skills` table
+        emp_skill = EmployeeSkill(
+            employee_id=employee_id,
+            skill_id=existing_skill.skill_id,
+            proficiency_level=payload.proficiency_level
+        )
+        db.add(emp_skill)
+
     db.commit()
-    db.refresh(new_skill)
-    return new_skill
+    return {"message": "Skill added successfully", "skill_id": existing_skill.skill_id}
 
-
-@router.delete("/{employee_id}/skills/{skill_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_employee_skill(employee_id: str, skill_id: str, db: Session = Depends(get_db)):
-    """Remove a skill link from an employee using composite primary keys."""
-    skill_entry = db.query(EmployeeSkill).filter(
+# 4. Update proficiency of an existing employee skill
+@router.put("/{employee_id}/skills/{skill_id}")
+def update_skill_proficiency(
+    employee_id: str,
+    skill_id: str,
+    payload: UpdateProficiencyRequest,
+    db: Session = Depends(get_db)
+):
+    emp_skill = db.query(EmployeeSkill).filter(
         EmployeeSkill.employee_id == employee_id,
         EmployeeSkill.skill_id == skill_id
     ).first()
 
-    if not skill_entry:
-        raise HTTPException(status_code=404, detail="Employee skill entry not found")
+    if not emp_skill:
+        raise HTTPException(status_code=404, detail="Employee skill record not found")
 
-    db.delete(skill_entry)
+    emp_skill.proficiency_level = payload.proficiency_level
     db.commit()
-    return None
+    return {"message": "Proficiency updated successfully"}
 
+# 5. Delete a skill from an employee
+@router.delete("/{employee_id}/skills/{skill_id}")
+def delete_employee_skill(employee_id: str, skill_id: str, db: Session = Depends(get_db)):
+    emp_skill = db.query(EmployeeSkill).filter(
+        EmployeeSkill.employee_id == employee_id,
+        EmployeeSkill.skill_id == skill_id
+    ).first()
+
+    if not emp_skill:
+        raise HTTPException(status_code=404, detail="Skill mapping not found")
+
+    db.delete(emp_skill)
+    db.commit()
+    return {"message": "Skill removed successfully"}
 
 # ==========================================
 # AVAILABILITY ENDPOINTS
@@ -357,6 +476,7 @@ def submit_date_range_leave(
         if existing:
             existing.available_hours = 0
             existing.is_on_leave = True
+            existing.leave_reason = payload.reason  
         else:
             new_avail = Availability(
                 availability_id=new_avail_id,
@@ -365,6 +485,7 @@ def submit_date_range_leave(
                 week_start_date=monday,
                 available_hours=0,
                 is_on_leave=True,
+                leave_reason=payload.reason,
             )
             db.add(new_avail)
 

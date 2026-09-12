@@ -1,6 +1,13 @@
 # app/main.py
 import app.models
 from importlib import import_module
+import sys
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
+
 from app.api.router import api_router
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
