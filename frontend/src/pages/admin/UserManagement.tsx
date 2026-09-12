@@ -171,7 +171,7 @@ export const UserManagement: React.FC = () => {
     review_status: 'UNVERIFIED',
     reviewed_by: '',
     extracted_skills_raw: '',
-    department: '',
+    department: 'Data Science',
   });
 
   
@@ -321,7 +321,7 @@ export const UserManagement: React.FC = () => {
       review_status: 'UNVERIFIED',
       reviewed_by: '',
       extracted_skills_raw: '',
-      department: '',
+      department: 'Data Science',
     });
 
     setIsModalOpen(true);
@@ -979,7 +979,7 @@ export const UserManagement: React.FC = () => {
                       <label className="block text-xs font-semibold text-slate-300 mb-1">Department</label>
                       <select
                         value={studentForm.department}
-                        onChange={(e) => setStudentForm({ ...studentForm, department: e.target.value })}
+                        onChange={(e) => setStudentForm({ ...studentForm, department: e.target.value as any })}
                   
                         className="w-full bg-slate-950 border border-slate-800 text-xs text-white px-3 py-2.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       >
@@ -994,7 +994,7 @@ export const UserManagement: React.FC = () => {
                       <label className="block text-xs font-semibold text-slate-300 mb-1">Role Type</label>
                       <select
                         value={studentForm.role}
-                        onChange={(e) => setStudentForm({ ...studentForm, role: e.target.value })}
+                        onChange={(e) => setStudentForm({ ...studentForm, role: e.target.value as any })}
                         className="w-full bg-slate-950 border border-slate-800 text-xs text-white px-3 py-2.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       >
                         <option value="intern">Intern</option>
@@ -1010,9 +1010,7 @@ export const UserManagement: React.FC = () => {
                         className="w-full bg-slate-950 border border-slate-800 text-xs text-white px-3 py-2.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       >
                         <option value="AVAILABLE">AVAILABLE</option>
-                        <option value="ALLOCATED">ALLOCATED</option>
-                        <option value="ON_LEAVE">ON_LEAVE</option>
-                        <option value="ON_LEAVE">TERMINATED</option>
+                        <option value="TERMINATED">TERMINATED</option>
                       </select>
                     </div>
                   </div>
