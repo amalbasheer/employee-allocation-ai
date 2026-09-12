@@ -54,6 +54,7 @@ export interface Project {
   allocatedStudentIds?: string[];
   allocatedStudentsname?: string[];
   proposedMentorStatus?: AllocatedStatus;
+  proposedMentorLeaveReason?: string;
   isSubstituting?: boolean;
 }
 
@@ -284,6 +285,7 @@ const handleAIProjectGenerated = (aiData: any) => {
           proposedMentorId: mentorAllocation?.resource_id || p.proposedMentorId,
           proposedMentorName: mentorAllocation?.resource_name || p.proposedMentorName,
           proposedMentorStatus: mentorAllocation?.allocation_status || 'unassigned',
+          proposedMentorLeaveReason: mentorAllocation?.leave_reason || p.proposedMentorLeaveReason || null, // <-- ADD THIS LINE
           allocatedStudentIds: studentAllocations.map((s: any) => s.resource_id) || p.allocatedStudentIds || [],
           allocatedStudentsname: studentAllocations?.map((s: any) => s.resource_name).join(' ,') || p.allocatedStudentsname || [],
         
@@ -1242,6 +1244,8 @@ const handleAIProjectGenerated = (aiData: any) => {
                           <span className="text-xs text-amber-400 font-bold flex items-center gap-1.5 bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/20">
                             <Clock className="w-3.5 h-3.5" /> On Leave
                           </span>
+                
+    
                           <button
                             onClick={() => handleResetMentorProposal(selectedProject.id)}
                             className="text-xs text-slate-400 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800 transition-all flex items-center gap-1"

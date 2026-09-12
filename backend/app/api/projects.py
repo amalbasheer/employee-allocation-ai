@@ -219,7 +219,7 @@ def get_or_create_skill(db: Session, skill_name: str, default_category: str = "G
 @router.get("/details")
 async def get_all_projects(db: Session = Depends(get_db)):
     try:
-        # SQL query joining projects, requirements, skills, allocations, employees, and interns
+        # SQL query joining projects, requirements, skills, allocations, employees, interns, and availability
         query = text("""
             SELECT 
                 p.project_id,
@@ -238,13 +238,17 @@ async def get_all_projects(db: Session = Depends(get_db)):
                     WHEN e.employee_id IS NOT NULL THEN 'employee'
                     WHEN i.intern_id IS NOT NULL THEN 'intern'
                     ELSE 'unknown'
-                END AS resource_type
+                END AS resource_type,
+                av.leave_reason  -- <-- SELECT LEAVE REASON
             FROM projects p
             LEFT JOIN project_requirements pr ON p.project_id = pr.project_id
             LEFT JOIN skills s ON pr.skill_id = s.skill_id
             LEFT JOIN allocations a ON p.project_id = a.reference_id
             LEFT JOIN company_employees e ON a.resource_id = e.employee_id
             LEFT JOIN interns_and_students i ON a.resource_id = i.intern_id
+            LEFT JOIN availability av 
+                   ON a.resource_id = av.resource_id 
+                  AND av.is_on_leave = true  -- <-- JOIN ACTIVE LEAVE RECORDS
             ORDER BY p.project_id
         """)
 
@@ -281,8 +285,12 @@ async def get_all_projects(db: Session = Depends(get_db)):
                         "resource_id": str(row["resource_id"]),
                         "resource_name": row["resource_name"],
                         "resource_type": row["resource_type"],
-                        "allocation_status": row["allocation_status"] or "PENDING"
+                        "allocation_status": row["allocation_status"] or "PENDING",
+                        "leave_reason": row["leave_reason"]  # <-- ADDED TO RESPONSE
                     }
+                elif row["leave_reason"]:
+                    # Ensure leave_reason is updated if found on a subsequent SQL row
+                    projects_map[pid]["allocations"][alloc_id]["leave_reason"] = row["leave_reason"]
 
         # Format aggregated map into JSON response list
         formatted_projects: List[Dict[str, Any]] = []
@@ -307,6 +315,7 @@ async def get_all_projects(db: Session = Depends(get_db)):
             detail=f"Failed to fetch projects from database: {str(e)}"
         )
 
+    
 @router.get("", response_model=List[ProjectResponse])
 def get_projects(
     db: Session = Depends(get_db),
