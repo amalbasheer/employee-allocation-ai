@@ -196,6 +196,22 @@ export const EmployeeSkillsManager: React.FC<EmployeeSkillsManagerProps> = ({
     }
   };
 
+  const getProficiencyBadgeStyle = (level: number): string => {
+  switch (level) {
+    case 5:
+      return 'bg-emerald-100 text-emerald-800 border-emerald-300'; // Dark Green (Expert)
+    case 4:
+      return 'bg-green-100 text-green-800 border-green-200';       // Green (Advanced)
+    case 3:
+      return 'bg-amber-100 text-amber-800 border-amber-200';       // Yellow/Amber (Intermediate)
+    case 2:
+      return 'bg-orange-100 text-orange-800 border-orange-200';   // Orange (Basic)
+    case 1:
+    default:
+      return 'bg-rose-100 text-rose-800 border-rose-200';          // Red (Beginner)
+  }
+};
+  
   const currentEmployeeId = getActiveEmployeeId();
 
   if (loading) {
@@ -326,8 +342,9 @@ return (
                       ))}
                     </select>
                   ) : (
-                    <span className="inline-block px-3 py-1.5 text-xs font-semibold text-blue-800 bg-blue-100/70 rounded-full">
-                      Level {item.proficiency_level}
+                    <span className={`inline-flex items-center px-2.5 py-1 text-xs font-semibold rounded-full border ${getProficiencyBadgeStyle(
+        item.proficiency_level)}`}>
+                        Level {item.proficiency_level}
                     </span>
                   )}
                 </td>
