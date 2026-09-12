@@ -116,15 +116,15 @@ export const AIChatWidget: React.FC = () => {
 
   return (
     <div className="fixed bottom-6 right-6 z-50">
-      {!isOpen && (
-        <button
-          onClick={() => setIsOpen(true)}
-          className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white p-4 rounded-full shadow-2xl transition-all duration-300 hover:scale-105"
-        >
-          <Sparkles className="w-6 h-6 animate-pulse" />
-          <span className="font-semibold text-sm hidden sm:inline">AI Assistant</span>
-        </button>
-      )}
+  {!isOpen && (
+    <button
+      onClick={() => setIsOpen(true)}
+      className="flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white p-3 rounded-full shadow-xl transition-all duration-300 hover:scale-105"
+      aria-label="Open AI Assistant"
+    >
+      <Sparkles className="w-5 h-5 animate-pulse" />
+    </button>
+  )}
 
       {isOpen && (
         <div className="w-[360px] sm:w-[420px] h-[540px] bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
