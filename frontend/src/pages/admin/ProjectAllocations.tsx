@@ -1512,19 +1512,19 @@ const handleAIProjectGenerated = (aiData: any) => {
                     </div>
                   </div>
 
-                  {/* Allocation Details: Mentors & Interns */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Suggested Mentor */}
-                    <div className="bg-slate-800/40 rounded-lg p-4 border border-slate-800/80 flex flex-col justify-between">
+                  {/* Allocation Details: Mentors & Interns (Forced Always Side-by-Side) */}
+                  <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                    {/* Suggested Mentor Card */}
+                    <div className="bg-slate-800/40 rounded-lg p-3 sm:p-4 border border-slate-800/80 flex flex-col justify-between min-w-0">
                       <div>
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs font-semibold text-indigo-400 uppercase tracking-wide flex items-center gap-1">
-                            <Users className="w-3.5 h-3.5" /> Optimal Lead Mentor
+                          <span className="text-xs font-semibold text-indigo-400 uppercase tracking-wide flex items-center gap-1 truncate">
+                            <Users className="w-3.5 h-3.5 shrink-0" /> Optimal Lead Mentor
                           </span>
                         </div>
 
-                        <div className="font-medium text-white text-sm">{assignment.candidate_name}</div>
-                        <div className="text-xs text-slate-400 font-mono mt-0.5">ID: {assignment.candidate_id}</div>
+                        <div className="font-medium text-white text-sm truncate">{assignment.candidate_name}</div>
+                        <div className="text-xs text-slate-400 font-mono mt-0.5 truncate">ID: {assignment.candidate_id}</div>
 
                         {/* Mentor Skills */}
                         <div className="flex flex-wrap gap-1.5 mt-3">
@@ -1536,50 +1536,48 @@ const handleAIProjectGenerated = (aiData: any) => {
                         </div>
                       </div>
 
-                      <button
-                        onClick={() =>
-                          handleProposeMentor(assignment.project_id, {
-                            id: assignment.candidate_id,
-                            name: assignment.candidate_name,
-                            role: 'Project Mentor',
-                            matchScore: scorePct,
-                            skills: assignment.candidate_skills,
-                          })
-                        }
-                        className="mt-4 w-full py-2 px-3 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-medium transition-colors flex items-center justify-center gap-1.5"
-                      >
-                        <UserCheck className="w-3.5 h-3.5" /> Propose Mentor
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                          {/* 1. Proposed State: Waiting for Mentor Acceptance */}
-                          {selectedProject.proposedMentorStatus === 'proposed' && (
-                            <div className="flex flex-col items-end gap-1">
-                              <button
-                                disabled
-                                className="bg-slate-800 text-slate-400 cursor-not-allowed text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 border border-slate-700 opacity-80"
-                              >
-                                <Send className="w-3.5 h-3.5 text-amber-400" /> Proposed
-                              </button>
-                              <span className="text-[10px] text-amber-400 font-medium italic">
-                                Waiting for acceptance...
-                              </span>
+                      <div className="mt-4 space-y-2">
+                        {project?.proposedMentorStatus === 'proposed' ? (
+                          <div className="flex flex-col items-center gap-1 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                            <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-400">
+                              <Send className="w-3.5 h-3.5 text-amber-400" /> Proposed
                             </div>
-                          )}</div>
+                            <span className="text-[10px] text-amber-300/80 italic">
+                              Waiting for acceptance...
+                            </span>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() =>
+                              handleProposeMentor(assignment.project_id, {
+                                id: assignment.candidate_id,
+                                name: assignment.candidate_name,
+                                role: 'Project Mentor',
+                                matchScore: scorePct,
+                                skills: assignment.candidate_skills,
+                              })
+                            }
+                            className="w-full py-2 px-3 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-medium transition-colors flex items-center justify-center gap-1.5"
+                          >
+                            <UserCheck className="w-3.5 h-3.5" /> Propose Mentor
+                          </button>
+                        )}
+                      </div>
+                    </div>
 
-                    {/* Suggested Intern / Student */}
-                    <div className="bg-slate-800/40 rounded-lg p-4 border border-slate-800/80 flex flex-col justify-between">
+                    {/* Suggested Intern / Student Card */}
+                    <div className="bg-slate-800/40 rounded-lg p-3 sm:p-4 border border-slate-800/80 flex flex-col justify-between min-w-0">
                       <div>
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs font-semibold text-purple-400 uppercase tracking-wide flex items-center gap-1">
-                            <GraduationCap className="w-3.5 h-3.5" /> Optimal Intern/Student
+                          <span className="text-xs font-semibold text-purple-400 uppercase tracking-wide flex items-center gap-1 truncate">
+                            <GraduationCap className="w-3.5 h-3.5 shrink-0" /> Optimal Intern/Student
                           </span>
                         </div>
 
                         {assignment.suggested_intern_id ? (
                           <>
-                            <div className="font-medium text-white text-sm">{assignment.suggested_intern_name}</div>
-                            <div className="text-xs text-slate-400 font-mono mt-0.5">ID: {assignment.suggested_intern_id}</div>
+                            <div className="font-medium text-white text-sm truncate">{assignment.suggested_intern_name}</div>
+                            <div className="text-xs text-slate-400 font-mono mt-0.5 truncate">ID: {assignment.suggested_intern_id}</div>
 
                             {/* Intern Skills */}
                             <div className="flex flex-wrap gap-1.5 mt-3">
@@ -1638,6 +1636,7 @@ const handleAIProjectGenerated = (aiData: any) => {
     )}
   </div>
 )}
+
       {/* ADD PROJECT MODAL */}
       {isModalOpen && (
         <div 
