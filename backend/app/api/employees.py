@@ -435,6 +435,7 @@ def submit_urgent_leave(
         if existing:
             existing.available_hours = calculated_available_hours
             existing.is_on_leave = True if leave_days_count > 0 else existing.is_on_leave
+            existing.leave_reason = payload.reason
         else:
             new_avail_id = generate_availability_id(db)
             new_avail = Availability(
@@ -444,6 +445,7 @@ def submit_urgent_leave(
                 week_start_date=current_monday,
                 available_hours=calculated_available_hours,
                 is_on_leave=True,
+                leave_reason=payload.reason,
             )
             db.add(new_avail)
             db.flush()  # Ensure the new record is written before proceeding
@@ -531,6 +533,7 @@ def submit_urgent_leave(
         "trainings_marked_on_leave": trainings_updated,
         "projects_marked_on_leave": projects_updated,
         "schedule_breakdown": updated_weeks_summary,
+        "leave_reason": payload.reason
     }
 
 
