@@ -643,12 +643,12 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: "pointer",
   },
   kpiGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-    gap: "16px",
-    marginBottom: "24px",
-    width: "100%",
-  },
+  display: "grid",
+  gridTemplateColumns: "repeat(4, minmax(0, 1fr))", // Forces strictly 4 equal columns per row
+  gap: "16px",
+  marginBottom: "24px",
+  width: "100%",
+},
   
   kpiCard: {
     backgroundColor: "var(--bg-card, rgba(255, 255, 255, 0.03))",
@@ -686,7 +686,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   twoColumnGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
     gap: "20px",
     marginBottom: "24px",
   },
