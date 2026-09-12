@@ -39,7 +39,7 @@ export interface CompanyEmployee {
   department: string;
   designation_id: string;
   designation?: string; // Optional, resolved from designation_id
-  experience_years: number;
+  experience_years: string;
   weekly_capacity_hours: number;
   is_team_lead: boolean;
   created_at?: string;
@@ -151,9 +151,9 @@ export const UserManagement: React.FC = () => {
   const [employeeForm, setEmployeeForm] = useState({
     name: '',
     email: '',
-    department: '',
+    department: 'Data Science',
     designation_id: '',
-    experience_years: 0,
+    experience_years: '0',
     weekly_capacity_hours: 40,
     is_team_lead: false,
     location:'',
@@ -219,7 +219,7 @@ export const UserManagement: React.FC = () => {
             email: 'sarah.jenkins@company.com',
             department: 'AI Research',
             designation_id: 'rp2-des-01',
-            experience_years: 6.5,
+            experience_years: '6.5',
             weekly_capacity_hours: 40,
             is_team_lead: true,
             location: 'kochi',
@@ -230,7 +230,7 @@ export const UserManagement: React.FC = () => {
             email: 'marcus.vance@company.com',
             department: 'Software Engineering',
             designation_id: 'rp2-des-02',
-            experience_years: 3.0,
+            experience_years: '3.0',
             weekly_capacity_hours: 35,
             is_team_lead: false,
             location: 'calicut'
@@ -302,9 +302,9 @@ export const UserManagement: React.FC = () => {
     setEmployeeForm({
       name: '',
       email: '',
-      department: '',
+      department: 'Data Science',
       designation_id: designations[0]?.designation_id || '',
-      experience_years: 0,
+      experience_years: '0',
       weekly_capacity_hours: 40,
       is_team_lead: false,
       location: '',
@@ -861,14 +861,15 @@ export const UserManagement: React.FC = () => {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-semibold text-slate-300 mb-1">Department *</label>
-                      <input
-                        type="text"
+                      <select
                         required
                         value={employeeForm.department}
                         onChange={(e) => setEmployeeForm({ ...employeeForm, department: e.target.value })}
-                        placeholder="e.g. Data Analytics"
                         className="w-full bg-slate-950 border border-slate-800 text-xs text-white px-3 py-2.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                      />
+                      >
+                        <option value="Data Science">Data Science</option>
+                        <option value="Data Analytics">Data Analytics</option>
+                      </select>
                     </div>
                     
                     {/* Designation Dropdown (Stores designation_id) */}
@@ -894,12 +895,10 @@ export const UserManagement: React.FC = () => {
                     <div>
                       <label className="block text-xs font-semibold text-slate-300 mb-1">Experience (Years)</label>
                       <input
-                        type="number"
-                        step="0.5"
-                        min="0"
+                        type="text"
                         value={employeeForm.experience_years}
                         onChange={(e) =>
-                          setEmployeeForm({ ...employeeForm, experience_years: parseFloat(e.target.value) || 0 })
+                          setEmployeeForm({ ...employeeForm, experience_years: e.target.value })
                         }
                         className="w-full bg-slate-950 border border-slate-800 text-xs text-white px-3 py-2.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       />
