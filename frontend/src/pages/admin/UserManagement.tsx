@@ -42,6 +42,7 @@ export interface CompanyEmployee {
   experience_years: string;
   weekly_capacity_hours: number;
   is_team_lead: boolean;
+  preferred_audience?: string; // Only relevant if is_team_lead is true
   created_at?: string;
   location?: string;
 }
@@ -157,6 +158,7 @@ export const UserManagement: React.FC = () => {
     weekly_capacity_hours: 40,
     is_team_lead: false,
     location:'',
+    preferred_audience: 'college_students',
   });
 
   // Student Form State
@@ -308,6 +310,7 @@ export const UserManagement: React.FC = () => {
       weekly_capacity_hours: 40,
       is_team_lead: false,
       location: '',
+      preferred_audience: '',
     });
 
     setStudentForm({
@@ -344,6 +347,7 @@ export const UserManagement: React.FC = () => {
         weekly_capacity_hours: emp.weekly_capacity_hours,
         is_team_lead: emp.is_team_lead,
         location: emp.location || '',
+        preferred_audience: emp.preferred_audience || '',
       });
     } else {
       const std = item as StudentIntern;
@@ -931,17 +935,48 @@ export const UserManagement: React.FC = () => {
                       />
                     </div>
 
-                    <div className="flex items-center pt-6">
-                      <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-300 select-none">
-                        <input
-                          type="checkbox"
-                          checked={employeeForm.is_team_lead}
-                          onChange={(e) => setEmployeeForm({ ...employeeForm, is_team_lead: e.target.checked })}
-                          className="w-4 h-4 rounded border-slate-800 text-indigo-600 focus:ring-indigo-500 bg-slate-950"
-                        />
-                        <span>Assign as Team Lead</span>
-                      </label>
-                    </div>
+                    <div className="space-y-4 pt-4">
+  {/* Team Lead Checkbox */}
+  <div className="flex items-justify">
+    <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-300 select-none">
+      <input
+        type="checkbox"
+        checked={employeeForm.is_team_lead}
+        onChange={(e) => {
+          const isChecked = e.target.checked;
+          setEmployeeForm({
+            ...employeeForm,
+            is_team_lead: isChecked,
+            // Automatically set default value when checked, or clear it when unchecked
+            preferred_audience: isChecked ? (employeeForm.preferred_audience || 'college_students') : ''
+          });
+        }}
+        className="w-4 h-4 rounded border-slate-800 text-indigo-600 focus:ring-indigo-500 bg-slate-950"
+      />
+      <span>Assign as Team Lead</span>
+    </label>
+  </div>
+
+  {/* Conditionally Rendered Preferred Audience Dropdown */}
+  {employeeForm.is_team_lead && (
+    
+      <div className="w-full col-span-full">
+        <label className="block text-xs font-semibold text-slate-300 mb-1">
+          Preferred Audience *
+        </label>
+        <select
+          value={employeeForm.preferred_audience || 'college_students'}
+          onChange={(e) => setEmployeeForm({ ...employeeForm, preferred_audience: e.target.value })}
+          className="w-full bg-slate-950 border border-slate-800 text-xs text-white px-3 py-2.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 transition"
+        >
+          <option value="college_students">College Students</option>
+          <option value="professionals">Professionals</option>
+          <option value="both">Both</option>
+        
+        </select>
+      </div>
+    )}
+</div>
                   </div>
                 </>
               )}
