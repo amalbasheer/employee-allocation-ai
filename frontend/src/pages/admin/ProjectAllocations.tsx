@@ -1240,10 +1240,13 @@ const handleAIProjectGenerated = (aiData: any) => {
 
                       {/* 5. On Leave State: Assigned Mentor currently on leave */}
                       {isThisMentorProposed && selectedProject.proposedMentorStatus === 'on_leave' && (
+                        <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-amber-400 font-bold flex items-center gap-1.5 bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/20">
+                          <span title={`Leave Reason: ${selectedProject.proposedMentorLeaveReason || 'No reason provided'}`}
+                          className="text-xs text-amber-400 font-bold flex items-center gap-1.5 bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/20">
                             <Clock className="w-3.5 h-3.5" /> On Leave
                           </span>
+                          
                 
     
                           <button
@@ -1253,6 +1256,12 @@ const handleAIProjectGenerated = (aiData: any) => {
                           >
                             <RefreshCw className="w-3.5 h-3.5" /> Substitute
                           </button>
+                          </div>
+                          
+    <p className="text-[11px] text-slate-400 italic pl-1">
+      Reason: {selectedProject.proposedMentorLeaveReason || 'No reason provided'}
+    </p>
+  
                         </div>
                       )}
 
