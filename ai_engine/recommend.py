@@ -81,11 +81,10 @@ def recommend_candidates_for_project(project_id: str) -> dict:
         # so their name stays visible even though they're correctly
         # excluded from the "available" recommendation list above
         assignments = get_project_assignments(project_id)
-        current_intern = next((a for a in assignments if a["resource_type"] == "intern"), None)
-        result["currently_assigned_intern"] = {
-            "id": current_intern["resource_id"],
-            "name": current_intern["name"],
-        } if current_intern else None
+        current_interns = [a for a in assignments if a["resource_type"] == "intern"]
+        result["currently_assigned_interns"] = [
+            {"id": i["resource_id"], "name": i["name"]} for i in current_interns
+        ] if current_interns else []
 
         result["eligible_team_leads"] = [
             m for m in result["mentors"] if m.get("is_team_lead")
