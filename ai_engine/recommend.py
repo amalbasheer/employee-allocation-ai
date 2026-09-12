@@ -77,6 +77,16 @@ def recommend_candidates_for_project(project_id: str) -> dict:
             i["skills"] = get_person_skills(i["id"], "intern")
         result["interns"] = _strip_embeddings(rank_candidates(interns, requirements))
 
+        # NEW — separately show who's CURRENTLY assigned to THIS project,
+        # so their name stays visible even though they're correctly
+        # excluded from the "available" recommendation list above
+        assignments = get_project_assignments(project_id)
+        current_intern = next((a for a in assignments if a["resource_type"] == "intern"), None)
+        result["currently_assigned_intern"] = {
+            "id": current_intern["resource_id"],
+            "name": current_intern["name"],
+        } if current_intern else None
+
         result["eligible_team_leads"] = [
             m for m in result["mentors"] if m.get("is_team_lead")
         ]
