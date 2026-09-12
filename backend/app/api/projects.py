@@ -79,7 +79,6 @@ def get_designation_titles_map(db : Session) -> dict:
         print(f"[DEBUG] Failed to fetch designations map: {e}")
     return title_map
 
-
 @router.post("/{project_id}/recommendations")
 async def fetch_recommendations(
     project_id: str, 
@@ -91,14 +90,37 @@ async def fetch_recommendations(
         req_type = payload.type.lower().strip() if payload.type else "mentors"
         is_student_req = req_type in ["students", "interns", "intern", "student"]
 
-        # 1. Flexible key lookup for result_dict
+        # 1. Flexible key lookup & merging assigned interns into the response
         if is_student_req:
-            candidates = result_dict.get("interns") or result_dict.get("students") or []
+            available = result_dict.get("interns") or result_dict.get("students") or []
+            assigned = result_dict.get("currently_assigned_interns") or []
+
+            # Deduplicate by ID so currently assigned interns stay in the list
+            existing_ids = {
+                str(item.get("id") or item.get("resource_id") if isinstance(item, dict) else getattr(item, "id", ""))
+                for item in available
+            }
+
+            merged_candidates = list(available)
+            for candidate in assigned:
+                cand_dict = candidate if isinstance(candidate, dict) else candidate.__dict__
+                cand_id = str(cand_dict.get("id") or cand_dict.get("resource_id") or "")
+
+                if cand_id and cand_id not in existing_ids:
+                    # Provide fallback values for missing candidate attributes
+                    cand_dict.setdefault("id", cand_id)
+                    cand_dict.setdefault("suitability_score", 100.0)
+                    cand_dict.setdefault("skills", [])
+                    cand_dict.setdefault("university", "Assigned Intern")
+                    merged_candidates.append(cand_dict)
+                    existing_ids.add(cand_id)
+
+            candidates = merged_candidates
         elif req_type in ["team_leads", "team_lead", "lead"]:
             candidates = result_dict.get("eligible_team_leads") or result_dict.get("team_leads") or []
         else:
-            candidates= (
-                 result_dict.get("mentors") 
+            candidates = (
+                result_dict.get("mentors") 
                 or result_dict.get("recommended_mentors") 
                 or result_dict.get("eligible_mentors")
                 or result_dict.get("candidates")
@@ -119,6 +141,10 @@ async def fetch_recommendations(
                 raw_skills = c.get("skills")
                 skills_list = [str(s) for s in raw_skills] if isinstance(raw_skills, list) else []
 
+                raw_score = float(c.get("suitability_score") or c.get("score") or c.get("match_score") or 0)
+                # Convert decimal fractions (e.g., 0.95) to percentage scale (95.0)
+                match_score = round(raw_score * 100, 1) if 0 < raw_score <= 1.0 else round(raw_score, 1)
+
                 if is_student_req:
                     role_val = "Intern"
                     univ_val = str(c.get("university") or c.get("college_institution") or "Intern")
@@ -128,9 +154,9 @@ async def fetch_recommendations(
                     univ_val = "N/A"
 
                 cleaned_candidates.append({
-                    "id": str(c.get("id") or c.get("employee_id") or c.get("_id") or "unknown"),
+                    "id": str(c.get("id") or c.get("resource_id") or c.get("employee_id") or c.get("_id") or "unknown"),
                     "name": str(c.get("name") or c.get("full_name") or "Unnamed Candidate"),
-                    "matchScore": float(c.get("suitability_score") or c.get("score") or c.get("match_score") or 0),
+                    "matchScore": match_score,
                     "skills": skills_list,
                     "role": str(role_val),
                     "university": univ_val,
