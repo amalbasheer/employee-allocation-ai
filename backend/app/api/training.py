@@ -834,6 +834,7 @@ def delete_engagement(engagement_id: str, db: Session = Depends(get_db)):
 
     return {"message": f"Engagement '{engagement_id}' and associated requirements permanently deleted."}
 
+
 @router.post("/engagements/bulk-cancel", status_code=status.HTTP_200_OK)
 def bulk_cancel_engagements(payload: BulkCancelSchema, db: Session = Depends(get_db)):
     if not payload.engagement_ids:

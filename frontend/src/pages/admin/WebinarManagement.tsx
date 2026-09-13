@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Card } from '../../components/common/Card';
 import { 
-  Video, Plus, Clock, CheckCircle2, XCircle, Send, 
+  Video, Plus, Clock, CheckCircle2, XCircle, Send, Pencil, Edit2, Trash2,
   UserCheck, Star, UserPlus, Sliders, ArrowRight, Download, FolderSync, Hourglass,
   GraduationCap, RefreshCw, Sparkles, Filter, AlertCircle, X, Loader2, Crown, Users
 } from 'lucide-react';
@@ -49,6 +49,8 @@ export interface TrainingEngagement {
   created_at?: string;
   location: string;
 }
+
+export type EditEngagement = Omit<TrainingEngagement, 'engagement_id'>;
 
 export interface StudentBatch {
   batch_id: string;
@@ -163,6 +165,7 @@ export const TrainingManagement: React.FC = () => {
 
   // Modal & Form States
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newType, setNewType] = useState<'webinar' | 'demo' | 'workshop' | 'seminar'>('webinar');
   const [newStartDate, setNewStartDate] = useState('');
@@ -175,6 +178,7 @@ export const TrainingManagement: React.FC = () => {
   const [newAud, setNewAud] = useState('');
   const [newMode, setNewMode] = useState<'online' | 'offline'>('online');
   const [newDom, setNewDom] = useState<'Data Science' | 'Data Analytics'>('Data Science');
+  const [editingEngagementId, setEditingEngagementId] = useState<string | null>(null);
 
   // AI Webinar Generator Modal & State
   const [isWebinarModalOpen, setIsWebinarModalOpen] = useState(false);
@@ -412,12 +416,27 @@ export const TrainingManagement: React.FC = () => {
     }
   };
 
+  const resetForm = () => {
+  setNewTitle('');
+  setNewType('webinar'); // or your default type
+  setNewHours(1);
+  setNewStartDate('');
+  setNewEndDate('');
+  setNewDom('Data Science'); // or your default domain
+  setNewLoc('');
+  setNewReg('');
+  setNewInst('');
+  setNewMode('online'); // or your default mode
+  setNewAud('');
+  setNewDesc('');
+};
+
   // Create New Engagement
   const handleScheduleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const generatedId = `rp2-train-${String(engagements.length + 1).padStart(4, '0')}`;
-    const newEntry: TrainingEngagement = {
-      engagement_id: generatedId,
+    
+    const newEntry: EditEngagement= {
+      
       title: newTitle,
       engagement_type: newType,
       start_date: newStartDate || '2026-09-01',
@@ -433,10 +452,9 @@ export const TrainingManagement: React.FC = () => {
       domain: newDom,
     };
 
-    setEngagements([newEntry, ...engagements]);
-    setIsModalOpen(false);
     setNewTitle('');
     setNewDesc('');
+    
 
     try {
       const res = await fetch(`${API_BASE}/api/training/engagements`, {
@@ -444,7 +462,19 @@ export const TrainingManagement: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newEntry)
       });
+      
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // Receive the official database item containing the backend-generated engagement_id
+    const createdEngagement: TrainingEngagement = await res.json();
+
+    // Add the verified database record directly to state
+    setEngagements((prev) => [createdEngagement, ...prev]);
+
+    setIsEditMode(false);
+    setIsModalOpen(false);
+    resetForm();
+
+      alert('Engagement added successfully.');
     } catch (err) {
       console.warn('API engagement creation failed:', err);
     }
@@ -535,11 +565,164 @@ export const TrainingManagement: React.FC = () => {
     }
   };
 
+  // --- Open Modal Handlers ---
+const handleOpenCreateModal = () => {
+  setEditingEngagementId(null);
+  setNewTitle('');
+  setNewType('webinar');
+  setNewStartDate('');
+  setNewEndDate('');
+  setNewHours(2);
+  setNewDesc('');
+  setNewLoc('');
+  setNewReg('');
+  setNewInst('');
+  setNewAud('');
+  setNewMode('online');
+  setNewDom('Data Science');
+  setIsModalOpen(true);
+};
+
+const handleOpenEditModal = (engagement: TrainingEngagement) => {
+  setEditingEngagementId(engagement.engagement_id);
+  setIsEditMode(true);
+  setNewTitle(engagement.title || '');
+  setNewType(engagement.engagement_type || 'webinar');
+  setNewStartDate(engagement.start_date || '');
+  setNewEndDate(engagement.end_date || '');
+  setNewHours(engagement.required_hours || 2);
+  setNewDesc(engagement.description || '');
+  setNewLoc(engagement.location || '');
+  setNewReg(engagement.region || '');
+  setNewInst(engagement.institution_name || '');
+  setNewAud(engagement.audience || '');
+  setNewMode(engagement.mode === 'offline' ? 'offline' : 'online');
+  setNewDom(engagement.domain === 'Data Analytics' ? 'Data Analytics' : 'Data Science');
+  setIsModalOpen(true);
+};
+
+// Close Modal
+const handleCloseModal = () => {
+  setIsModalOpen(false);
+  setIsEditMode(false);
+  resetForm(); // <--- Reset on close as well
+};
+
+// --- Combined Submit Handler (Creates or Updates) ---
+const handleFormSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  if (editingEngagementId) {
+    // --- EDIT / UPDATE LOGIC ---
+    const updatedPayload = {
+      title: newTitle,
+      engagement_type: newType,
+      start_date: newStartDate,
+      end_date: newEndDate,
+      required_hours: newHours,
+      description: newDesc,
+      location: newLoc,
+      region: newReg,
+      institution_name: newInst,
+      audience: newAud,
+      mode: newMode,
+      domain: newDom,
+    };
+
+    // Optimistic UI Update
+    setEngagements((prev) =>
+      prev.map((item) =>
+        item.engagement_id === editingEngagementId ? { ...item, ...updatedPayload } : item
+      )
+    );
+    setIsModalOpen(false);
+    resetForm();
+
+    try {
+      const res = await fetch(`${API_BASE}/api/training/engagements/${editingEngagementId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedPayload),
+      });
+      
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      alert('Engagement updated successfully.');
+    } catch (err) {
+      console.error('API update failed:', err);
+      alert('Failed to update engagement. Please refresh and try again.');
+    }
+  } else {
+    // --- CREATE LOGIC ---
+    await handleScheduleSubmit(e);
+  }
+};
+
+// --- Delete Single Engagement ---
+const handleDeleteEngagement = async (engagementId: string) => {
+  if (!window.confirm('Are you sure you want to delete this engagement?')) return;
+
+  // Optimistic UI Update
+  setEngagements((prev) => prev.filter((e) => e.engagement_id !== engagementId));
+  setSelectedEngagementIds((prev) => prev.filter((id) => id !== engagementId));
+
+  if (selectedEngagementId === engagementId) {
+    const remaining = engagements.filter((e) => e.engagement_id !== engagementId);
+    setSelectedEngagementId(remaining.length > 0 ? remaining[0].engagement_id : '');
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/training/engagements/${engagementId}`, {
+      method: 'DELETE',
+    });
+    
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    alert('Engagement deleted successfully.');
+  } catch (err) {
+    console.error('Failed to delete engagement:', err);
+    alert('Failed to delete engagement. Please refresh and try again.');
+  }
+};
+
+// --- Bulk Delete Engagements ---
+const handleBulkDeleteEngagements = async () => {
+  if (selectedEngagementIds.length === 0) return;
+
+  const count = selectedEngagementIds.length;
+  if (!window.confirm(`Are you sure you want to delete ${count} selected engagement(s)?`)) return;
+
+  const idsToDelete = [...selectedEngagementIds];
+
+  // Optimistic UI Update
+  setEngagements((prev) => prev.filter((e) => !idsToDelete.includes(e.engagement_id)));
+  setSelectedEngagementIds([]);
+
+  if (idsToDelete.includes(selectedEngagementId)) {
+    const remaining = engagements.filter((e) => !idsToDelete.includes(e.engagement_id));
+    setSelectedEngagementId(remaining.length > 0 ? remaining[0].engagement_id : '');
+  }
+
+  try {
+    await Promise.all(
+      idsToDelete.map((id) =>
+        fetch(`${API_BASE}/api/training/engagements/bulk-cancel`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ engagement_ids: [id] }),
+        })
+      )
+    );
+    alert(`Successfully deleted ${count} engagement(s).`);
+  } catch (err) {
+    console.error('Failed to perform bulk delete:', err);
+    alert('Failed to delete some engagements. Please refresh and try again.');
+  }
+};
+
   const renderStatusBadge = (status: EngagementStatus | string) => {
     switch (status) {
       case 'open':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700">
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-700">
             <Clock className="w-3 h-3" /> open
           </span>
         );
@@ -571,6 +754,12 @@ export const TrainingManagement: React.FC = () => {
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-purple-500/10 text-purple-400 border border-purple-500/20">
             <CheckCircle2 className="w-3 h-3" /> completed
+          </span>
+        );
+      case 'cancelled':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-500/10 text-gray-400 border border-gray-500/20">
+            <XCircle className="w-3 h-3" /> cancelled
           </span>
         );
       default:
@@ -707,12 +896,21 @@ export const TrainingManagement: React.FC = () => {
     <span>Select All ({selectedEngagementIds.length} selected)</span>
   </label>
   {selectedEngagementIds.length > 0 && (
+    <div className="flex items-center gap-3">
     <button
       onClick={clearSelection}
       className="text-xs text-rose-400 hover:underline"
     >
       Clear Selection
     </button>
+    <button
+        type="button"
+        onClick={handleBulkDeleteEngagements}
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-md hover:bg-rose-500/20 hover:border-rose-500/30 transition-colors"
+      >
+        Delete Selected ({selectedEngagementIds.length})
+      </button>
+    </div>
   )}
 </div>
         {subTab === 'list' && (
@@ -761,8 +959,9 @@ export const TrainingManagement: React.FC = () => {
                 </p>
               </div>
             </div>
+            <div className="flex flex-col items-end gap-2">
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
               {renderStatusBadge(item.status)}
               <button
                 onClick={() => {
@@ -773,6 +972,30 @@ export const TrainingManagement: React.FC = () => {
               >
                 Speaker Allocation <ArrowRight className="w-3.5 h-3.5 text-indigo-400" />
               </button>
+              </div>
+              <div className="flex items-center gap-1">
+              <button
+    onClick={(e) => {
+      e.stopPropagation();
+      handleOpenEditModal(item);
+    }}
+    title="Edit Engagement"
+    className="p-2 text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10 rounded-lg transition-colors border border-transparent hover:border-indigo-500/20"
+  >
+    <Pencil className="w-4 h-4" />
+  </button>
+
+  <button
+    onClick={(e) => {
+      e.stopPropagation();
+      handleDeleteEngagement(item.engagement_id);
+    }}
+    title="Delete Engagement"
+    className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors border border-transparent hover:border-rose-500/20"
+  >
+    <Trash2 className="w-4 h-4" />
+  </button>
+  </div>
             </div>
           </div>
         );
@@ -1417,165 +1640,188 @@ export const TrainingManagement: React.FC = () => {
 )}
 
 
+{isModalOpen && (
+  <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh]">
+      
+      {/* Dynamic Fixed Header */}
+      <div className="p-6 pb-4 border-b border-slate-800 flex-shrink-0 flex items-center justify-between">
+        <h3 className="text-lg font-bold text-white">
+          {isEditMode ? 'Edit Engagement' : 'Schedule New Engagement'}
+        </h3>
+        <button
+          type="button"
+          onClick={handleCloseModal}
+          className="text-slate-400 hover:text-white text-sm font-semibold"
+        >
+          ✕
+        </button>
+      </div>
 
-    {isModalOpen && (
-      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl">
-          <h3 className="text-lg font-bold text-white">Schedule New Engagement</h3>
+      {/* Form Container */}
+      <form
+        onSubmit={isEditMode ? handleFormSubmit : handleScheduleSubmit}
+        className="flex flex-col flex-1 overflow-hidden"
+      >
+        
+        {/* Scrollable Input Fields */}
+        <div className="p-6 space-y-4 overflow-y-auto flex-1 pr-4">
+          <div>
+            <label className="text-xs text-slate-400 block mb-1">Title</label>
+            <input
+              type="text"
+              required
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+              placeholder="e.g. Distributed Consensus in Go"
+            />
+          </div>
 
-          <form onSubmit={handleScheduleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Title</label>
+              <label className="text-xs text-slate-400 block mb-1">Engagement Type</label>
+              <select
+                value={newType}
+                onChange={(e) => setNewType(e.target.value as any)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+              >
+                <option value="webinar">webinar</option>
+                <option value="demo">demo</option>
+                <option value="workshop">workshop</option>
+                <option value="seminar">seminar</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Required Hours</label>
+              <input
+                type="number"
+                min={1}
+                value={newHours}
+                onChange={(e) => setNewHours(Number(e.target.value))}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Start Date</label>
+              <input
+                type="date"
+                required
+                value={newStartDate}
+                onChange={(e) => setNewStartDate(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">End Date</label>
+              <input
+                type="date"
+                value={newEndDate}
+                onChange={(e) => setNewEndDate(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Domain</label>
+              <select
+                value={newDom}
+                onChange={(e) => setNewDom(e.target.value as any)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+              >
+                <option value="Data Science">Data Science</option>
+                <option value="Data Analytics">Data Analytics</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Location</label>
               <input
                 type="text"
-                required
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
+                value={newLoc}
+                onChange={(e) => setNewLoc(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
-                placeholder="e.g. Distributed Consensus in Go"
+                placeholder="Kochi"
               />
             </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Engagement Type</label>
-                <select
-                  value={newType}
-                  onChange={(e) => setNewType(e.target.value as any)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
-                >
-                  <option value="webinar">webinar</option>
-                  <option value="demo">demo</option>
-                  <option value="workshop">workshop</option>
-                  <option value="seminar">seminar</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Required Hours</label>
-                <input
-                  type="number"
-                  min={1}
-                  value={newHours}
-                  onChange={(e) => setNewHours(Number(e.target.value))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Start Date</label>
-                <input
-                  type="date"
-                  required
-                  value={newStartDate}
-                  onChange={(e) => setNewStartDate(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">End Date</label>
-                <input
-                  type="date"
-                  value={newEndDate}
-                  onChange={(e) => setNewEndDate(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Domain</label>
-                <select
-                  value={newDom}
-                  onChange={(e) => setNewDom(e.target.value as any)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
-                >
-                  <option value="Data Science">Data Science</option>
-                  <option value="Data Analytics">Data Analytics</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Location</label>
-                <input
-                  type="string"
-                  value={newLoc}
-                  onChange={(e) => setNewLoc(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
-                  placeholder="Kochi"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Region</label>
-                <input
-                  type="string"
-                  value={newReg}
-                  onChange={(e) => setNewReg(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
-                  placeholder="Kochi"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Institution</label>
-                <input
-                  type="string"
-                  value={newInst}
-                  onChange={(e) => setNewInst(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
-                  placeholder="eg: CUSAT"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Mode</label>
-                <select
-                  value={newMode}
-                  onChange={(e) => setNewMode(e.target.value as any)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
-                >
-                  <option value="online">online</option>
-                  <option value="offline">offline</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Audience</label>
-                <input
-                  type="string"
-                  value={newAud}
-                  onChange={(e) => setNewAud(e.target.value as any)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
-                  placeholder="college_students"
-                />
-              </div>
-            </div>
-
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Description</label>
-              <textarea
-                rows={3}
-                value={newDesc}
-                onChange={(e) => setNewDesc(e.target.value)}
+              <label className="text-xs text-slate-400 block mb-1">Region</label>
+              <input
+                type="text"
+                value={newReg}
+                onChange={(e) => setNewReg(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
-                placeholder="Details for pgvector skill extraction..."
+                placeholder="Kochi"
               />
             </div>
-
-            <div className="flex justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-lg"
-              >
-                Schedule Engagement
-              </button>
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Institution</label>
+              <input
+                type="text"
+                value={newInst}
+                onChange={(e) => setNewInst(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                placeholder="eg: CUSAT"
+              />
             </div>
-          </form>
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Mode</label>
+              <select
+                value={newMode}
+                onChange={(e) => setNewMode(e.target.value as any)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+              >
+                <option value="online">online</option>
+                <option value="offline">offline</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Audience</label>
+              <input
+                type="text"
+                value={newAud}
+                onChange={(e) => setNewAud(e.target.value as any)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                placeholder="college_students"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs text-slate-400 block mb-1">Description</label>
+            <textarea
+              rows={3}
+              value={newDesc}
+              onChange={(e) => setNewDesc(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+              placeholder="Details for pgvector skill extraction..."
+            />
+          </div>
         </div>
-      </div>)}
+
+        {/* Dynamic Fixed Footer Buttons */}
+        <div className="p-6 pt-4 border-t border-slate-800 flex-shrink-0 flex justify-end gap-3 bg-slate-900 rounded-b-2xl">
+          <button
+            type="button"
+            onClick={handleCloseModal}
+            className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors"
+          >
+            {isEditMode ? 'Update Engagement' : 'Schedule Engagement'}
+          </button>
+        </div>
+      </form>
+      
+    </div>
+  </div>
+)}
       
       {/* AI WEBINAR REQUIREMENT FORM MODAL */}
       {isWebinarModalOpen && (
