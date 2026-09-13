@@ -595,6 +595,50 @@ def update_project(
     db.refresh(project)
     return project
 
+class BulkProjectDeleteRequest(BaseModel):
+    project_ids: List[str]
+
+@router.delete("/bulk", status_code=status.HTTP_200_OK)
+def cancel_projects_bulk(
+    payload: BulkProjectDeleteRequest,
+    db: Session = Depends(get_db),
+    admin_user: UserProfile = Depends(require_admin)
+):
+    """
+    Soft-delete one or multiple projects by setting their status to 'Cancelled'.
+    Also updates all associated allocations' status to 'Cancelled'.
+    """
+    if not payload.project_ids:
+        raise HTTPException(status_code=400, detail="No project IDs provided")
+
+    # 1. Fetch targeted projects
+    projects = db.query(Project).filter(Project.project_id.in_(payload.project_ids)).all()
+    
+    if not projects:
+        raise HTTPException(status_code=404, detail="No matching projects found")
+
+    found_ids = [p.project_id for p in projects]
+
+    # 2. Perform bulk update on Projects
+    db.query(Project).filter(Project.project_id.in_(found_ids)).update(
+        {Project.status: "cancelled"},
+        synchronize_session=False
+    )
+
+    # 3. Perform bulk update on associated Allocations
+    db.query(Allocation).filter(Allocation.reference_id.in_(found_ids)).update(
+        {Allocation.status: "cancelled"},
+        synchronize_session=False
+    )
+
+    # 4. Commit transaction
+    db.commit()
+
+    return {
+        "message": "Projects and associated allocations cancelled successfully",
+        "cancelled_project_count": len(found_ids),
+        "cancelled_project_ids": found_ids
+    }
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_project(

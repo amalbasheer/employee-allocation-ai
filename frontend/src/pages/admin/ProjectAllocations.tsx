@@ -3,8 +3,9 @@ import {
   Plus, Layers, Sliders, Clock, Send, UserCheck, XCircle, CheckCircle2, 
   Tag, Calendar, ArrowRight, ThumbsUp, ThumbsDown, GraduationCap, CheckCircle,
   Star, UserPlus, RefreshCw, Users, FolderPlus, X, PlayCircle, Crown, Sparkles, 
-  FolderSync,
-  User
+  FolderSync, Trash2,
+  User,
+  Edit2
 } from 'lucide-react';
 import { Card } from '../../components/common/Card';
 import AIProjectModal from "../../components/AIProjectModal";
@@ -131,15 +132,19 @@ export const ProjectAllocation: React.FC = () => {
 
   // --- New Multi-Select State ---
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
+
+  // --- New Edit & Loading States ---
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
   
   const API_BASE = import.meta.env.VITE_BACKEND_URL || 'https://employee-allocation-ai.onrender.com';
   
   // Open & Close Handlers
-const handleOpenAIModal = () => setIsAIModalOpen(true);
-const handleCloseAIModal = () => setIsAIModalOpen(false);
+  const handleOpenAIModal = () => setIsAIModalOpen(true);
+  const handleCloseAIModal = () => setIsAIModalOpen(false);
 
 // Handler to apply AI-generated project details into the form or state
-const handleAIProjectGenerated = (aiData: any) => {
+  const handleAIProjectGenerated = (aiData: any) => {
   if (aiData.title) setProjectName(aiData.title);
   if (aiData.description) setDescription(aiData.description);
   if (aiData.category) setCategory(aiData.category);
@@ -673,6 +678,14 @@ const handleAIProjectGenerated = (aiData: any) => {
       );  
     }
 
+    if (pStatus === 'cancelled') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-darkred-500/10 text-rose-400 border border-rose-500/20">
+          <XCircle className="w-3 h-3" /> Cancelled
+        </span>
+      );  
+    }
+
   // 2. If Project Status is 'OPEN', check Allocation Status
     if (pStatus === 'open' || !pStatus) {
       switch (aStatus) {
@@ -796,6 +809,180 @@ const handleAIProjectGenerated = (aiData: any) => {
     }
   }, [selectedProjectId, activeTab, recommendationSubTab]);
 
+  // ---------------------------------------------------------------------------
+// 1. DELETE SINGLE PROJECT
+// ---------------------------------------------------------------------------
+const handleDeleteProject = async (projectId: string) => {
+  if (!window.confirm('Are you sure you want to delete this project? This action cannot be undone.')) {
+    return;
+  }
+
+  setIsDeleting(true);
+  try {
+    await api.delete(`${API_BASE}/api/projects/${projectId}`);
+
+    // Update UI State
+    setProjects((prev) => prev.filter((p) => p.id !== projectId));
+    setSelectedProjectIds((prev) => prev.filter((id) => id !== projectId));
+
+    if (selectedProjectId === projectId) {
+      setSelectedProjectId(null);
+    }
+
+    alert('Project deleted successfully!');
+  } catch (err: any) {
+    const errorMsg = err.response?.data?.detail || 'Failed to delete project.';
+    console.error('Delete error:', err);
+    alert(`Error: ${errorMsg}`);
+  } finally {
+    setIsDeleting(false);
+  }
+};
+
+// ---------------------------------------------------------------------------
+// 2. BULK DELETE SELECTED PROJECTS
+// ---------------------------------------------------------------------------
+const handleBulkDeleteProjects = async () => {
+  if (selectedProjectIds.length === 0) return;
+
+  const confirmMsg = `Are you sure you want to delete ${selectedProjectIds.length} selected project(s)?`;
+  if (!window.confirm(confirmMsg)) return;
+
+  setIsDeleting(true);
+  try {
+    // Call bulk endpoint if your backend supports it, or execute parallel requests
+    await api.delete(`${API_BASE}/api/projects/bulk`, {
+      data: { project_ids: selectedProjectIds },
+    });
+
+    // Update UI State
+    setProjects((prev) => prev.filter((p) => !selectedProjectIds.includes(p.id)));
+    clearSelection();
+
+    alert('Selected projects deleted successfully!');
+  } catch (err: any) {
+    // Fallback: If bulk endpoint isn't implemented, delete sequentially
+    try {
+      await Promise.all(
+        selectedProjectIds.map((id) => api.delete(`${API_BASE}/api/projects/${id}`))
+      );
+      setProjects((prev) => prev.filter((p) => !selectedProjectIds.includes(p.id)));
+      clearSelection();
+      alert('Selected projects deleted successfully!');
+    } catch (fallbackErr: any) {
+      console.error('Bulk delete error:', fallbackErr);
+      alert('Failed to delete some or all selected projects.');
+    }
+  } finally {
+    setIsDeleting(false);
+  }
+};
+
+// ---------------------------------------------------------------------------
+// 3. EDIT PROJECT HANDLERS
+// ---------------------------------------------------------------------------
+const handleOpenEditModal = (project: Project) => {
+  setEditingProject(project);
+  
+  // Populate form with target project details
+  setProjectName(project.name || '');
+  setDescription(project.description || '');
+  setCategory(project.category || 'Machine Learning');
+  setProjectType(project.project_type || 'internal_project');
+  setStartDate(project.startDate !== 'TBD' ? project.startDate || '' : '');
+  setEndDate(project.endDate !== 'TBD' ? project.endDate || '' : '');
+  setRequiredHours(project.requiredHoursPerWeek || 10);
+  setPriorityLevel(project.priorityLevel || 'Medium');
+  setSkillsInput(project.requiredSkills ? project.requiredSkills.join(', ') : '');
+
+  setIsModalOpen(true);
+};
+
+const handleSaveEditProject = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (!editingProject || !projectName.trim()) return;
+
+  try {
+    const payload = {
+      title: projectName.trim(),
+      description: description || '',
+      category: category || 'General',
+      project_type: projectType || 'internal_project',
+      start_date: startDate || null,
+      end_date: endDate || null,
+      required_hours_per_week: Number(requiredHours) || 10,
+      priority_level: priorityLevel || 'Medium',
+      requirements: skillsInput
+        ? skillsInput.split(',').map((s) => s.trim()).filter(Boolean)
+        : [],
+    };
+
+    const res = await api.patch(`${API_BASE}/api/projects/${editingProject.id}`, payload);
+    const updatedData = res.data;
+
+    // Update Local State
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === editingProject.id
+          ? {
+              ...p,
+              name: updatedData.title || payload.title,
+              category: updatedData.category || payload.category,
+              project_type: updatedData.project_type || payload.project_type,
+              description: updatedData.description || payload.description,
+              startDate: updatedData.start_date || payload.start_date || 'TBD',
+              endDate: updatedData.end_date || payload.end_date || 'TBD',
+              requiredHoursPerWeek: updatedData.required_hours_per_week,
+              priorityLevel: updatedData.priority_level,
+              requiredSkills: payload.requirements,
+            }
+          : p
+      )
+    );
+
+    // Reset Form & Close Modal
+    handleCloseModal();
+    alert('Project updated successfully!');
+  } catch (err: any) {
+    const errorMsg = err.response?.data?.detail || 'Failed to update project.';
+    console.error('Update error:', err);
+    alert(`Error: ${errorMsg}`);
+  }
+};
+
+// Unified modal close reset helper
+const handleCloseModal = () => {
+  setIsModalOpen(false);
+  setEditingProject(null);
+  setProjectName('');
+  setDescription('');
+  setCategory('Machine Learning');
+  setProjectType('internal_project');
+  setStartDate('');
+  setEndDate('');
+  setRequiredHours(10);
+  setPriorityLevel('Medium');
+  setSkillsInput('');
+};
+
+const handleOpenAddModal = () => {
+  // 1. Clear the active edit target
+  setEditingProject(null);
+
+  // 2. Reset all form inputs back to default empty values
+  setProjectName('');
+  setCategory('Machine Learning'); // set to your preferred default option
+  setProjectType('internal_project');
+  setStartDate('');
+  setEndDate('');
+  setRequiredHours(10);
+  setPriorityLevel('Medium');
+  setDescription('');
+
+  // 3. Open modal
+  setIsModalOpen(true);
+};
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -807,7 +994,7 @@ const handleAIProjectGenerated = (aiData: any) => {
         <div className="flex items-center gap-3">
   {/* Standard Add Project Button */}
   <button
-    onClick={() => setIsModalOpen(true)}
+    onClick={handleOpenAddModal}
     className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg transition-all"
     type="button"
   >
@@ -945,6 +1132,7 @@ const handleAIProjectGenerated = (aiData: any) => {
           </label>
         
                {selectedProjectIds.length > 0 && (
+                <div className="flex items-center gap-3">
               
                 <button
                   onClick={clearSelection}
@@ -952,7 +1140,16 @@ const handleAIProjectGenerated = (aiData: any) => {
                 >
                   Clear Selection
                 </button>
-              
+                <button
+                    onClick={handleBulkDeleteProjects}
+                    disabled={isDeleting}
+                    className="px-2.5 py-1 text-xs font-semibold text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 rounded-lg transition-all flex items-center gap-1.5"
+                    title="Delete Selected Projects"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete Selected ({selectedProjectIds.length})
+                  </button>
+              </div>
             )}</div>
 
         {filteredProjects.map((project) => {
@@ -1021,13 +1218,31 @@ const handleAIProjectGenerated = (aiData: any) => {
                     )}
                   </div>
                 </div>
-
+                <div className="flex items-center gap-2 self-start md:self-end">
                 <button
                   onClick={() => handleManageAllocation(project.id)}
                   className="bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-700 flex items-center gap-1.5 transition-all self-start md:self-end"
                 >
                   Manage Allocation <ArrowRight className="w-3.5 h-3.5 text-indigo-400" />
                 </button>
+                {/* Edit Symbol Button */}
+                      <button
+                        onClick={() => handleOpenEditModal(project)}
+                        className="p-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-indigo-400 rounded-lg border border-slate-800 hover:border-slate-700 transition-all"
+                        title="Edit Project"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      {/* Delete Symbol Button */}
+                      <button
+                        onClick={() => handleDeleteProject(project.id)}
+                        disabled={isDeleting}
+                        className="p-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-rose-400 rounded-lg border border-slate-800 hover:border-slate-700 transition-all"
+                        title="Delete Project"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                      </div>
               </div>
             </div>
             
@@ -1650,184 +1865,203 @@ const handleAIProjectGenerated = (aiData: any) => {
   </div>
 )}
 
-      {/* ADD PROJECT MODAL */}
-      {isModalOpen && (
-        <div 
-          className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => setIsModalOpen(false)}
+{/* ADD / EDIT PROJECT MODAL */}
+{isModalOpen && (
+  <div 
+    className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4"
+    onClick={() => {
+      setIsModalOpen(false);
+      setEditingProject?.(null);
+    }}
+  >
+    <div 
+      className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto"
+      onClick={(e) => e.stopPropagation()}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="flex justify-between items-center border-b border-slate-800 pb-4">
+        <h3 className="text-lg font-bold text-white flex items-center gap-2">
+          {editingProject ? (
+            <>
+              <Edit2 className="w-5 h-5 text-indigo-400" /> Edit Project
+            </>
+          ) : (
+            <>
+              <FolderPlus className="w-5 h-5 text-indigo-400" /> Create New Project
+            </>
+          )}
+        </h3>
+        <button
+          onClick={() => {
+            setIsModalOpen(false);
+            setEditingProject?.(null);
+          }}
+          className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-all"
         >
-          <div 
-            className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-          >
-            <div className="flex justify-between items-center border-b border-slate-800 pb-4">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <FolderPlus className="w-5 h-5 text-indigo-400" /> Create New Project
-              </h3>
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-all"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+          <X className="w-5 h-5" />
+        </button>
+      </div>
 
-            <form onSubmit={handleAddProject} className="space-y-4">
-              {/* Project Title */}
-              <div>
-                <label htmlFor="modal-project-title" className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Project Title *
-                </label>
-                <input
-                  id="modal-project-title"
-                  type="text"
-                  required
-                  placeholder="e.g. Distributed Database Optimization"
-                  value={projectName}
-                  onChange={(e) => setProjectName(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
+      <form 
+        onSubmit={editingProject ? handleSaveEditProject : handleAddProject} 
+        className="space-y-4"
+      >
+        {/* Project Title */}
+        <div>
+          <label htmlFor="modal-project-title" className="block text-xs font-semibold text-slate-300 mb-1.5">
+            Project Title *
+          </label>
+          <input
+            id="modal-project-title"
+            type="text"
+            required
+            placeholder="e.g. Distributed Database Optimization"
+            value={projectName}
+            onChange={(e) => setProjectName(e.target.value)}
+            className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+          />
+        </div>
 
-              {/* Category & Priority */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="modal-category" className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    Category
-                  </label>
-                  <select
-                    id="modal-category"
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value="Machine Learning">Machine Learning</option>
-                    <option value="DevOps & Security">DevOps & Security</option>
-                    <option value="Full Stack">Full Stack</option>
-                    <option value="Backend Architecture">Backend Architecture</option>
-                    <option value="Data Science">Data Science</option>
-                    <option value="Data Analytics">Data Analytics</option>
-                  </select>
-                </div>
+        {/* Category & Project Type */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="modal-category" className="block text-xs font-semibold text-slate-300 mb-1.5">
+              Category
+            </label>
+            <select
+              id="modal-category"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+            >
+              <option value="Machine Learning">Machine Learning</option>
+              <option value="DevOps & Security">DevOps & Security</option>
+              <option value="Full Stack">Full Stack</option>
+              <option value="Backend Architecture">Backend Architecture</option>
+              <option value="Data Science">Data Science</option>
+              <option value="Data Analytics">Data Analytics</option>
+            </select>
+          </div>
 
-                <div>
-                  <label htmlFor="modal-project-type" className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    Project Type
-                  </label>
-                  <select
-                    id="modal-project-type"
-                    value={projectType}
-                    onChange={(e) => setProjectType(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value="internal_project">internal_project</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Start Date & End Date */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="modal-start-date" className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    Start Date
-                  </label>
-                  <input
-                    id="modal-start-date"
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="modal-end-date" className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    End Date
-                  </label>
-                  <input
-                    id="modal-end-date"
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-              </div>
-
-              {/* Required Hours Per Week */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="modal-hours" className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    Required Hours / Week
-                  </label>
-                  <input
-                    id="modal-hours"
-                    type="number"
-                    min="1"
-                    max="168"
-                    placeholder="e.g. 10"
-                    value={requiredHours}
-                    onChange={(e) => setRequiredHours(Number(e.target.value))}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-                
-                <div>
-                  <label htmlFor="modal-priority" className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    Priority Level
-                  </label>
-                  <select
-                    id="modal-priority"
-                    value={priorityLevel}
-                    onChange={(e) => setPriorityLevel(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value="Low">Low</option>
-                    <option value="Medium">Medium</option>
-                    <option value="High">High</option>
-                    <option value="Critical">Critical</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Description Section */}
-              <div>
-                <label htmlFor="modal-description" className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Description
-                </label>
-                <textarea
-                  id="modal-description"
-                  rows={4}
-                  placeholder="Describe project details, objectives, and required technical skill sets..."
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 resize-none"
-                />
-              </div>
-
-               {/* Action Buttons */}
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-xl transition-all shadow-md"
-               >
-                  Create Project
-                </button>
-              </div>
-            </form>
+          <div>
+            <label htmlFor="modal-project-type" className="block text-xs font-semibold text-slate-300 mb-1.5">
+              Project Type
+            </label>
+            <select
+              id="modal-project-type"
+              value={projectType}
+              onChange={(e) => setProjectType(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+            >
+              <option value="internal_project">internal_project</option>
+            </select>
           </div>
         </div>
-      )}
 
+        {/* Start Date & End Date */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="modal-start-date" className="block text-xs font-semibold text-slate-300 mb-1.5">
+              Start Date
+            </label>
+            <input
+              id="modal-start-date"
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="modal-end-date" className="block text-xs font-semibold text-slate-300 mb-1.5">
+              End Date
+            </label>
+            <input
+              id="modal-end-date"
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+        </div>
+
+        {/* Hours & Priority */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="modal-hours" className="block text-xs font-semibold text-slate-300 mb-1.5">
+              Required Hours / Week
+            </label>
+            <input
+              id="modal-hours"
+              type="number"
+              min="1"
+              max="168"
+              placeholder="e.g. 10"
+              value={requiredHours}
+              onChange={(e) => setRequiredHours(Number(e.target.value))}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+          
+          <div>
+            <label htmlFor="modal-priority" className="block text-xs font-semibold text-slate-300 mb-1.5">
+              Priority Level
+            </label>
+            <select
+              id="modal-priority"
+              value={priorityLevel}
+              onChange={(e) => setPriorityLevel(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+            >
+              <option value="Low">Low</option>
+              <option value="Medium">Medium</option>
+              <option value="High">High</option>
+              <option value="Critical">Critical</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Description Section */}
+        <div>
+          <label htmlFor="modal-description" className="block text-xs font-semibold text-slate-300 mb-1.5">
+            Description
+          </label>
+          <textarea
+            id="modal-description"
+            rows={4}
+            placeholder="Describe project details, objectives, and required technical skill sets..."
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 resize-none"
+          />
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
+          <button
+            type="button"
+            onClick={() => {
+              setIsModalOpen(false);
+              setEditingProject?.(null);
+            }}
+            className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-all"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-xl transition-all shadow-md"
+          >
+            {editingProject ? 'Update Project' : 'Create Project'}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+)}
       
       {/* 4. Render the AI Modal */}
       <AIProjectModal
