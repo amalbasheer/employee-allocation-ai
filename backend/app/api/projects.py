@@ -575,25 +575,174 @@ def update_project_status(
 
     return project
 
-@router.patch("/{project_id}", response_model=ProjectResponse)
+@router.patch("/{project_id}")
 def update_project(
     project_id: str, 
     project_in: ProjectUpdate, 
     db: Session = Depends(get_db),
     admin_user: UserProfile = Depends(require_admin)
 ):
-    """Update general project details."""
+    """
+    Update project details, re-extract and deduplicate skills, 
+    regenerate embeddings, update ProjectRequirement entries, 
+    and return the updated project payload matching create_project.
+    """
+    # -------------------------------------------------------------
+    # 1. FETCH & UPDATE PROJECT
+    # -------------------------------------------------------------
     project = db.query(Project).filter(Project.project_id == project_id).first()
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail=f"Project with ID '{project_id}' not found"
+        )
 
-    update_data = project_in.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(project, field, value)
+    raw_skills_input = getattr(project_in, "raw_skills", None)
+    update_data = project_in.model_dump(exclude={"requirements", "raw_skills"}, exclude_unset=True)
 
-    db.commit()
-    db.refresh(project)
-    return project
+    try:
+        # Apply field updates
+        for field, value in update_data.items():
+            setattr(project, field, value)
+
+        db.flush()
+
+        # -------------------------------------------------------------
+        # 2. CLEAR OLD REQUIREMENTS
+        # -------------------------------------------------------------
+        db.query(ProjectRequirement).filter(
+            ProjectRequirement.project_id == project_id
+        ).delete(synchronize_session=False)
+
+        # -------------------------------------------------------------
+        # 3. PROCESS & DEDUPLICATE NEW REQUIREMENTS
+        # -------------------------------------------------------------
+        raw_requirements: List[Dict[str, Any]] = []
+
+        # Case A: Explicit requirements provided
+        explicit_reqs = getattr(project_in, "requirements", None)
+        if explicit_reqs is not None:
+            for req in explicit_reqs:
+                s_name = getattr(req, "skill_name", None) or getattr(req, "skill_id", "General")
+                raw_requirements.append({
+                    "skill_name": str(s_name),
+                    "min_proficiency": getattr(req, "min_proficiency", 3),
+                    "is_mandatory": getattr(req, "is_mandatory", True)
+                })
+
+        # Case B: AI Skill Extraction (if explicit requirements were not passed)
+        if explicit_reqs is None and extract_skills_from_text:
+            if project.description or raw_skills_input:
+                try:
+                    extracted = extract_skills_from_text(
+                        project.description or "",
+                        source_type="project"
+                    )
+                    skill_list = extracted.get("skills", []) if isinstance(extracted, dict) else extracted
+                    for item in skill_list:
+                        s_name = item.get("name") if isinstance(item, dict) else str(item)
+                        raw_requirements.append({
+                            "skill_name": str(s_name),
+                            "min_proficiency": item.get("min_proficiency", 3) if isinstance(item, dict) else 3,
+                            "is_mandatory": item.get("is_mandatory", True) if isinstance(item, dict) else True
+                        })
+                except Exception as e:
+                    logger.warning(f"AI skill extraction failed during update: {e}. Falling back to raw skills.")
+
+        # Case C: Fallback raw skills list
+        if not raw_requirements and raw_skills_input:
+            for sk_name in raw_skills_input:
+                raw_requirements.append({
+                    "skill_name": str(sk_name),
+                    "min_proficiency": 3,
+                    "is_mandatory": True
+                })
+
+        # Case-insensitive deduplication preserving order
+        seen_skills = set()
+        deduped_requirements = []
+        for req in raw_requirements:
+            normalized_name = req["skill_name"].strip().lower()
+            if normalized_name and normalized_name not in seen_skills:
+                seen_skills.add(normalized_name)
+                deduped_requirements.append(req)
+
+        # -------------------------------------------------------------
+        # 4. REPOPULATE SKILLS & REQUIREMENTS TABLE
+        # -------------------------------------------------------------
+        project_category = getattr(project, "category", "General") or "General"
+        total_req_count = db.query(func.count(ProjectRequirement.requirement_id)).scalar() or 0
+
+        formatted_requirements_output = []
+
+        for idx, req_data in enumerate(deduped_requirements, start=1):
+            clean_skill_name = req_data["skill_name"].strip()
+
+            # Ensure skill exists in DB
+            skill_obj = get_or_create_skill(db, clean_skill_name, default_category=project_category)
+
+            # Resolve skill ID safely
+            resolved_skill_id = (
+                getattr(skill_obj, "skills_id", None) 
+                or getattr(skill_obj, "skill_id", None)
+            )
+
+            # Resolve embedding safely
+            req_embedding = getattr(skill_obj, "skill_embedding", None)
+            if not req_embedding and generate_embedding:
+                try:
+                    req_embedding = generate_embedding(clean_skill_name)
+                except Exception as e:
+                    logger.warning(f"Embedding generation failed for '{clean_skill_name}': {e}")
+
+            # Generate unique requirement ID
+            req_id = f"rp2-req-{(total_req_count + idx):04d}"
+
+            db_req = ProjectRequirement(
+                requirement_id=req_id,
+                project_id=project.project_id,
+                skill_id=resolved_skill_id,
+                min_proficiency=req_data["min_proficiency"],
+                is_mandatory=req_data["is_mandatory"],
+                requirement_embedding=req_embedding
+            )
+            db.add(db_req)
+
+            formatted_requirements_output.append({
+                "skill_id": resolved_skill_id,
+                "skill_name": getattr(skill_obj, "skill_name", clean_skill_name),
+                "min_proficiency": req_data["min_proficiency"],
+                "is_mandatory": req_data["is_mandatory"],
+            })
+
+        db.commit()
+        db.refresh(project)
+
+        # -------------------------------------------------------------
+        # 5. MATCHING RESPONSE FORMAT
+        # -------------------------------------------------------------
+        return {
+            "project_id": project.project_id,
+            "title": project.title,
+            "description": project.description or "",
+            "category": project_category,
+            "project_type": getattr(project, "project_type", "internal_project"),
+            "status": str(project.status.value if hasattr(project.status, 'value') else project.status),
+            "start_date": str(project.start_date) if project.start_date else None,
+            "end_date": str(project.end_date) if project.end_date else None,
+            "required_hours_per_week": project.required_hours_per_week,
+            "priority_level": project.priority_level,
+            "requiredSkills": [req["skill_name"] for req in formatted_requirements_output],
+            "requirements": formatted_requirements_output
+        }
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating project '{project_id}': {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update project: {str(e)}"
+        )
 
 class BulkProjectDeleteRequest(BaseModel):
     project_ids: List[str]
@@ -646,13 +795,38 @@ def delete_project(
     db: Session = Depends(get_db),
     admin_user: UserProfile = Depends(require_admin)
 ):
-    """Delete a project and its associated requirements."""
+    """Delete a project along with its associated requirements and allocations."""
     project = db.query(Project).filter(Project.project_id == project_id).first()
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail=f"Project with ID '{project_id}' not found"
+        )
 
-    db.delete(project)
-    db.commit()
+    try:
+        # 1. Delete associated project requirements
+        db.query(ProjectRequirement).filter(
+            ProjectRequirement.project_id == project_id
+        ).delete(synchronize_session=False)
+
+        # 2. Delete associated allocations if model exists
+        if 'ProjectAllocation' in globals():
+            db.query(Allocation).filter(
+                Allocation.reference_id == project_id
+            ).delete(synchronize_session=False)
+
+        # 3. Delete project record
+        db.delete(project)
+        db.commit()
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to hard delete project '{project_id}': {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete project: {str(e)}"
+        )
+
     return None
 
 

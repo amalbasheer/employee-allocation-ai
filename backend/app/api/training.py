@@ -713,3 +713,152 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
         })
 
     return response
+
+class UpdateEngagementSchema(BaseModel):
+    title: Optional[str] = None
+    engagement_type: Optional[str] = None
+    description: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    required_hours: Optional[int] = None
+    status: Optional[str] = None
+    institution_name: Optional[str] = None
+    location: Optional[str] = None
+    region: Optional[str] = None
+    audience: Optional[str] = None
+    domain: Optional[str] = None
+    mode: Optional[str] = None
+
+class BulkCancelSchema(BaseModel):
+    engagement_ids: List[str]
+
+@router.put("/engagements/{engagement_id}")
+def update_engagement(
+    engagement_id: str, 
+    payload: UpdateEngagementSchema, 
+    db: Session = Depends(get_db)
+):
+    # 1. Fetch Existing Engagement
+    engagement = db.query(TrainingEngagement).filter(TrainingEngagement.engagement_id == engagement_id).first()
+    if not engagement:
+        raise HTTPException(status_code=404, detail="Engagement not found.")
+
+    # 2. Update Basic Fields
+    update_data = payload.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        if field == "engagement_type" and value:
+            setattr(engagement, field, value.lower())
+        else:
+            setattr(engagement, field, value)
+
+    db.flush()
+
+    # 3. Clear existing requirements for re-syncing
+    db.query(TrainingRequirement).filter(TrainingRequirement.engagement_id == engagement_id).delete(synchronize_session=False)
+
+    # 4. Extract Skills from updated content
+    req_text = f"{engagement.title} {engagement.description or ''}".strip()
+    final_skill_names = []
+    
+    if extract_skills_from_text and callable(extract_skills_from_text):
+        try:
+            raw_extracted = extract_skills_from_text(req_text, source_type="training")
+            skill_list = raw_extracted.get("skills", []) if isinstance(raw_extracted, dict) else raw_extracted
+            
+            for item in skill_list:
+                if isinstance(item, dict) and item.get("name"):
+                    final_skill_names.append(item.get("name"))
+                elif isinstance(item, str) and item.strip():
+                    final_skill_names.append(item.strip())
+            
+            final_skill_names = list(dict.fromkeys(final_skill_names))
+        except Exception as e:
+            logger.warning(f"Skill extraction failed during update: {e}")
+
+    # 5. Generate Skill Embedding
+    req_embedding = None
+    if generate_embedding and callable(generate_embedding):
+        try:
+            embedding_input = ", ".join(final_skill_names) if final_skill_names else req_text
+            req_embedding = generate_embedding(embedding_input)
+        except Exception as e:
+            logger.warning(f"Embedding generation failed during update: {e}")
+
+    # 6. Save Updated Requirements
+    for skill_name in final_skill_names:
+        try:
+            skill_id = get_or_create_skill(db, skill_name) if 'db' in get_or_create_skill.__code__.co_varnames else get_or_create_skill(skill_name)
+            
+            training_req = TrainingRequirement(
+                engagement_id=engagement.engagement_id,
+                skill_id=skill_id,
+                min_proficiency=1,
+                is_mandatory=True,
+                requirement_embedding=req_embedding
+            )
+            db.add(training_req)
+        except Exception as e:
+            logger.warning(f"Failed to save requirement for skill '{skill_name}': {e}")
+
+    try:
+        db.commit()
+        db.refresh(engagement)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Database commit failed during update: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update engagement.")
+
+    return engagement
+
+@router.delete("/engagements/{engagement_id}", status_code=status.HTTP_200_OK)
+def delete_engagement(engagement_id: str, db: Session = Depends(get_db)):
+    engagement = db.query(TrainingEngagement).filter(TrainingEngagement.engagement_id == engagement_id).first()
+    if not engagement:
+        raise HTTPException(status_code=404, detail="Engagement not found.")
+
+    try:
+        # 1. Delete associated requirements in TrainingRequirement
+        db.query(TrainingRequirement).filter(TrainingRequirement.engagement_id == engagement_id).delete(synchronize_session=False)
+
+        # 2. Delete associated allocations in TrainingAllocation if model exists
+        if 'TrainingAllocation' in globals():
+            db.query(Allocation).filter(Allocation.reference_id == engagement_id).delete(synchronize_session=False)
+
+        # 3. Hard Delete Engagement Record
+        db.delete(engagement)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to hard delete engagement '{engagement_id}': {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete engagement from database.")
+
+    return {"message": f"Engagement '{engagement_id}' and associated requirements permanently deleted."}
+
+@router.post("/engagements/bulk-cancel", status_code=status.HTTP_200_OK)
+def bulk_cancel_engagements(payload: BulkCancelSchema, db: Session = Depends(get_db)):
+    if not payload.engagement_ids:
+        raise HTTPException(status_code=400, detail="No engagement IDs provided.")
+
+    try:
+        # 1. Update status to 'cancelled' in TrainingEngagement table
+        engagements_cancelled = db.query(TrainingEngagement)\
+            .filter(TrainingEngagement.engagement_id.in_(payload.engagement_ids))\
+            .update({TrainingEngagement.status: "cancelled"}, synchronize_session=False)
+
+        # 2. Update status to 'cancelled' in TrainingAllocation table
+        allocations_cancelled = 0
+        if 'TrainingAllocation' in globals():
+            allocations_cancelled = db.query(Allocation)\
+                .filter(Allocation.reference_id.in_(payload.engagement_ids))\
+                .update({Allocation.status: "cancelled"}, synchronize_session=False)
+
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Bulk cancel failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to cancel engagements.")
+
+    return {
+        "message": f"Successfully cancelled {engagements_cancelled} engagement(s) and {allocations_cancelled} allocation(s).",
+        "cancelled_ids": payload.engagement_ids
+    }
