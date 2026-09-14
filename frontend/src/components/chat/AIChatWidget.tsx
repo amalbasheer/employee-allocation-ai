@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Sparkles, Bot, User, X, Send, Loader2, History, RotateCcw } from 'lucide-react';
 import { ChatQueryResponse } from '../../types';
 import { chatService } from '../../services/chatService';
+import { AlignIQLogo } from '../common/AlignIQLogo';
 
 interface Message {
   id: string;
@@ -119,10 +120,10 @@ export const AIChatWidget: React.FC = () => {
   {!isOpen && (
     <button
       onClick={() => setIsOpen(true)}
-      className="flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white p-3 rounded-full shadow-xl transition-all duration-300 hover:scale-105"
+      className="flex items-center justify-center bg-navy-600 hover:bg-slate-700 text-white p-3 rounded-full shadow-xl transition-all duration-300 hover:scale-105"
       aria-label="Open AI Assistant"
     >
-      <Sparkles className="w-5 h-5 animate-pulse" />
+      <AlignIQLogo className="w-10 h-10 animate-pulse" />
     </button>
   )}
 
