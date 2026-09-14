@@ -271,6 +271,10 @@ def add_employee_skill(
         except Exception as e:
             # Fallback or error logging if embedding generation fails
             embedding_vector = None
+
+        inferred_cat = infer_skill_category(clean_skill_name)
+        print(f"DEBUG: inferred category = {inferred_cat!r}")
+       
             
         existing_skill = Skill(
             skill_id=new_skill_id,
