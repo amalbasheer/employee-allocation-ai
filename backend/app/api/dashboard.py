@@ -128,23 +128,64 @@ def get_dashboard_overview(db: Session = Depends(get_db)) -> Dict[str, Any]:
     # -------------------------------------------------------------------------
     # 3. WORKLOAD ALLOCATION BY ENTITY TYPE (Project vs Webinar vs Batch)
     # -------------------------------------------------------------------------
-    entity_allocations = (
+    entity_breakdown = {"Projects": 0, "Webinars": 0, "Student Batches": 0}
+
+    # 1. Fetch Allocations joined with TrainingEngagement for training details
+    allocations_query = (
         db.query(
             Allocation.reference_type,
+            TrainingEngagement.engagement_type,
             func.coalesce(func.sum(Allocation.allocated_hours), 0).label("hours")
         )
+        .outerjoin(
+            TrainingEngagement,
+            (func.lower(Allocation.reference_type) == "training") & 
+            (Allocation.reference_id == TrainingEngagement.engagement_id)
+        )
         .filter(func.lower(Allocation.status) == "assigned")
-        .group_by(Allocation.reference_type)
+        .group_by(Allocation.reference_type, TrainingEngagement.engagement_type)
         .all()
     )
 
-    type_mapping = {"project": "Projects", "webinar": "Webinars", "training": "Webinars", "batch": "Student Batches"}
-    entity_breakdown = {"Projects": 0, "Webinars": 0, "Student Batches": 0}
-    
-    for row in entity_allocations:
-        ref_type = str(row.reference_type).lower()
-        key = type_mapping.get(ref_type, "Projects")
-        entity_breakdown[key] += int(row.hours)
+    # 2. Process Projects and Training Engagements
+    for row in allocations_query:
+        ref_type = str(row.reference_type).lower() if row.reference_type else ""
+        hours = int(row.hours)
+
+        if ref_type == "project":
+            entity_breakdown["Projects"] += hours
+        elif ref_type == "training":
+            # Map training engagement types (webinar, workshop, demo, seminar) to "Webinars" bucket
+            entity_breakdown["Webinars"] += hours
+
+    # 3. Fetch Student Batches hours directly from the StudentBatch table
+    # Adjust 'StudentBatch' and 'allocated_hours' to match your actual model/column names
+    from datetime import timedelta
+
+    if 'StudentBatch' in globals():
+        assigned_batches = (
+            db.query(StudentBatch.start_date, StudentBatch.end_date)
+            .filter(func.lower(StudentBatch.status) == "in_progress")
+            .all()
+        )
+
+        total_batch_hours = 0
+
+        for batch in assigned_batches:
+            if batch.start_date and batch.end_date and batch.start_date <= batch.end_date:
+                current_date = batch.start_date
+                working_days = 0
+
+                # Count weekdays (Monday=0 through Friday=4)
+                while current_date <= batch.end_date:
+                    if current_date.weekday() < 5:
+                        working_days += 1
+                    current_date += timedelta(days=1)
+
+                # 2 hours per working day
+                total_batch_hours += working_days * 2
+
+        entity_breakdown["Student Batches"] = total_batch_hours
 
     # -------------------------------------------------------------------------
     # 4. PROJECT STATUS BREAKDOWN
