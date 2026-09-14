@@ -396,7 +396,7 @@ const skillSubtext = totalSkillsTracked > 0
                 No project skill requirements calculated yet.
               </p>
             ) : (
-              skill_coverage.map((item) => (
+              skill_coverage.slice(0, 8).map((item) => (
                 <div key={item.skill_name} style={{ marginBottom: 14 }}>
                   <div style={styles.progressHeader}>
                     <span

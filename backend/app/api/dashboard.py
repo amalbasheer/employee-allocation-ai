@@ -217,7 +217,7 @@ def get_dashboard_overview(db: Session = Depends(get_db)) -> Dict[str, Any]:
         .join(ProjectRequirement, Skill.skill_id == ProjectRequirement.skill_id)
         .group_by(Skill.skill_id, Skill.skill_name)
         .order_by(desc("demand_count"))
-        .limit(8)
+        
         .all()
     )
 
