@@ -200,29 +200,26 @@ class UpdateProficiencyRequest(BaseModel):
 
 def generate_next_skill_id(db: Session) -> str:
     """
-    Finds the highest existing rp2-skill-XXXX ID in the DB, 
+    Finds the highest existing rp2-skl-XXXX ID in the DB, 
     increments the counter, and returns the next formatted ID.
     """
-    # Query the maximum skill_id with the target prefix
     max_id = (
         db.query(Skill.skill_id)
-        .filter(Skill.skill_id.like("rp2-skill-%"))
+        .filter(Skill.skill_id.like("rp2-skl-%"))
         .order_by(Skill.skill_id.desc())
         .first()
     )
 
     if not max_id or not max_id[0]:
-        return "rp2-skill-0001"
+        return "rp2-skl-0001"
 
-    # Extract the numeric suffix and increment
     try:
         current_num = int(max_id[0].split("-")[-1])
         next_num = current_num + 1
     except ValueError:
         next_num = 1
 
-    return f"rp2-skill-{next_num:04d}"
-
+    return f"rp2-skl-{next_num:04d}"
 # 1. Fetch all available skills for the frontend dropdown
 @router.get("/skills/catalog", response_model=List[SkillResponse])
 def get_skill_catalog(db: Session = Depends(get_db)):
