@@ -1,21 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
-  Briefcase,
-  Users,
-  Clock,
-  Zap,
-  UserCheck,
-  Award,
-  RefreshCw,
-  TrendingUp,
-  PieChart,
-  CheckCircle2,
-  AlertCircle,
-  AlertTriangle,
-  TrendingDown,
-  Calendar,
-  LogIn,
-  PersonStanding,
+  Briefcase, Users, Clock, Zap, UserCheck, Award, RefreshCw, TrendingUp, PieChart, 
+  CheckCircle2, AlertCircle, AlertTriangle, TrendingDown, Calendar, PersonStanding,
 } from "lucide-react";
 
 interface SkillCoverageItem {

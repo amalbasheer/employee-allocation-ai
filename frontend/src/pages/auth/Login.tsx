@@ -66,7 +66,7 @@ export const Login: React.FC = () => {
       <div className="w-full max-w-md bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl space-y-6">
         <div className="text-center space-y-2">
           <div className="flex items-center justify-center">
-            <AlignIQLogo className="w-6 h-6 text-indigo-400" />
+            <AlignIQLogo className="w-8 h-8 text-indigo-500" />
           </div>
           <h1 className="text-xl font-bold text-white tracking-tight">AlignIQ</h1>
           <p className="text-xs text-slate-400">Sign in to access your assigned workspace</p>
@@ -95,7 +95,7 @@ export const Login: React.FC = () => {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="alex.morgan@enterprise.ai"
+              placeholder="name.dep@rp2.com"
               required
               className="w-full bg-slate-950 border border-slate-800 text-xs text-white px-3 py-2.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
@@ -109,7 +109,7 @@ export const Login: React.FC = () => {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
+              placeholder="************"
               required
               className="w-full bg-slate-950 border border-slate-800 text-xs text-white px-3 py-2.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
