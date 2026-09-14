@@ -953,7 +953,7 @@ const handleBulkDeleteEngagements = async () => {
                     {item.engagement_type}
                   </span>
                 </div>
-                <p className="text-xs text-slate-400 mt-1">{item.description}</p>
+                
                 <p className="text-xs text-slate-400 mt-1">
                   Speaker: <span className="text-slate-200 font-medium">{item.mentor_name || 'Unassigned'}</span> • Location: <span className="text-slate-200 font-medium">{item.location || 'Unassigned'}</span> • Mode: <span className="text-slate-200 font-medium">{item.mode || 'Unassigned'}</span> • Duration: <span className="text-slate-300">{item.required_hours} hrs</span> • Schedule: <span className="text-slate-300">{item.start_date}</span>
                 </p>

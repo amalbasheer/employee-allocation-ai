@@ -217,7 +217,7 @@ const skillSubtext = totalSkillsTracked > 0
           badgeColor="rgba(16, 185, 129, 0.15)"
         />
         <MetricCard
-          title="AI Match Quality"
+          title="Suitability"
           value={`${kpis.avg_ai_match_score}%`}
           subtext="Avg Suitability Rating"
           icon={<Zap color="#8b5cf6" />}

@@ -51,7 +51,7 @@ def get_dashboard_overview(db: Session = Depends(get_db)) -> Dict[str, Any]:
     
     pending_intern_reviews = (
         db.query(func.count(InternsAndStudents.intern_id))
-        .filter(InternsAndStudents.review_status == "pending_review")
+        .filter(InternsAndStudents.review_status == "unverified")
         .scalar() or 0
     )
 
