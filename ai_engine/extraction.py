@@ -132,3 +132,26 @@ if __name__ == "__main__":
     """
     print("\nPROJECT DESCRIPTION extraction:")
     print(json.dumps(extract_skills_from_text(sample_project, "project_description"), indent=2))
+
+
+def infer_skill_category(skill_name: str) -> str:
+    """
+    Uses Gemini to classify a single skill name into the correct
+    category, matching the existing categories used in the skills table.
+    """
+    from ai_engine.config import client, LLM_MODEL
+
+    prompt = f"""Classify this skill into exactly ONE of these categories:
+tech_stack, machine_learning, domain, soft_skill, backend_architecture
+
+Skill: "{skill_name}"
+
+Respond with ONLY the category name, nothing else."""
+
+    try:
+        response = client.models.generate_content(model=LLM_MODEL, contents=prompt)
+        category = response.text.strip().lower()
+        valid_categories = {"tech_stack", "machine_learning", "domain", "soft_skill", "backend_architecture"}
+        return category if category in valid_categories else "tech_stack"
+    except Exception:
+        return "tech_stack"
