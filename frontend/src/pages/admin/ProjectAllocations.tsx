@@ -36,6 +36,14 @@ export interface Student {
   skills: string[];
 }
 
+export interface Allocation {
+  allocation_id: string;
+  resource_id: string;
+  resource_name: string;
+  resource_type: 'employee' | 'intern' | string;
+  allocation_status: string;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -57,6 +65,7 @@ export interface Project {
   proposedMentorStatus?: AllocatedStatus;
   proposedMentorLeaveReason?: string;
   isSubstituting?: boolean;
+  allocations?: Allocation[];
 }
 
 // --- Optimization API Interfaces ---
@@ -136,6 +145,7 @@ export const ProjectAllocation: React.FC = () => {
   // --- New Edit & Loading States ---
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
+  
   
   const API_BASE = import.meta.env.VITE_BACKEND_URL || 'https://employee-allocation-ai.onrender.com';
   
@@ -275,7 +285,12 @@ export const ProjectAllocation: React.FC = () => {
 
     // Map database response (snake_case) to React state model
       const mappedProjects: Project[] = res.data.map((p: any) => {
-        const mentorAllocation = p.allocations?.find((a: any) => a.resource_type === 'employee');
+        const employeeAllocations = p.allocations?.filter((a: any) => a.resource_type === 'employee');
+        const activeStatuses = ['assigned', 'accepted', 'active', 'proposed', 'pending'];
+      const mentorAllocation =
+        employeeAllocations.find((a: any) =>
+          activeStatuses.includes((a.allocation_status || '').toLowerCase())
+        ) || employeeAllocations[employeeAllocations.length - 1]; // Fallback to latest entry
         const studentAllocations = p.allocations?.filter((a: any) => a.resource_type === 'intern') || [];
 
         return {
