@@ -702,3 +702,30 @@ def suggest_training_date(preferred_month: int, preferred_year: int = 2026, avoi
         "top_recommendation": all_available[0] if all_available else None,
         "reason": f"{len(all_available)} available weekday(s) found in this month, from tomorrow onward."
     }
+
+def get_bulk_person_skills(person_ids: list[str], person_type: str) -> dict[str, list[dict]]:
+    """
+    Fetches skills for MULTIPLE people in ONE query, instead of one
+    query per person — same optimization pattern used in the optimizer.
+    """
+    if not person_ids:
+        return {}
+    
+    table = "employee_skills" if person_type == "employee" else "intern_skills"
+    id_column = "employee_id" if person_type == "employee" else "intern_id"
+
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(f"""
+                SELECT es.{id_column} AS person_id, s.skill_id, s.skill_name, es.proficiency_level
+                FROM {table} es
+                JOIN skills s ON s.skill_id = es.skill_id
+                WHERE es.{id_column} = ANY(:ids)
+            """),
+            {"ids": person_ids},
+        ).mappings().fetchall()
+
+    result = {pid: [] for pid in person_ids}
+    for row in rows:
+        result[row["person_id"]].append(dict(row))
+    return result
