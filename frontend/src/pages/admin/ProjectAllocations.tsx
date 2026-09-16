@@ -1575,7 +1575,7 @@ const handleOpenAddModal = () => {
                             {/* NEW — completed projects count */}
                             <p className="text-[11px] text-slate-500">
                               {(student.completed_projects_count ?? 0) > 0 
-                                ? `${student.completed_projects_count} project(s) completed`
+                                ? `${student.completed_projects_count} ${student.completed_projects_count === 1 ? 'project' : 'projects'} completed`
                                 : 'No prior projects'}
                             </p>
 
