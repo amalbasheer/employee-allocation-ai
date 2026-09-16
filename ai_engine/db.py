@@ -704,10 +704,6 @@ def suggest_training_date(preferred_month: int, preferred_year: int = 2026, avoi
     }
 
 def get_bulk_person_skills(person_ids: list[str], person_type: str) -> dict[str, list[dict]]:
-    """
-    Fetches skills for MULTIPLE people in ONE query, instead of one
-    query per person — same optimization pattern used in the optimizer.
-    """
     if not person_ids:
         return {}
     
@@ -717,7 +713,8 @@ def get_bulk_person_skills(person_ids: list[str], person_type: str) -> dict[str,
     with engine.connect() as conn:
         rows = conn.execute(
             text(f"""
-                SELECT es.{id_column} AS person_id, s.skill_id, s.skill_name, es.proficiency_level
+                SELECT es.{id_column} AS person_id, s.skill_id, s.skill_name, 
+                       es.proficiency_level, s.skill_embedding
                 FROM {table} es
                 JOIN skills s ON s.skill_id = es.skill_id
                 WHERE es.{id_column} = ANY(:ids)
@@ -727,5 +724,10 @@ def get_bulk_person_skills(person_ids: list[str], person_type: str) -> dict[str,
 
     result = {pid: [] for pid in person_ids}
     for row in rows:
-        result[row["person_id"]].append(dict(row))
+        result[row["person_id"]].append({
+            "skill_id": row["skill_id"],
+            "skill_name": row["skill_name"],
+            "proficiency_level": row["proficiency_level"],
+            "embedding": _parse_embedding(row["skill_embedding"]),
+        })
     return result
