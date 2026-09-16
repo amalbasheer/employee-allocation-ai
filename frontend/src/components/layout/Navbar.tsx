@@ -1,6 +1,6 @@
 // src/components/Navbar.tsx
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { LogOut, Bell, User } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { Badge } from '../common/Badge';
@@ -9,22 +9,65 @@ import { AlignIQLogo } from '../common/AlignIQLogo';
 export const Navbar: React.FC = () => {
   const { user, role, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleLogout = () => {
     logout();
     navigate('/login', { replace: true });
   };
 
-  // Safely extract role & name across custom User and Supabase user metadata
+  // Safely resolve role from auth context, metadata, or localStorage
+  const resolveRole = (): string => {
+    if (typeof role === 'string' && role.trim()) return role;
+    if (user?.role) return user.role;
+    if ((user as any)?.user_metadata?.role) return (user as any).user_metadata.role;
+
+    try {
+      const stored = localStorage.getItem('user');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return parsed.role || parsed.user_metadata?.role || '';
+      }
+    } catch {
+      /* ignore JSON error */
+    }
+    return '';
+  };
+
   const userMetadata = (user as any)?.user_metadata;
-  const activeRole = role || userMetadata?.role || user?.role;
-  const normalizedRole = activeRole?.toUpperCase();
+  const activeRole = resolveRole();
+  const normalizedRole = activeRole.toUpperCase();
   const userName = userMetadata?.name || user?.name || 'User';
+
+  // Role-based navigation with URL path fail-safe
+  const handleLogoClick = () => {
+    const currentPath = location.pathname;
+
+    if (normalizedRole.includes('ADMIN') || currentPath.startsWith('/admin')) {
+      navigate('/admin/overview');
+    } else if (normalizedRole.includes('EMPLOYEE') || currentPath.startsWith('/employee')) {
+      navigate('/employee/dashboard');
+    } else if (
+      normalizedRole.includes('STUDENT') ||
+      normalizedRole.includes('INTERN') ||
+      currentPath.startsWith('/student')
+    ) {
+      navigate('/student/dashboard');
+    } else {
+      // Safe fallback if role and path are both unmapped
+      navigate('/admin/overview');
+    }
+  };
 
   return (
     <header className="h-16 bg-slate-900 border-b border-slate-800 px-6 flex items-center justify-between sticky top-0 z-40">
-      <div className="flex items-center gap-3">
-        <AlignIQLogo className="w-6 h-6 text-indigo-400" />
+      {/* Clickable Logo Section */}
+      <div 
+        onClick={handleLogoClick}
+        className="flex items-center gap-3 cursor-pointer group hover:opacity-90 transition-opacity select-none"
+        title="Go to Home Dashboard"
+      >
+        <AlignIQLogo className="w-6 h-6 text-indigo-400 group-hover:scale-105 transition-transform" />
         <div>
           <span className="text-sm font-bold text-white tracking-wide">AlignIQ</span>
           <span className="hidden sm:inline-block ml-2 text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded border border-slate-700 font-mono">
@@ -38,9 +81,9 @@ export const Navbar: React.FC = () => {
           <Badge
             label={`${normalizedRole} VIEW`}
             variant={
-              normalizedRole === 'ADMIN'
+              normalizedRole.includes('ADMIN')
                 ? 'indigo'
-                : normalizedRole === 'EMPLOYEE'
+                : normalizedRole.includes('EMPLOYEE')
                 ? 'emerald'
                 : 'amber'
             }
