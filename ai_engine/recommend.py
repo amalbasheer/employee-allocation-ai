@@ -77,7 +77,24 @@ def recommend_candidates_for_project(project_id: str) -> dict:
             i["skills"] = get_person_skills(i["id"], "intern")
         result["interns"] = _strip_embeddings(rank_candidates(interns, requirements))
 
-         # Currently assigned intern(s) — with their REAL computed skill
+                # Add completed-project count for each intern candidate — display
+        # only, NOT factored into suitability_score, so admins can see
+        # experience level without the algorithm making that judgment call
+        with engine.connect() as conn:
+            completed_counts = conn.execute(
+                text("""
+                    SELECT resource_id, COUNT(*) AS completed_count
+                    FROM allocations
+                    WHERE resource_type = 'intern' AND reference_type = 'project' AND status = 'completed'
+                    GROUP BY resource_id
+                """)
+            ).fetchall()
+        completed_count_map = {row[0]: row[1] for row in completed_counts}
+
+        for intern in result["interns"]:
+            intern["completed_projects_count"] = completed_count_map.get(intern["id"], 0)
+
+        # Currently assigned intern(s) — with their REAL computed skill
         # score, not just id/name
         assignments = get_project_assignments(project_id)
         current_interns = [a for a in assignments if a["resource_type"] == "intern"]

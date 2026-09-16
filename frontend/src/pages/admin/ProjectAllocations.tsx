@@ -34,6 +34,7 @@ export interface Student {
   matchScore: number;
   allocatedHours?: number;
   skills: string[];
+  completed_projects_count?: number;
 }
 
 export interface Allocation {
@@ -1570,6 +1571,13 @@ const handleOpenAddModal = () => {
                               </span>
                             </div>
                             <p className="text-xs text-slate-400">{student.university}</p>
+                            
+                            {/* NEW — completed projects count */}
+                            <p className="text-[11px] text-slate-500">
+                              {(student.completed_projects_count ?? 0) > 0 
+                                ? `${student.completed_projects_count} project(s) completed`
+                                : 'No prior projects'}
+                            </p>
 
                             <div className="flex flex-wrap gap-1 pt-1">
                               {student.skills.map((skill, i) => (
