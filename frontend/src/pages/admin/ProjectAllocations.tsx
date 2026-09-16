@@ -288,9 +288,7 @@ export const ProjectAllocation: React.FC = () => {
         const employeeAllocations = p.allocations?.filter((a: any) => a.resource_type === 'employee');
         const activeStatuses = ['assigned', 'accepted', 'active', 'proposed', 'pending'];
       const mentorAllocation =
-        employeeAllocations.find((a: any) =>
-          activeStatuses.includes((a.allocation_status || '').toLowerCase())
-        ) || employeeAllocations[employeeAllocations.length - 1]; // Fallback to latest entry
+        employeeAllocations.at(-1);
         const studentAllocations = p.allocations?.filter((a: any) => a.resource_type === 'intern') || [];
 
         return {
