@@ -19,6 +19,7 @@ from ai_engine.db import (
     get_all_mentors_with_project_count,
     check_project_readiness,
     get_project_assignments,
+    get_bulk_person_skills,
 
 )
 
@@ -55,11 +56,12 @@ def recommend_candidates_for_project(project_id: str) -> dict:
 
     result = {"project_title": project["title"], "roles_needed": roles_needed}
 
-    # Get ALL mentors (no hard exclusion), then rank by skill, then apply
-    # a workload penalty based on how many active projects they already have
+    # MENTORS — fetch all mentors, then BULK fetch all their skills in ONE query
     all_mentors = get_all_mentors_with_project_count(domain=domain)
+    mentor_ids = [m["id"] for m in all_mentors]
+    mentor_skills_map = get_bulk_person_skills(mentor_ids, "employee")
     for m in all_mentors:
-        m["skills"] = get_person_skills(m["id"], "employee")
+        m["skills"] = mentor_skills_map.get(m["id"], [])
 
     ranked_mentors = rank_candidates(all_mentors, requirements)
     for candidate in ranked_mentors:
@@ -68,23 +70,44 @@ def recommend_candidates_for_project(project_id: str) -> dict:
             raw_skill_score, candidate.get("active_project_count", 0)
         )
     ranked_mentors.sort(key=lambda c: c["suitability_score"], reverse=True)
-
     result["mentors"] = _strip_embeddings(ranked_mentors)
 
     if "intern" in roles_needed:
+        # INTERNS — same bulk pattern
         interns = get_available_interns(domain=domain)
+        intern_ids = [i["id"] for i in interns]
+        intern_skills_map = get_bulk_person_skills(intern_ids, "intern")
         for i in interns:
-            i["skills"] = get_person_skills(i["id"], "intern")
+            i["skills"] = intern_skills_map.get(i["id"], [])
         result["interns"] = _strip_embeddings(rank_candidates(interns, requirements))
 
-         # Currently assigned intern(s) — with their REAL computed skill
-        # score, not just id/name
+        # Completed project count — already a single batched query, fine as-is
+        with engine.connect() as conn:
+            completed_counts = conn.execute(
+                text("""
+                    SELECT resource_id, COUNT(*) AS completed_count
+                    FROM allocations
+                    WHERE resource_type = 'intern' AND reference_type = 'project' AND status = 'completed'
+                    GROUP BY resource_id
+                """)
+            ).fetchall()
+        completed_count_map = {row[0]: row[1] for row in completed_counts}
+        for intern in result["interns"]:
+            intern["completed_projects_count"] = completed_count_map.get(intern["id"], 0)
+
+        # Currently assigned interns — reuse the bulk intern_skills_map
+        # from above where possible, only bulk-fetch missing ones separately
         assignments = get_project_assignments(project_id)
         current_interns = [a for a in assignments if a["resource_type"] == "intern"]
 
+        missing_ids = [i["resource_id"] for i in current_interns if i["resource_id"] not in intern_skills_map]
+        if missing_ids:
+            extra_skills_map = get_bulk_person_skills(missing_ids, "intern")
+            intern_skills_map.update(extra_skills_map)
+
         current_interns_with_scores = []
         for i in current_interns:
-            i_skills = get_person_skills(i["resource_id"], "intern")
+            i_skills = intern_skills_map.get(i["resource_id"], [])
             ranked = rank_candidates([{"id": i["resource_id"], "skills": i_skills}], requirements)
             real_score = ranked[0]["suitability_score"] if ranked else 0.0
             current_interns_with_scores.append({
@@ -92,7 +115,6 @@ def recommend_candidates_for_project(project_id: str) -> dict:
                 "name": i["name"],
                 "score": real_score,
             })
-
         result["currently_assigned_interns"] = current_interns_with_scores
 
         result["eligible_team_leads"] = [

@@ -162,6 +162,7 @@ async def fetch_recommendations(
                     "skills": skills_list,
                     "role": str(role_val),
                     "university": univ_val,
+                    "completed_projects_count": c.get("completed_projects_count", 0),
                 })
 
         print(f"DEBUG: req_type={req_type}, candidates_count={len(candidates)}, candidates={candidates}")
