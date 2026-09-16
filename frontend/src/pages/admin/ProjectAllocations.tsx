@@ -1248,14 +1248,18 @@ const handleOpenAddModal = () => {
                         <Edit2 className="w-4 h-4" />
                       </button>
                       {/* Delete Symbol Button */}
-                      <button
-                        onClick={() => handleDeleteProject(project.id)}
-                        disabled={isDeleting}
-                        className="p-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-rose-400 rounded-lg border border-slate-800 hover:border-slate-700 transition-all"
-                        title="Delete Project"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+<button
+  onClick={() => handleDeleteProject(project.id)}
+  disabled={isDeleting || project.status?.toLowerCase() !== 'open'}
+  className="p-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-rose-400 rounded-lg border border-slate-800 hover:border-slate-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-slate-900 disabled:hover:text-slate-400 disabled:hover:border-slate-800"
+  title={
+    project.status?.toLowerCase() === 'open' 
+      ? "Delete Project" 
+      : "Only open projects can be deleted"
+  }
+>
+  <Trash2 className="w-4 h-4" />
+</button>
                       </div>
               </div>
             </div>
