@@ -986,15 +986,24 @@ const handleBulkDeleteEngagements = async () => {
   </button>
 
   <button
-    onClick={(e) => {
-      e.stopPropagation();
-      handleDeleteEngagement(item.engagement_id);
-    }}
-    title="Delete Engagement"
-    className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors border border-transparent hover:border-rose-500/20"
-  >
-    <Trash2 className="w-4 h-4" />
-  </button>
+  disabled={item.status?.toLowerCase() !== 'open'}
+  onClick={(e) => {
+    e.stopPropagation();
+    handleDeleteEngagement(item.engagement_id);
+  }}
+  title={
+    item.status?.toLowerCase() === 'open'
+      ? "Delete Engagement"
+      : "Only trainings with status 'open' can be deleted"
+  }
+  className={`p-2 rounded-lg transition-colors border border-transparent ${
+    item.status?.toLowerCase() === 'open'
+      ? "text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 hover:border-rose-500/20 cursor-pointer"
+      : "text-slate-600 opacity-40 cursor-not-allowed"
+  }`}
+>
+  <Trash2 className="w-4 h-4" />
+</button>
   </div>
             </div>
           </div>
