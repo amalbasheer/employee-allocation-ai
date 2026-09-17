@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 # Database and Supabase Imports (adjust paths as per your project)
 from app.api.deps import get_db
-from app.core.supabase import supabase
+from app.core.supabase import supabase, supabase_admin
 
 
 # Router definition
@@ -193,7 +193,7 @@ async def activate_account(payload: ActivateAccountSchema, db: Session = Depends
                 "role": "employee"
             }
         }
-        auth_res = supabase.auth.admin.create_user(user_attributes)
+        auth_res = supabase_admin.auth.admin.create_user(user_attributes)
         supabase_uid = auth_res.user.id
 
     except Exception as err:
