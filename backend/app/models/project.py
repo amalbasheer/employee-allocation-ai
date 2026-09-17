@@ -3,7 +3,7 @@ import uuid
 from typing import TYPE_CHECKING
 from datetime import date
 from typing import Optional, List
-from sqlalchemy import Column, String, Integer, Text, Date, Boolean, ForeignKey, Enum as SQLEnum
+from sqlalchemy import JSON, Column, String, Integer, Text, Date, Boolean, ForeignKey, Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import ARRAY, FLOAT
 from app.database import Base
@@ -26,6 +26,7 @@ class Project(Base):
     priority_level: Mapped[str] = mapped_column(String(20), default="Medium")
     category: Mapped[str] = mapped_column(String(30), default="General")
     status = Column(String(10), nullable=False)
+    completed_milestones = Column(JSON, default=list, nullable=True)
 
     # Relationships
     allocations = relationship("Allocation", primaryjoin="and_("

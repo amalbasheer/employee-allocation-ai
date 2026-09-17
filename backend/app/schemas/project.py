@@ -1,6 +1,6 @@
 # app/schemas/project.py
 from datetime import date
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 from app.models.enums import ProjectStatus
@@ -46,6 +46,21 @@ class ProjectRequirementResponse(ProjectRequirementBase):
 # ==========================================
 # PROJECT SCHEMAS
 # ==========================================
+# Master dictionary defining weights (totaling 100%)
+MILESTONE_WEIGHTS: Dict[str, int] = {
+    "project_kickoff": 5,
+    "architecture_design": 10,
+    "repo_cicd_setup": 10,
+    "core_development": 35,
+    "testing_code_review": 10,
+    "deployment": 15,
+    "documentation": 10,
+    "final_signoff": 5,
+}
+
+class UpdateMilestonesRequest(BaseModel):
+    completed_milestones: List[str]
+
 class ProjectBase(BaseModel):
     title: str
     project_type: str
@@ -78,5 +93,6 @@ class ProjectResponse(ProjectBase):
     project_id: str
     status: Optional[Any] = None
     requirements: Optional[List[ProjectRequirementResponse]] = []
+    completed_milestones: List[str] = []
 
     model_config = ConfigDict(from_attributes=True)

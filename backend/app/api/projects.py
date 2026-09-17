@@ -23,6 +23,8 @@ from app.schemas.project import (
     ProjectRequirementResponse,
     StatusUpdateRequest,
     UserProfile,
+    MILESTONE_WEIGHTS,
+    UpdateMilestonesRequest,
 )
 from app.api.deps import get_current_user, require_admin
 
@@ -217,6 +219,45 @@ def get_or_create_skill(db: Session, skill_name: str, default_category: str = "G
 # ==========================================
 # PROJECT ENDPOINTS
 # ==========================================
+def calculate_progress(completed_keys: List[str]) -> int:
+    """Computes total percentage from completed milestone keys."""
+    if not completed_keys:
+        return 0
+    total = sum(MILESTONE_WEIGHTS.get(key, 0) for key in completed_keys)
+    return min(100, total)
+
+
+@router.patch("/{project_id}/milestones", response_model=ProjectResponse)
+def update_project_milestones(
+    project_id: str,
+    payload: UpdateMilestonesRequest,
+    db: Session = Depends(get_db)
+):
+    """Updates completed milestones list and returns updated progress."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found"
+        )
+
+    # Save the array of milestone keys
+    project.completed_milestones = payload.completed_milestones
+    db.commit()
+    db.refresh(project)
+
+    # Compute percentage for response
+    progress = calculate_progress(project.completed_milestones or [])
+
+    return ProjectResponse(
+        id=project.id,
+        name=project.name,
+        status=project.status,
+        completed_milestones=project.completed_milestones or [],
+        progress_percentage=progress
+    )
+
+
 @router.get("/details")
 async def get_all_projects(db: Session = Depends(get_db)):
     try:
@@ -230,6 +271,7 @@ async def get_all_projects(db: Session = Depends(get_db)):
                 p.start_date,
                 p.project_type,
                 p.category,
+                p.completed_milestones,
                 s.skill_name,
                 a.allocation_id,
                 a.resource_id,
@@ -262,6 +304,21 @@ async def get_all_projects(db: Session = Depends(get_db)):
             pid = row["project_id"]
 
             if pid not in projects_map:
+                # Safely parse completed_milestones (handles both DB JSON types and JSON strings)
+                raw_milestones = row["completed_milestones"]
+                if isinstance(raw_milestones, str):
+                    try:
+                        completed_milestones = json.loads(raw_milestones)
+                    except Exception:
+                        completed_milestones = []
+                elif isinstance(raw_milestones, list):
+                    completed_milestones = raw_milestones
+                else:
+                    completed_milestones = []
+
+                # Compute progress percentage dynamically
+                progress_percentage = calculate_progress(completed_milestones)
+
                 projects_map[pid] = {
                     "project_id": str(pid),
                     "title": row["title"] or "",
@@ -270,6 +327,8 @@ async def get_all_projects(db: Session = Depends(get_db)):
                     "start_date": str(row["start_date"]) if row["start_date"] else "TBD",
                     "category": row["category"] or "General",
                     "project_type": row["project_type"] or "internal_project",
+                    "completed_milestones": completed_milestones, 
+                    "progress_percentage": progress_percentage,     
                     "skills": set(),
                     "allocations": {}
                 }
@@ -287,7 +346,7 @@ async def get_all_projects(db: Session = Depends(get_db)):
                         "resource_name": row["resource_name"],
                         "resource_type": row["resource_type"],
                         "allocation_status": row["allocation_status"] or "PENDING",
-                        "leave_reason": row["leave_reason"]  # <-- ADDED TO RESPONSE
+                        "leave_reason": row["leave_reason"]  
                     }
                 elif row["leave_reason"]:
                     # Ensure leave_reason is updated if found on a subsequent SQL row
@@ -304,6 +363,8 @@ async def get_all_projects(db: Session = Depends(get_db)):
                 "start_date": proj["start_date"],
                 "category": proj["category"],
                 "project_type": proj["project_type"],
+                "completed_milestones": proj["completed_milestones"],
+                "progress_percentage": proj["progress_percentage"],    
                 "skills": list(proj["skills"]),
                 "allocations": list(proj["allocations"].values())
             })
