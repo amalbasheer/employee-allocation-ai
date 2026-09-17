@@ -51,7 +51,7 @@ def send_activation_email(
     admin_name: str, 
     admin_email: str
 ):
-    frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:5173")
+    frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:3000")
     activation_link = f"{frontend_url}/activate?token={token}"
     sender_address = resolve_sender_email(admin_email)
 

@@ -19,11 +19,13 @@ if str(ROOT_DIR) not in sys.path:
 from ai_engine.extraction import infer_skill_category
 from ai_engine.embedding import generate_embedding
 from app.database import get_db
+from app.api.deps import require_admin
 from app.models.employee import CompanyEmployee, EmployeeSkill, Availability
 from app.models.taxonomy import Skill
 from app.models.allocation import Allocation
 from app.models.webinar import TrainingEngagement
 from app.models.project import Project
+from app.schemas.project import UserProfile
 from app.schemas.employee import (
     CompanyEmployeeCreate,
     CompanyEmployeeResponse,
@@ -40,6 +42,15 @@ from app.schemas.employee import (
     WeeklyBandwidthProjection,
     BandwidthForecastItem,
 )
+import secrets
+
+# Import email helper
+from app.services.services import send_activation_email
+
+
+def generate_activation_token() -> str:
+    """Generates a secure, 32-byte URL-safe random token for account activation."""
+    return secrets.token_urlsafe(32)
 
 router = APIRouter()
 
@@ -61,69 +72,99 @@ def get_employees(db: Session = Depends(get_db)):
     return employees
 
 @router.post("", response_model=CompanyEmployeeResponse, status_code=status.HTTP_201_CREATED)
-def create_employee(employee_in: CompanyEmployeeCreate, db: Session = Depends(get_db)):
-    """Create a new employee record (optionally with initial skills)."""
-    
+def create_employee(
+    employee_in: CompanyEmployeeCreate,
+    db: Session = Depends(get_db),
+    current_admin: UserProfile = Depends(require_admin),
+):
+    """
+    Create a new employee record (optionally with initial skills), generate an activation token,
+    and dispatch an activation email.
+    """
+    email_clean = employee_in.email.strip().lower()
+
     # 1. Unique email check
-    existing = db.query(CompanyEmployee).filter(CompanyEmployee.email == employee_in.email).first()
+    existing = db.query(CompanyEmployee).filter(CompanyEmployee.email == email_clean).first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"An employee with email '{employee_in.email}' already exists."
+            detail=f"An employee with email '{email_clean}' already exists.",
         )
 
-    # 2. Extract payload and convert empty string designation_id to None
+    # 2. Generate secure token & 48-hour expiration
+    token = generate_activation_token()
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=48)
+
+    # Extract admin metadata safely
+    admin_id = getattr(current_admin, "id", None)
+    admin_name = getattr(current_admin, "name", "Administrator")
+    admin_email = getattr(current_admin, "email", "")
+
+    # 3. Build employee dictionary (without role)
     emp_data = employee_in.model_dump(exclude={"skills"})
-    
+    emp_data["email"] = email_clean
+
     if emp_data.get("designation_id") == "":
         emp_data["designation_id"] = None
 
-    # Automatically add created_at timestamp if missing
-    if "created_at" not in emp_data or emp_data["created_at"] is None:
+    if not emp_data.get("created_at"):
         emp_data["created_at"] = datetime.now(timezone.utc)
-    
+
+    # Attach activation tracking & creator metadata
+    emp_data.update({
+        "account_status": "PENDING_ACTIVATION",
+        "activation_token": token,
+        "token_expires_at": expires_at,
+        "created_by": admin_id,
+    })
+
     try:
         new_employee = CompanyEmployee(**emp_data)
-        db.add(new_employee)
-        db.commit()
-        db.refresh(new_employee)
 
-        # 3. Process nested skills if provided
-        created_skills = []
+        # Attach initial skills if present
         if employee_in.skills:
             for skill in employee_in.skills:
                 db_skill = EmployeeSkill(
                     employee_id=new_employee.employee_id,
                     **skill.model_dump()
                 )
-                db.add(db_skill)
-                created_skills.append(db_skill)
-            
-            db.commit()
-            for skill in created_skills:
-                db.refresh(skill)
+                new_employee.skills.append(db_skill)
 
-        new_employee.skills = created_skills
+        db.add(new_employee)
+        db.commit()
+        db.refresh(new_employee)
+
+        # 4. Dispatch activation email
+        try:
+            send_activation_email(
+                to_email=email_clean,
+                employee_name=employee_in.name,
+                token=token,
+                admin_name=admin_name,
+                admin_email=admin_email,
+            )
+        except Exception as err:
+            print(f"Resend Email Error: {str(err)}")
+
         return new_employee
 
     except IntegrityError as e:
         db.rollback()
-        # Catches foreign key failure (e.g. designation_id doesn't exist) or missing required columns
-        error_msg = str(e.orig)
-        if "designation" in error_msg.lower() or "foreign key" in error_msg.lower():
+        error_msg = str(e.orig).lower()
+        if "designation" in error_msg or "foreign key" in error_msg:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Selected designation_id does not exist in the database."
+                detail="Selected designation_id does not exist in the database.",
             )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Database integrity error: {error_msg}"
+            detail=f"Database integrity error: {str(e.orig)}",
         )
     except Exception as e:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create employee: {str(e)}"
+            detail=f"Failed to create employee: {str(e)}",
         )
 
 

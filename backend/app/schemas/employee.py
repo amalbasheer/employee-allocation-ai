@@ -1,7 +1,5 @@
-# app/schemas/employee.py
 from datetime import date, datetime
 from typing import List, Optional
-from uuid import UUID
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
@@ -11,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 class EmployeeSkillBase(BaseModel):
     skill_id: str
     proficiency_level: int = 1
-   
 
 
 class EmployeeSkillCreate(EmployeeSkillBase):
@@ -22,12 +19,10 @@ class EmployeeSkillUpdate(BaseModel):
     proficiency_level: Optional[int] = None
 
 
-
 class EmployeeSkillResponse(EmployeeSkillBase):
     model_config = ConfigDict(from_attributes=True)
 
     employee_id: str
-    
 
 
 # ==========================================
@@ -46,7 +41,6 @@ class AvailabilityUpdate(BaseModel):
     is_on_leave: Optional[bool] = None
 
 
-
 class AvailabilityCreate(BaseModel):
     week_start_date: date
     available_hours: int = Field(default=40, ge=0, le=80)
@@ -54,15 +48,14 @@ class AvailabilityCreate(BaseModel):
 
 
 class AvailabilityResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     availability_id: str
     resource_id: str
     resource_type: str
     week_start_date: date
     available_hours: int
     is_on_leave: bool
-
-    class Config:
-        from_attributes = True
 
 
 class DateRangeLeaveRequest(BaseModel):
@@ -82,7 +75,7 @@ class WeeklyBandwidthSummary(BaseModel):
     net_free_hours: int
     is_on_leave: bool
 
-# Response Schema
+
 class WeeklyBandwidthProjection(BaseModel):
     week_label: str
     start_date: str
@@ -91,14 +84,15 @@ class WeeklyBandwidthProjection(BaseModel):
     total_capacity: float
     utilization_percentage: float
 
-# 1. Schema matching your JSX item keys
+
 class BandwidthForecastItem(BaseModel):
     week_start_date: str          # e.g. "Aug 17, 2026"
     gross_available_hours: float  # e.g. 40.0
     allocated_hours: float        # e.g. 32.0
     is_on_leave: bool             # True / False
     net_free_hours: float         # e.g. 8.0
-    
+
+
 # ==========================================
 # COMPANY EMPLOYEE SCHEMAS
 # ==========================================
@@ -110,11 +104,11 @@ class CompanyEmployeeBase(BaseModel):
     experience_years: float = 0.0
     weekly_capacity_hours: int = 40
     is_team_lead: bool = False
-    location: Optional[str] = 'Kochi'
+    location: Optional[str] = "Kochi"
+    account_status: Optional[str] = "Pending_Activation"
 
 
 class CompanyEmployeeCreate(CompanyEmployeeBase):
-    # Allows attaching initial skills during employee creation
     skills: Optional[List[EmployeeSkillBase]] = None
 
 
@@ -126,7 +120,7 @@ class CompanyEmployeeUpdate(BaseModel):
     experience_years: Optional[float] = None
     weekly_capacity_hours: Optional[int] = None
     is_team_lead: Optional[bool] = None
-    location: Optional[str] = 'Kochi'
+    location: Optional[str] = None  # None ensures partial updates don't reset location to 'Kochi'
 
 
 class CompanyEmployeeResponse(CompanyEmployeeBase):
@@ -135,3 +129,13 @@ class CompanyEmployeeResponse(CompanyEmployeeBase):
     employee_id: str
     created_at: datetime
     skills: List[EmployeeSkillResponse] = []
+
+class CreateEmployeeSchema(BaseModel):
+    name: str
+    email: EmailStr
+    role: Optional[str] = "employee"
+
+class ActivateAccountSchema(BaseModel):
+    token: str
+    password: str
+    

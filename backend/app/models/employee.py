@@ -25,6 +25,11 @@ class CompanyEmployee(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     location: Mapped[Optional[str]] = mapped_column(String(50))
     preferred_audience: Mapped[Optional[str]] = mapped_column(String(50))
+    account_status: Optional[str] = Column(String(55))
+    activation_token: Optional[str] = Column(String(255))
+    token_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[Optional[str]] = mapped_column(String(50))
+    auth_user_id: Mapped[Optional[UUID]] = mapped_column(nullable=True)
 
     __table_args__ = (
             # Ensures employee_id must start with 'rp2-emp-' followed by exactly 4 digits
