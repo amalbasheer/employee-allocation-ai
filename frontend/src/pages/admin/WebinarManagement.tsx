@@ -908,7 +908,7 @@ const handleBulkDeleteEngagements = async () => {
         onClick={handleBulkDeleteEngagements}
         className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-md hover:bg-rose-500/20 hover:border-rose-500/30 transition-colors"
       >
-        Delete Selected ({selectedEngagementIds.length})
+        Cancel Training ({selectedEngagementIds.length})
       </button>
     </div>
   )}

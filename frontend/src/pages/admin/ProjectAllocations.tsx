@@ -1181,7 +1181,7 @@ const handleOpenAddModal = () => {
                 title="Delete Selected Projects"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                Delete Selected ({selectedProjectIds.length})
+                Cancel Project ({selectedProjectIds.length})
               </button>
             </div>
           )}
