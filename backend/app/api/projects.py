@@ -750,21 +750,14 @@ def update_project(
             clean_skill_name = req_data["skill_name"].strip()
 
             # Ensure skill exists in DB
-            skill_obj = get_or_create_skill(db, clean_skill_name, default_category=project_category)
+            resolved_skill_id = get_or_create_skill(clean_skill_name, category=project_category)
 
-            # Resolve skill ID safely
-            resolved_skill_id = (
-                getattr(skill_obj, "skills_id", None) 
-                or getattr(skill_obj, "skill_id", None)
-            )
-
-            # Resolve embedding safely
-            req_embedding = getattr(skill_obj, "skill_embedding", None)
-            if not req_embedding and generate_embedding:
+            req_embedding = None
+            if generate_embedding:
                 try:
-                    req_embedding = generate_embedding(clean_skill_name)
+                  req_embedding = generate_embedding(clean_skill_name)
                 except Exception as e:
-                    logger.warning(f"Embedding generation failed for '{clean_skill_name}': {e}")
+                  logger.warning(f"Embedding generation failed for '{clean_skill_name}': {e}")
 
             # Generate unique requirement ID
             req_id = f"rp2-req-{(total_req_count + idx):04d}"
@@ -781,7 +774,7 @@ def update_project(
 
             formatted_requirements_output.append({
                 "skill_id": resolved_skill_id,
-                "skill_name": getattr(skill_obj, "skill_name", clean_skill_name),
+                "skill_name": clean_skill_name,
                 "min_proficiency": req_data["min_proficiency"],
                 "is_mandatory": req_data["is_mandatory"],
             })

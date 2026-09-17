@@ -1,3 +1,4 @@
+#services/notifications.py
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -35,3 +36,4 @@ def send_assignment_notification(
             <p>Log in to AllignIQ to view full details.</p>
         """
     })
+

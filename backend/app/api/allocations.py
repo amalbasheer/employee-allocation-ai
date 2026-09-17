@@ -467,6 +467,33 @@ def update_allocation_status(
     db.commit()
     db.refresh(allocation)
 
+    # Send notification after assignment is successfully saved
+    if target_status == "assigned":
+        employee = db.query(UserProfile).filter(
+            UserProfile.id == allocation.resource_id
+        ).first()
+
+        project = None
+
+        if ref_type == "project" and ref_id:
+            project = db.query(Project).filter(
+                Project.project_id == ref_id
+            ).first()
+
+        if employee and employee.email and project:
+            try:
+                response = send_allocation_assigned_email(
+                    to_email=employee.email,
+                    employee_name=employee.name,
+                    project_title=project.title,
+                    admin_name=getattr(current_user, "name", "Admin")
+                )
+
+                print(f"✅ Assignment email sent: {response}")
+
+            except Exception as e:
+                print(f"❌ Failed to send assignment email: {repr(e)}")
+
     return allocation
 
 # -------------------------------------------------------------------

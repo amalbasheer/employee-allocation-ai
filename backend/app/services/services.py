@@ -71,9 +71,10 @@ def send_activation_email(
                 </a>
             </div>
             <p style="font-size: 13px; color: #666;">This invitation link will expire in 48 hours.</p>
-            <p style="font-size: 13px; color: #666;">If the button does not work, copy and paste this link into your browser:<br>
+            <p style="fontA-size: 13px; color: #666;">If the button does not work, copy and paste this link into your browser:<br>
             <a href="{activation_link}" style="color: #2563eb;">{activation_link}</a></p>
         </div>
         """
     }
     return resend.Emails.send(params)
+
