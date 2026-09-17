@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import text, func
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 
 from app.database import get_db
 from app.models.project import Project, ProjectRequirement
@@ -252,11 +253,9 @@ def update_project_milestones(
 
     return ProjectResponse.model_validate(project)
 
-
 @router.get("/details")
 async def get_all_projects(db: Session = Depends(get_db)):
     try:
-        # SQL query joining projects, requirements, skills, allocations, employees, interns, and availability
         query = text("""
             SELECT 
                 p.project_id,
@@ -277,7 +276,7 @@ async def get_all_projects(db: Session = Depends(get_db)):
                     WHEN i.intern_id IS NOT NULL THEN 'intern'
                     ELSE 'unknown'
                 END AS resource_type,
-                av.leave_reason  -- <-- SELECT LEAVE REASON
+                av.leave_reason
             FROM projects p
             LEFT JOIN project_requirements pr ON p.project_id = pr.project_id
             LEFT JOIN skills s ON pr.skill_id = s.skill_id
@@ -286,36 +285,52 @@ async def get_all_projects(db: Session = Depends(get_db)):
             LEFT JOIN interns_and_students i ON a.resource_id = i.intern_id
             LEFT JOIN availability av 
                    ON a.resource_id = av.resource_id 
-                  AND av.is_on_leave = true  -- <-- JOIN ACTIVE LEAVE RECORDS
+                  AND av.is_on_leave = true
             ORDER BY p.project_id
         """)
 
         rows = db.execute(query).mappings().all()
 
-        # Aggregate flat SQL rows into structured JSON objects
         projects_map: Dict[Any, Dict[str, Any]] = {}
 
         for row in rows:
-            pid = row["project_id"]
+            pid = str(row["project_id"])
 
             if pid not in projects_map:
-                # Safely parse completed_milestones (handles both DB JSON types and JSON strings)
                 raw_milestones = row["completed_milestones"]
-                if isinstance(raw_milestones, str):
-                    try:
-                        completed_milestones = json.loads(raw_milestones)
-                    except Exception:
-                        completed_milestones = []
-                elif isinstance(raw_milestones, list):
-                    completed_milestones = raw_milestones
-                else:
-                    completed_milestones = []
+                completed_milestones = []
 
-                # Compute progress percentage dynamically
-                progress_percentage = calculate_progress(completed_milestones)
+                # 1. Handle bytes from raw SQL drivers
+                if isinstance(raw_milestones, bytes):
+                    try:
+                        raw_milestones = raw_milestones.decode("utf-8")
+                    except Exception:
+                        raw_milestones = ""
+
+                # 2. Handle strings (including double-encoded JSON)
+                if isinstance(raw_milestones, str):
+                    raw_milestones = raw_milestones.strip()
+                    if raw_milestones:
+                        try:
+                            parsed = json.loads(raw_milestones)
+                            if isinstance(parsed, str):
+                                parsed = json.loads(parsed)
+                            if isinstance(parsed, (list, dict)):
+                                completed_milestones = parsed
+                        except Exception:
+                            completed_milestones = []
+                elif isinstance(raw_milestones, (list, dict)):
+                    completed_milestones = raw_milestones
+
+                # 3. Compute progress percentage dynamically
+                raw_progress = calculate_progress(completed_milestones)
+                try:
+                    progress_percentage = int(round(float(raw_progress))) if raw_progress is not None else 0
+                except Exception:
+                    progress_percentage = 0
 
                 projects_map[pid] = {
-                    "project_id": str(pid),
+                    "project_id": pid,
                     "title": row["title"] or "",
                     "description": row["description"] or "",
                     "status": row["project_status"] or "open",
@@ -334,7 +349,7 @@ async def get_all_projects(db: Session = Depends(get_db)):
 
             # Map unique resource allocations
             if row["allocation_id"]:
-                alloc_id = row["allocation_id"]
+                alloc_id = str(row["allocation_id"])
                 if alloc_id not in projects_map[pid]["allocations"]:
                     projects_map[pid]["allocations"][alloc_id] = {
                         "resource_id": str(row["resource_id"]),
@@ -344,7 +359,6 @@ async def get_all_projects(db: Session = Depends(get_db)):
                         "leave_reason": row["leave_reason"]  
                     }
                 elif row["leave_reason"]:
-                    # Ensure leave_reason is updated if found on a subsequent SQL row
                     projects_map[pid]["allocations"][alloc_id]["leave_reason"] = row["leave_reason"]
 
         # Format aggregated map into JSON response list
@@ -364,14 +378,14 @@ async def get_all_projects(db: Session = Depends(get_db)):
                 "allocations": list(proj["allocations"].values())
             })
 
-        return JSONResponse(content=formatted_projects)
+        # Use jsonable_encoder to ensure safe JSON serialization
+        return JSONResponse(content=jsonable_encoder(formatted_projects))
 
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch projects from database: {str(e)}"
         )
-
     
 @router.get("", response_model=List[ProjectResponse])
 def get_projects(

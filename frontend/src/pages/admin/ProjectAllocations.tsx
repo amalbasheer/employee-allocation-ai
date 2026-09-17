@@ -151,7 +151,23 @@ export const ProjectAllocation: React.FC = () => {
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
   
-  
+    // Milestone keys and their corresponding weight percentages (total = 100%)
+  const MILESTONE_WEIGHTS: Record<string, number> = {
+  project_kickoff: 5,
+  architecture_design: 10,
+  repo_cicd_setup: 10,
+  core_development: 35,
+  testing_code_review: 10,
+  deployment: 15,
+  documentation: 10,
+  final_signoff: 5,
+ };
+
+  const calculateProgress = (completedKeys: string[]): number => {
+    const total = completedKeys.reduce((sum, key) => sum + (MILESTONE_WEIGHTS[key] || 0), 0);
+      return Math.min(100, total);
+  };
+
   const API_BASE = import.meta.env.VITE_BACKEND_URL || 'https://employee-allocation-ai.onrender.com';
   
   // Open & Close Handlers
@@ -295,8 +311,7 @@ export const ProjectAllocation: React.FC = () => {
       const mentorAllocation =
         employeeAllocations.at(-1);
         const studentAllocations = p.allocations?.filter((a: any) => a.resource_type === 'intern') || [];
-        const calculatedProgress = p.progress_percentage ?? p.progressPercentage ?? p.progress ?? 0;
-
+        
         return {
           id: p.project_id || p.id,
           name: p.title || p.name,
@@ -313,9 +328,9 @@ export const ProjectAllocation: React.FC = () => {
           allocatedStudentIds: studentAllocations.map((s: any) => s.resource_id) || p.allocatedStudentIds || [],
           allocatedStudentsname: studentAllocations?.map((s: any) => s.resource_name).join(' ,') || p.allocatedStudentsname || [],
           completed_milestones: p.completed_milestones || [],
-          progress_percentage: calculatedProgress,
-          progressPercentage: calculatedProgress,
-          progress: calculatedProgress,
+          progress_percentage: calculateProgress(p.completed_milestones),
+          progressPercentage: calculateProgress,
+          progress: calculateProgress,
         };
       });
 
@@ -1219,12 +1234,15 @@ const handleOpenAddModal = () => {
                   </div>
 
                   {/* Milestone Progress Bar with Hover Tooltip */}
-{(() => {
+ {(() => {
   // 1. Extract API progress percentage across common property name variations
   const apiProgress =
     typeof project.progress_percentage === 'number' && project.progress_percentage > 0
       ? project.progress_percentage
-      
+      : typeof project.progressPercentage === 'number' && project.progressPercentage > 0
+      ? project.progressPercentage
+      : typeof project.progress === 'number' && project.progress > 0
+      ? project.progress
       : null;
 
   // 2. Safely parse completed_milestones (handles Arrays, JSON strings, and null)
