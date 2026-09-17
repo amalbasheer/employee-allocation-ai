@@ -1,5 +1,6 @@
 import sys
 import os
+import json
 import logging
 from typing import List, Optional, Dict, Any
 from pathlib import Path
@@ -234,7 +235,7 @@ def update_project_milestones(
     db: Session = Depends(get_db)
 ):
     """Updates completed milestones list and returns updated progress."""
-    project = db.query(Project).filter(Project.id == project_id).first()
+    project = db.query(Project).filter(Project.project_id == project_id).first()
     if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -249,13 +250,7 @@ def update_project_milestones(
     # Compute percentage for response
     progress = calculate_progress(project.completed_milestones or [])
 
-    return ProjectResponse(
-        id=project.id,
-        name=project.name,
-        status=project.status,
-        completed_milestones=project.completed_milestones or [],
-        progress_percentage=progress
-    )
+    return ProjectResponse.model_validate(project)
 
 
 @router.get("/details")

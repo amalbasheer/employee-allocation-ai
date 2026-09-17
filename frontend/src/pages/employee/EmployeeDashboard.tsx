@@ -4,13 +4,19 @@ import { Badge } from '../../components/common/Badge';
 import api from '../../services/api';
 
 import { 
-  Check, X, Clock, Briefcase, Video, Calendar, Hourglass,
+  Check, X, Clock, Briefcase, Video, Calendar, Hourglass, Flag,
   ExternalLink, ChevronRight, Loader2, AlertCircle, CheckCircle
 } from 'lucide-react';
 
 export type ProjectStatus = 'open' | 'completed' |'in_progress';
 export type AllocatedStatus = 'proposed' | 'accepted' |'rejected' | 'assigned' | 'substituted' | 'unassigned';
 
+export interface MilestoneObject {
+  id?: string;
+  key?: string;
+  name?: string;
+  title?: string;
+}
 
 export interface Project {
   id: string;
@@ -31,6 +37,8 @@ export interface Project {
   allocatedStudentIds?: string[];
   allocatedStudentsname?: string[];
   proposedMentorStatus?: AllocatedStatus;
+  completedMilestones?: string[];
+  milestones?: (string | MilestoneObject)[];
 }
 
 export interface Proposal {
@@ -52,8 +60,10 @@ export interface ActiveProject {
   role: string;
   interns: string[];
   currentMilestone: string;
+  completedMilestones: string[];
   progressPercentage: number;
   nextSyncDate: string;
+  milestones?: (string | MilestoneObject)[];
 }
 
 export interface Webinar {
@@ -89,6 +99,7 @@ const initialActiveProjects: ActiveProject[] = [
     interns: ['Elena R.', 'Marcus K.'],
     currentMilestone: 'Milestone 2: Model Quantization',
     progressPercentage: 65,
+    completedMilestones: ['Deployment'],
     nextSyncDate: 'Tomorrow, 2:00 PM',
   },
 ];
@@ -126,6 +137,13 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const [activeProjects, setActiveProjects] = useState<ActiveProject[]>([]);
   const pendingCount = proposals.filter((p) => p.status === 'proposed').length;
   const [completedProjects, setCompletedProjects] = useState<ActiveProject[]>([]);
+
+  const formatMilestoneLabel = (key: string): string => {
+  return key
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+};
 
   // Milestone keys and their corresponding weight percentages (total = 100%)
   const MILESTONE_WEIGHTS: Record<string, number> = {
@@ -263,6 +281,7 @@ const fetchDashboardData = useCallback(async () => {
             progressPercentage: typeof a.progress_percentage === 'number' ? a.progress_percentage : calculateProgress(milestones),
             nextSyncDate: a.due_date || 'Next Week',
             status: 'in_progress',
+            milestones: a.milestones && a.milestones.length > 0 ? a.milestones : Object.keys(MILESTONE_WEIGHTS),
             };
           });
 
@@ -386,7 +405,7 @@ useEffect(() => {
       console.error('Network Error: Failed to persist milestone update.', err);
     }
   };
-  
+
 const [isUpdatingStatus, setIsUpdatingStatus] = useState<boolean>(false);
 
 const handleUpdateProjectStatus = async (projectId: string, newStatus: string) => {
@@ -646,72 +665,151 @@ const handleRejectionAction = async (id: string, action: 'reject') => {
         </div>
       </Card>
 
-  {/* CARD 2: ACTIVE PROJECTS */}
-      <Card 
-        title={`Active Projects (${activeProjects.length})`} 
-        subtitle="Projects currently active and underway"
-      >
-        <div className="space-y-4">
-          {activeProjects.length === 0 ? (
-            <div className="text-center py-8 border border-dashed border-slate-800 rounded-xl">
-              <Briefcase className="w-6 h-6 text-slate-600 mx-auto mb-2" />
-            <p className="text-xs text-slate-500">No confirmed active projects yet.</p>
-          </div>
-        ) : (
-          activeProjects.map((project) => (
-            <div key={project.id} className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h5 className="text-sm font-bold text-white flex items-center gap-2">
-                    <Briefcase className="w-4 h-4 text-indigo-400" /> {project.title}
-                  </h5>
-                  <p className="text-xs text-slate-400 mt-0.5">{project.role}</p>
-                </div>
+      {/* CARD 2: ACTIVE PROJECTS */}
+<Card 
+  title={`Active Projects (${activeProjects.length})`} 
+  subtitle="Projects currently active and underway"
+>
+  <div className="space-y-4">
+    {activeProjects.length === 0 ? (
+      <div className="text-center py-8 border border-dashed border-slate-800 rounded-xl">
+        <Briefcase className="w-6 h-6 text-slate-600 mx-auto mb-2" />
+        <p className="text-xs text-slate-500">No confirmed active projects yet.</p>
+      </div>
+    ) : (
+      activeProjects.map((project) => {
+        // Format snake_case string labels to readable title case
+        const formatLabel = (str: string) =>
+          typeof str === 'string' && str.includes('_')
+            ? str.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+            : str;
+
+        const activeStage = project.currentMilestone 
+          ? formatLabel(project.currentMilestone) 
+          : 'Not Set';
+
+        return (
+          <div key={project.id} className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
+            {/* Header Info */}
+            <div className="flex justify-between items-start">
+              <div>
+                <h5 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Briefcase className="w-4 h-4 text-indigo-400" /> {project.title}
+                </h5>
+                <p className="text-xs text-slate-400 mt-0.5">{project.role}</p>
+              </div>
               <span className="text-[10px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded border border-slate-800">
                 {project.interns ? project.interns.length : 0} Mentees
               </span>
             </div>
 
-            <div className="space-y-1">
-              <div className="flex justify-between text-[11px]">
-                <span className="text-slate-400">{project.currentMilestone}</span>
-                <span className="text-indigo-400 font-mono font-bold">{project.progressPercentage}%</span>
+            {/* PROGRESS & MILESTONES SECTION */}
+            <div className="space-y-3">
+              {/* Header & Percentage */}
+              <div className="flex justify-between items-center text-[11px]">
+                <div className="flex items-center gap-1.5 text-slate-400">
+                  <Flag className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Active Stage:</span>
+                  <span className="text-white font-semibold">
+                    {activeStage}
+                  </span>
+                </div>
+                <span className="text-indigo-400 font-mono font-bold">
+                  {project.progressPercentage ?? 0}%
+                </span>
               </div>
+
+              {/* Progress Bar */}
               <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-indigo-500 rounded-full transition-all duration-300"
-                  style={{ width: `${project.progressPercentage}%` }}
+                  style={{ width: `${project.progressPercentage ?? 0}%` }}
                 />
               </div>
+
+              {/* Interactive Milestone Chips */}
+              {(() => {
+                const availableMilestones = project.milestones && project.milestones.length > 0
+                  ? project.milestones
+                  : Object.keys(MILESTONE_WEIGHTS);
+
+                return (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {availableMilestones.map((milestone: any) => {
+                      const milestoneKey: string = 
+                        typeof milestone === 'string' 
+                          ? milestone 
+                          : milestone?.key || milestone?.id || milestone?.name || '';
+
+                      const rawLabel: string = 
+                        typeof milestone === 'string' 
+                          ? milestone 
+                          : milestone?.name || milestone?.title || milestoneKey;
+
+                      const milestoneLabel = formatLabel(rawLabel);
+                      
+                      const isCompleted = (project.completedMilestones || []).includes(milestoneKey);
+                      const isCurrent = project.currentMilestone === milestoneKey || project.currentMilestone === rawLabel;
+
+                      return (
+                        <button
+                          key={milestoneKey}
+                          type="button"
+                          onClick={() => handleToggleMilestone(project.id, milestoneKey)}
+                          className={`text-[10px] px-2.5 py-1 rounded-md border flex items-center gap-1.5 transition-all cursor-pointer ${
+                            isCompleted
+                              ? 'bg-emerald-950/50 text-emerald-300 border-emerald-700/60 hover:bg-emerald-900/60'
+                              : isCurrent
+                              ? 'bg-indigo-950/80 text-indigo-300 border-indigo-500/60 ring-1 ring-indigo-500/30'
+                              : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-700'
+                          }`}
+                        >
+                          {isCompleted ? (
+                            <Check className="w-3 h-3 text-emerald-400 stroke-[3]" />
+                          ) : (
+                            <Clock className="w-3 h-3 opacity-60" />
+                          )}
+                          <span>{milestoneLabel}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
 
+            {/* Footer */}
             <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-900 text-slate-400">
               <span className="flex items-center gap-1 text-[11px]">
-                <Calendar className="w-3.5 h-3.5" /> Sync: {project.nextSyncDate}
+                <Calendar className="w-3.5 h-3.5 text-slate-500" /> Sync: {project.nextSyncDate}
               </span>
 
               <div className="flex items-center gap-2">
                 {/* STATUS UPDATE BUTTON */}
                 <button
+                  type="button"
                   disabled={isUpdatingStatus}
                   onClick={() => handleUpdateProjectStatus(project.id, 'completed')}
-                  className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[11px] font-semibold px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all disabled:opacity-50"
+                  className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[11px] font-semibold px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all disabled:opacity-50 cursor-pointer"
                 >
                   <CheckCircle className="w-3 h-3 text-emerald-400" />
                   Mark Completed
                 </button>
 
-                <button className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-semibold text-[11px]">
+                <button 
+                  type="button" 
+                  className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-semibold text-[11px] cursor-pointer"
+                >
                   View Details <ChevronRight className="w-3 h-3" />
                 </button>
               </div>
             </div>
           </div>
-        ))
-        )}
-        
-        </div>
-      </Card>
+        );
+      })
+    )}
+  </div>
+</Card>
 
       {/* CARD 2: COMPLETED PROJECTS */}
   <Card 
