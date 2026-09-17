@@ -17,6 +17,7 @@ from app.models.employee import CompanyEmployee
 from app.models.intern import InternsAndStudents
 from app.models.enums import AllocationStatus, ProjectStatus
 from app.schemas.project import UserProfile, MILESTONE_WEIGHTS
+from services.notifications import send_assignment_notification
 from app.schemas.allocation import (
     ProposeAllocationRequest,
     AllocationStatusUpdateRequest,
@@ -25,6 +26,9 @@ from app.schemas.allocation import (
     SubstitutionResponse,
     AllocationLogResponse,
 )
+
+import logging
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -307,6 +311,27 @@ def assign_allocation(
         project = db.query(Project).filter(Project.project_id == ref_id).first()
         if project:
             project.status = "in_progress"
+            # Send assignment notification email
+            person = None
+            if resource_type in ["employee", "mentor"]:
+                person = db.query(CompanyEmployee).filter(
+                    CompanyEmployee.employee_id == allocation.resource_id
+                ).first()
+                    
+            if person and person.email:
+                try:
+                    send_assignment_notification(
+                        recipient_email=person.email,
+                        recipient_name=person.name,
+                        project_title=project.title,
+                        description=project.description or "",
+                        start_date=str(project.start_date),
+                        end_date=str(project.end_date) if project.end_date else "TBD",
+                        priority=project.priority_level or "Medium",
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to send assignment notification email: {e}")
+
             if hasattr(project, "mentor_id"):
                 project.mentor_id = str(allocation.resource_id)  # Updates project mentor link if column exists
 
