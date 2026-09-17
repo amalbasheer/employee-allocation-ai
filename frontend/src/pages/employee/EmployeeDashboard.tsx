@@ -107,6 +107,7 @@ const initialWebinars: Webinar[] = [
 interface EmployeeDashboardProps {
   employeeId?: string;
 }
+
 export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({ 
   employeeId: propEmployeeId 
 }) => {
@@ -124,7 +125,25 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   // Dynamically filtered from the main user-assigned projects array
   const [activeProjects, setActiveProjects] = useState<ActiveProject[]>([]);
   const pendingCount = proposals.filter((p) => p.status === 'proposed').length;
-  const [completedProjects, setCompletedProjects] = useState<ActiveProject[]>([]); 
+  const [completedProjects, setCompletedProjects] = useState<ActiveProject[]>([]);
+
+  // Milestone keys and their corresponding weight percentages (total = 100%)
+  const MILESTONE_WEIGHTS: Record<string, number> = {
+  project_kickoff: 5,
+  architecture_design: 10,
+  repo_cicd_setup: 10,
+  core_development: 35,
+  testing_code_review: 10,
+  deployment: 15,
+  documentation: 10,
+  final_signoff: 5,
+ };
+
+  const calculateProgress = (completedKeys: string[]): number => {
+    const total = completedKeys.reduce((sum, key) => sum + (MILESTONE_WEIGHTS[key] || 0), 0);
+      return Math.min(100, total);
+  };
+
   const API_BASE = import.meta.env.VITE_BACKEND_URL || 'https://employee-allocation-ai.onrender.com';
   
   const getActiveEmployeeId = useCallback((): string => {
@@ -227,16 +246,25 @@ const fetchDashboardData = useCallback(async () => {
             const s = String(a.status || '').toLowerCase();
             return ['assigned', 'confirmed', 'active', 'approved', 'in_progress'].includes(s);
           })
-          .map((a: any) => ({
-            id: String(a.project_id || a.allocation_id || a.id),
+          .map((a: any) => {
+            // Parse completed milestone keys from backend
+              const milestones = Array.isArray(a.completed_milestones)
+                ? a.completed_milestones
+                : (typeof a.completed_milestones === 'string'
+                    ? JSON.parse(a.completed_milestones || '[]')
+                    : []);
+
+            return {id: String(a.project_id || a.allocation_id || a.id),
             title: a.title || 'Active Project',
             role: a.role || 'Lead Mentor',
             interns: a.interns || (a.mentor ? [a.mentor] : ['Assigned Team']),
             currentMilestone: a.current_milestone || 'Project Execution',
-            progressPercentage: typeof a.progress_percentage === 'number' ? a.progress_percentage : 50,
+            completedMilestones: milestones,
+            progressPercentage: typeof a.progress_percentage === 'number' ? a.progress_percentage : calculateProgress(milestones),
             nextSyncDate: a.due_date || 'Next Week',
             status: 'in_progress',
-          }));
+            };
+          });
 
         // D. Map Completed Projects (Project Only)
         const fetchedCompleted: ActiveProject[] = projectAllocations
@@ -250,6 +278,7 @@ const fetchDashboardData = useCallback(async () => {
             role: a.role || 'Lead Mentor',
             interns: a.interns || (a.mentor ? [a.mentor] : ['Assigned Team']),
             currentMilestone: 'Completed',
+            completedMilestones: Object.keys(MILESTONE_WEIGHTS),
             progressPercentage: 100,
             nextSyncDate: 'Finished',
             status: 'completed',
@@ -283,6 +312,81 @@ useEffect(() => {
   fetchDashboardData();
 }, [fetchDashboardData]);
 
+// Handler: Toggle Milestone Status
+  const handleToggleMilestone = async (projectId: string, milestoneKey: string) => {
+    const targetProject = activeProjects.find(
+      (p) => p.id === projectId || (p as any).projectId === projectId
+    );
+    if (!targetProject) return;
+
+    const currentMilestones: string[] = (targetProject as any).completedMilestones || [];
+    const isCompleted = currentMilestones.includes(milestoneKey);
+
+    const updatedMilestones = isCompleted
+      ? currentMilestones.filter((key) => key !== milestoneKey)
+      : [...currentMilestones, milestoneKey];
+
+    const newProgressPercentage = calculateProgress(updatedMilestones);
+
+    // Optimistically update React State
+    setActiveProjects((prev) =>
+      prev.map((p) =>
+        p.id === projectId || (p as any).projectId === projectId
+          ? {
+              ...p,
+              completedMilestones: updatedMilestones,
+              progressPercentage: newProgressPercentage,
+            }
+          : p
+      )
+    );
+
+    const rawToken = localStorage.getItem('auth_token');
+    let token = rawToken;
+    if (rawToken) {
+      try {
+        const parsed = JSON.parse(rawToken);
+        token = parsed.token || parsed.access_token || rawToken;
+      } catch {
+        token = rawToken;
+      }
+    }
+
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+
+    try {
+      const res = await fetch(`${API_BASE}/api/projects/${projectId}/milestones`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          completed_milestones: updatedMilestones,
+        }),
+      });
+
+      if (res.ok) {
+        const updatedData = await res.json();
+        setActiveProjects((prev) =>
+          prev.map((p) =>
+            p.id === projectId || (p as any).projectId === projectId
+              ? {
+                  ...p,
+                  completedMilestones: updatedData.completed_milestones || updatedMilestones,
+                  progressPercentage: updatedData.progress_percentage ?? newProgressPercentage,
+                }
+              : p
+          )
+        );
+      } else {
+        console.error(`API Error ${res.status}: Failed to update milestone on server.`);
+      }
+    } catch (err) {
+      console.error('Network Error: Failed to persist milestone update.', err);
+    }
+  };
+  
 const [isUpdatingStatus, setIsUpdatingStatus] = useState<boolean>(false);
 
 const handleUpdateProjectStatus = async (projectId: string, newStatus: string) => {

@@ -16,7 +16,7 @@ from app.models.taxonomy import Skill
 from app.models.employee import CompanyEmployee
 from app.models.intern import InternsAndStudents
 from app.models.enums import AllocationStatus, ProjectStatus
-from app.schemas.project import UserProfile
+from app.schemas.project import UserProfile, MILESTONE_WEIGHTS
 from app.schemas.allocation import (
     ProposeAllocationRequest,
     AllocationStatusUpdateRequest,
@@ -35,15 +35,12 @@ def safe_get(obj, key, default=None):
     return getattr(obj, key, default)
 
 
-def calculate_progress(status: str) -> int:
-    status_lower = str(status).lower()
-    if status_lower in ["completed", "done", "finished"]:
-        return 100
-    elif status_lower in ["in_progress", "active", "started", "assigned"]:
-        return 50
-    elif status_lower in ["accepted", "proposed", "pending"]:
-        return 10
-    return 0
+def calculate_progress(completed_keys: List[str]) -> int:
+    """Computes total percentage from completed milestone keys."""
+    if not completed_keys:
+        return 0
+    total = sum(MILESTONE_WEIGHTS.get(key, 0) for key in completed_keys)
+    return min(100, total)
 
 def get_allocation_target(db: Session, reference_id: str, reference_type: str):
     """
