@@ -3,7 +3,7 @@ import {
   Plus, Layers, Sliders, Clock, Send, UserCheck, XCircle, CheckCircle2, 
   Tag, Calendar, ArrowRight, ThumbsUp, ThumbsDown, GraduationCap, CheckCircle,
   Star, UserPlus, RefreshCw, Users, FolderPlus, X, PlayCircle, Crown, Sparkles, 
-  FolderSync, Trash2,
+  FolderSync, Trash2, Check, Flag,
   User,
   Edit2
 } from 'lucide-react';
@@ -67,6 +67,10 @@ export interface Project {
   proposedMentorLeaveReason?: string;
   isSubstituting?: boolean;
   allocations?: Allocation[];
+  completed_milestones?: string[];
+  progress_percentage?: number;
+  progressPercentage?: number;
+  progress?: number;
 }
 
 // --- Optimization API Interfaces ---
@@ -291,6 +295,7 @@ export const ProjectAllocation: React.FC = () => {
       const mentorAllocation =
         employeeAllocations.at(-1);
         const studentAllocations = p.allocations?.filter((a: any) => a.resource_type === 'intern') || [];
+        const calculatedProgress = p.progress_percentage ?? p.progressPercentage ?? p.progress ?? 0;
 
         return {
           id: p.project_id || p.id,
@@ -307,7 +312,10 @@ export const ProjectAllocation: React.FC = () => {
           proposedMentorLeaveReason: mentorAllocation?.leave_reason || p.proposedMentorLeaveReason || null, // <-- ADD THIS LINE
           allocatedStudentIds: studentAllocations.map((s: any) => s.resource_id) || p.allocatedStudentIds || [],
           allocatedStudentsname: studentAllocations?.map((s: any) => s.resource_name).join(' ,') || p.allocatedStudentsname || [],
-        
+          completed_milestones: p.completed_milestones || [],
+          progress_percentage: calculatedProgress,
+          progressPercentage: calculatedProgress,
+          progress: calculatedProgress,
         };
       });
 
@@ -1107,19 +1115,17 @@ const handleOpenAddModal = () => {
           </select>
         </div>
       </div>
-        <div className="flex justify-end">
-         {/* Sync Completed Projects Refresh Button */}
+      <div className="flex justify-end">
+        {/* Sync Completed Projects Refresh Button */}
         <button
           onClick={handleOptimizeProjects}
-  
           className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg transition-all"
           type="button"
         >
           <FolderSync className="w-4 h-4" /> Optimize
         </button>
-        </div>
       </div>
-    
+    </div>
 
     {loadingProjects ? (
       <div className="p-8 text-center text-slate-400 flex justify-center items-center gap-2">
@@ -1145,26 +1151,26 @@ const handleOpenAddModal = () => {
             <span>Select All ({selectedProjectIds?.length ?? 0} selected)</span>
           </label>
         
-               {selectedProjectIds.length > 0 && (
-                <div className="flex items-center gap-3">
-              
-                <button
-                  onClick={clearSelection}
-                  className="text-xs text-rose-400 hover:underline"
-                >
-                  Clear Selection
-                </button>
-                <button
-                    onClick={handleBulkDeleteProjects}
-                    disabled={isDeleting}
-                    className="px-2.5 py-1 text-xs font-semibold text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 rounded-lg transition-all flex items-center gap-1.5"
-                    title="Delete Selected Projects"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    Delete Selected ({selectedProjectIds.length})
-                  </button>
-              </div>
-            )}</div>
+          {selectedProjectIds.length > 0 && (
+            <div className="flex items-center gap-3">
+              <button
+                onClick={clearSelection}
+                className="text-xs text-rose-400 hover:underline"
+              >
+                Clear Selection
+              </button>
+              <button
+                onClick={handleBulkDeleteProjects}
+                disabled={isDeleting}
+                className="px-2.5 py-1 text-xs font-semibold text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 rounded-lg transition-all flex items-center gap-1.5"
+                title="Delete Selected Projects"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Delete Selected ({selectedProjectIds.length})
+              </button>
+            </div>
+          )}
+        </div>
 
         {filteredProjects.map((project) => {
           const isSelected = selectedProjectIds?.includes(project.id);
@@ -1200,6 +1206,7 @@ const handleOpenAddModal = () => {
                     </span>
                   </div>
 
+                  {/* Required Skills */}
                   <div className="flex flex-wrap gap-1.5 pt-1">
                     {(project.requiredSkills ?? []).map((skill, index) => (
                       <span key={index} className="text-[11px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded-md border border-slate-800">
@@ -1210,6 +1217,85 @@ const handleOpenAddModal = () => {
                       </span>
                     ))}
                   </div>
+
+                  {/* Milestone Progress Bar with Hover Tooltip */}
+{(() => {
+  // 1. Extract API progress percentage across common property name variations
+  const apiProgress =
+    typeof project.progress_percentage === 'number' && project.progress_percentage > 0
+      ? project.progress_percentage
+      
+      : null;
+
+  // 2. Safely parse completed_milestones (handles Arrays, JSON strings, and null)
+  let milestonesArray: any[] = [];
+  const rawMilestones = project.completed_milestones;
+
+  if (Array.isArray(rawMilestones)) {
+    milestonesArray = rawMilestones;
+  } else if (typeof rawMilestones === 'string') {
+    try {
+      const parsed = JSON.parse(rawMilestones);
+      if (Array.isArray(parsed)) milestonesArray = parsed;
+    } catch {
+      milestonesArray = [];
+    }
+  }
+
+  // 3. Use API progress if valid (> 0), otherwise fall back to dynamic length calculation
+  const percentage =
+    apiProgress !== null
+      ? apiProgress
+      : Math.min(100, Math.round((milestonesArray.length / 4) * 100));
+
+  const formatLabel = (str: string) =>
+    typeof str === 'string' && str.includes('_')
+      ? str.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+      : str;
+
+                    return (
+                      <div className="pt-2 max-w-md">
+                        <div className="flex items-center justify-between text-xs mb-1.5">
+                          <span className="text-slate-400 font-medium flex items-center gap-1.5">
+                            <Flag className="w-3.5 h-3.5 text-indigo-400" /> Progress
+                          </span>
+                          <span className="font-bold text-indigo-300">{percentage}%</span>
+                        </div>
+
+                        {/* Progress Bar Container with Hover Tooltip */}
+                        <div className="relative group cursor-pointer">
+                          {/* Track & Filled Bar */}
+                          <div className="w-full bg-slate-900 border border-slate-800 rounded-full h-2.5 overflow-hidden">
+                            <div
+                              className="bg-gradient-to-r from-indigo-500 to-emerald-400 h-full rounded-full transition-all duration-500"
+                              style={{ width: `${Math.min(100, Math.max(0, percentage))}%` }}
+                            />
+                          </div>
+
+                          {/* Hover Tooltip Overlay */}
+                          <div className="absolute bottom-full left-0 mb-2 hidden group-hover:flex flex-col gap-1.5 p-3 bg-slate-900 border border-slate-700 text-xs text-slate-200 rounded-lg shadow-xl z-30 min-w-[220px] pointer-events-none">
+                            <div className="text-[11px] font-semibold text-slate-400 border-b border-slate-800 pb-1 flex justify-between items-center">
+                              <span>Completed Milestones</span>
+                              <span className="text-indigo-400 font-medium">{milestonesArray.length}</span>
+                            </div>
+                            {milestonesArray.length > 0 ? (
+                              milestonesArray.map((m: any, idx: number) => {
+                                const rawLabel = typeof m === 'string' ? m : m?.name || m?.title || m?.key || '';
+                                return (
+                                  <div key={idx} className="flex items-center gap-1.5 text-emerald-300 text-[11px]">
+                                    <Check className="w-3 h-3 text-emerald-400 stroke-[3]" />
+                                    <span>{formatLabel(rawLabel)}</span>
+                                  </div>
+                                );
+                              })
+                            ) : (
+                              <span className="text-slate-500 italic text-[11px]">No milestones completed yet</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -1233,41 +1319,38 @@ const handleOpenAddModal = () => {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 self-start md:self-end">
-                <button
-                  onClick={() => handleManageAllocation(project.id)}
-                  className="bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-700 flex items-center gap-1.5 transition-all self-start md:self-end"
-                >
-                  Manage Allocation <ArrowRight className="w-3.5 h-3.5 text-indigo-400" />
-                </button>
-                {/* Edit Symbol Button */}
-                      <button
-                        onClick={() => handleOpenEditModal(project)}
-                        className="p-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-indigo-400 rounded-lg border border-slate-800 hover:border-slate-700 transition-all"
-                        title="Edit Project"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      {/* Delete Symbol Button */}
-<button
-  onClick={() => handleDeleteProject(project.id)}
-  disabled={isDeleting || project.status?.toLowerCase() !== 'open'}
-  className="p-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-rose-400 rounded-lg border border-slate-800 hover:border-slate-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-slate-900 disabled:hover:text-slate-400 disabled:hover:border-slate-800"
-  title={
-    project.status?.toLowerCase() === 'open' 
-      ? "Delete Project" 
-      : "Only open projects can be deleted"
-  }
->
-  <Trash2 className="w-4 h-4" />
-</button>
-                      </div>
+                  <button
+                    onClick={() => handleManageAllocation(project.id)}
+                    className="bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-700 flex items-center gap-1.5 transition-all self-start md:self-end"
+                  >
+                    Manage Allocation <ArrowRight className="w-3.5 h-3.5 text-indigo-400" />
+                  </button>
+                  {/* Edit Symbol Button */}
+                  <button
+                    onClick={() => handleOpenEditModal(project)}
+                    className="p-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-indigo-400 rounded-lg border border-slate-800 hover:border-slate-700 transition-all"
+                    title="Edit Project"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  {/* Delete Symbol Button */}
+                  <button
+                    onClick={() => handleDeleteProject(project.id)}
+                    disabled={isDeleting || project.status?.toLowerCase() !== 'open'}
+                    className="p-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-rose-400 rounded-lg border border-slate-800 hover:border-slate-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-slate-900 disabled:hover:text-slate-400 disabled:hover:border-slate-800"
+                    title={
+                      project.status?.toLowerCase() === 'open'
+                        ? "Delete Project"
+                        : "Only open projects can be deleted"
+                    }
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
-            
           );
-          
         })}
-        
       </div>
     )}
   </Card>

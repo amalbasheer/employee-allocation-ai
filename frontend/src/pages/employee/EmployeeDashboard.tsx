@@ -39,6 +39,7 @@ export interface Project {
   proposedMentorStatus?: AllocatedStatus;
   completedMilestones?: string[];
   milestones?: (string | MilestoneObject)[];
+  progressPercentage?: number;
 }
 
 export interface Proposal {

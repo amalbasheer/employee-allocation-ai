@@ -818,6 +818,7 @@ def get_my_allocations(
                 description = safe_get(project_obj, "description") or ""
                 start_date = safe_get(project_obj, "start_date")
                 end_date = safe_get(project_obj, "end_date")
+                completed_milestones = safe_get(project_obj, "completed_milestones")
 
                 # Tech Stack
                 req_skill_ids = db.query(ProjectRequirement.skill_id).filter(
@@ -922,7 +923,8 @@ def get_my_allocations(
                 "description": description,
                 "match_score": suitability_score,
                 "tech_stack": tech_stack,
-                "progress_percentage": calculate_progress(alloc_status),
+                "progress_percentage": calculate_progress(completed_milestones),
+                "completed_milestones" :completed_milestones,
                 "start_date": str(start_date) if start_date else "N/A",
                 "due_date": str(end_date) if end_date else "N/A"
             })
