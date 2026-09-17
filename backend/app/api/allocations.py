@@ -303,8 +303,10 @@ def assign_allocation(
         for old_alloc in previous_active_allocations:
             old_alloc.status = "replaced"  # Or "revoked" / "cancelled"
 
-    # 5. Transition target allocation status to assigned
+        # 5. Transition target allocation status to assigned
     allocation.status = "assigned"
+    allocation.assigned_at = datetime.now(timezone.utc)
+    allocation.assigned_by = admin_user.name
 
     # 6. Update linked target entity (Project / Batch / Training)
     if ref_type == "project" and ref_id:
