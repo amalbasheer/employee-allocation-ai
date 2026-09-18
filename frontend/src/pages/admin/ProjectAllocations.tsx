@@ -3,7 +3,7 @@ import {
   Plus, Layers, Sliders, Clock, Send, UserCheck, XCircle, CheckCircle2, 
   Tag, Calendar, ArrowRight, ThumbsUp, ThumbsDown, GraduationCap, CheckCircle,
   Star, UserPlus, RefreshCw, Users, FolderPlus, X, PlayCircle, Crown, Sparkles, 
-  FolderSync, Trash2, Check, Flag,
+  FolderSync, Trash2, Check, Flag, ExternalLink,
   User,
   Edit2
 } from 'lucide-react';
@@ -71,6 +71,8 @@ export interface Project {
   progress_percentage?: number;
   progressPercentage?: number;
   progress?: number;
+  github_url?: string;
+  deployed_url?: string;
 }
 
 // --- Optimization API Interfaces ---
@@ -150,6 +152,12 @@ export const ProjectAllocation: React.FC = () => {
   // --- New Edit & Loading States ---
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
+  // --- Link Editing State ---
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [githubInput, setGithubInput] = useState<string>('');
+  const [deployedInput, setDeployedInput] = useState<string>('');
+  const [isSavingLinks, setIsSavingLinks] = useState<boolean>(false);
   
     // Milestone keys and their corresponding weight percentages (total = 100%)
   const MILESTONE_WEIGHTS: Record<string, number> = {
@@ -169,6 +177,48 @@ export const ProjectAllocation: React.FC = () => {
   };
 
   const API_BASE = import.meta.env.VITE_BACKEND_URL || 'https://employee-allocation-ai.onrender.com';
+  
+  // Link Edit Handlers
+  const handleStartEditLinks = (project: Project) => {
+    setEditingProjectId(project.id);
+    const validGithub = project.github_url && !['Not Provided', 'Not provided'].includes(project.github_url.trim()) 
+      ? project.github_url 
+      : '';
+    const validDeployed = project.deployed_url && !['Not Provided', 'Not provided'].includes(project.deployed_url.trim()) 
+      ? project.deployed_url 
+      : '';
+    
+    setGithubInput(validGithub);
+    setDeployedInput(validDeployed);
+  };
+
+  const handleSaveLinks = async (projectId: string) => {
+    setIsSavingLinks(true);
+    try {
+      await api.patch(`${API_BASE}/api/projects/${projectId}`, {
+        github_url: githubInput.trim(),
+        deployed_url: deployedInput.trim(),
+      });
+
+      setProjects((prev) =>
+        prev.map((p) =>
+          p.id === projectId
+            ? {
+                ...p,
+                github_url: githubInput.trim() || 'Not Provided',
+                deployed_url: deployedInput.trim() || 'Not provided',
+              }
+            : p
+        )
+      );
+      setEditingProjectId(null);
+    } catch (err) {
+      console.error('Failed to update project links:', err);
+      alert('Failed to save project links. Please try again.');
+    } finally {
+      setIsSavingLinks(false);
+    }
+  };
   
   // Open & Close Handlers
   const handleOpenAIModal = () => setIsAIModalOpen(true);
@@ -331,6 +381,8 @@ export const ProjectAllocation: React.FC = () => {
           progress_percentage: calculateProgress(p.completed_milestones),
           progressPercentage: calculateProgress,
           progress: calculateProgress,
+          github_url: p.github_url || 'Not Provided',
+          deployed_url: p.deployed_url || 'Not provided'
         };
       });
 
@@ -1019,6 +1071,12 @@ const handleOpenAddModal = () => {
   // 3. Open modal
   setIsModalOpen(true);
 };
+// Helper function to render project links or link edit form in project cards
+const renderProjectLinks = (project: Project) => {
+  const isEditing = editingProjectId === project.id;
+  const hasGithub = project.github_url && !['Not Provided', 'Not provided'].includes(project.github_url.trim()) && project.github_url.trim() !== '';
+  const hasDeployed = project.deployed_url && !['Not Provided', 'Not provided'].includes(project.deployed_url.trim()) && project.deployed_url.trim() !== '';
+  const hasLinks = hasGithub || hasDeployed;}
 
   return (
     <div className="space-y-6">
@@ -1189,6 +1247,10 @@ const handleOpenAddModal = () => {
 
         {filteredProjects.map((project) => {
           const isSelected = selectedProjectIds?.includes(project.id);
+          // Link existence checks
+          const hasGithub = project.github_url && !['Not Provided', 'Not provided'].includes(project.github_url.trim()) && project.github_url.trim() !== '';
+          const hasDeployed = project.deployed_url && !['Not Provided', 'Not provided'].includes(project.deployed_url.trim()) && project.deployed_url.trim() !== '';
+          
           return (
             <div
               key={project.id}
@@ -1314,6 +1376,47 @@ const handleOpenAddModal = () => {
                       </div>
                     );
                   })()}
+
+                  {/* Resource Links (GitHub & Live App) */}
+                  <div className="pt-2 border-t border-slate-900/80 flex flex-wrap items-center gap-2">
+                    {hasGithub && (
+                      <a
+                        href={project.github_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-purple-950/40 hover:bg-purple-900/50 border border-purple-800/50 text-xs font-medium text-purple-300 hover:text-purple-200 transition-colors"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 text-purple-400" />
+                        GitHub Repository
+                      </a>
+                    )}
+
+                    {hasDeployed && (
+                      <a
+                        href={project.deployed_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-800/50 text-xs font-medium text-emerald-300 hover:text-emerald-200 transition-colors"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 text-emerald-400" />
+                        Live Application
+                      </a>
+                    )}
+
+                    {!hasGithub && !hasDeployed && (
+                      <span className="text-xs text-slate-500 italic">No project links provided</span>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => handleStartEditLinks(project)}
+                      className="text-xs text-indigo-400 hover:text-indigo-300 font-medium px-2 py-1 rounded hover:bg-slate-900 transition-colors flex items-center gap-1 ml-auto cursor-pointer"
+                    >
+                      <Edit2 className="w-3 h-3" />
+                      {hasGithub || hasDeployed ? 'Edit Links' : 'Add Links'}
+                    </button>
+                  </div>
+
                 </div>
               </div>
 
