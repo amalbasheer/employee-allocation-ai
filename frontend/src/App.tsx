@@ -14,6 +14,7 @@ import { ProjectAllocation } from './pages/admin/ProjectAllocations';
 import { EmployeeAvailabilityPage } from './pages/employee/EmployeeAvailability';
 import { EmployeeSkillsManager } from './pages/employee/profile';
 import { TrainingAllocationsDashboard } from './pages/employee/TrainingEngagement';
+import { StudentBatches } from './pages/admin/StudentBatches';
 
 interface ProtectedRouteProps {
   children?: React.ReactNode;
@@ -85,6 +86,14 @@ export default function App() {
                 element={
                   <ProtectedRoute allowedRoles={['ADMIN']}>
                     <TrainingManagement />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/batches"
+                element={
+                  <ProtectedRoute allowedRoles={['ADMIN']}>
+                    <StudentBatches />
                   </ProtectedRoute>
                 }
               />

@@ -8,7 +8,8 @@ import {
   GraduationCap, 
   DockIcon,
   Clock,
-  WrapText
+  WrapText,
+  Book
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -21,6 +22,7 @@ export const Sidebar: React.FC = () => {
     { label: 'Project Allocations', path: '/admin/allocations', icon: GitMerge },
     { label: 'User Management', path: '/admin/users', icon: Users },
     { label: 'Webinars & Workshops', path: '/admin/webinars', icon: Video },
+    { label: 'Student Batches', path: '/admin/batches', icon: Book },
   ];
 
   const employeeNav = [
