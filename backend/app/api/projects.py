@@ -27,6 +27,7 @@ from app.schemas.project import (
     UserProfile,
     MILESTONE_WEIGHTS,
     UpdateMilestonesRequest,
+    ProjectUpdateLinks,
 )
 from app.api.deps import get_current_user, require_admin
 
@@ -585,6 +586,30 @@ def create_project(
             detail=f"Failed to create project: {str(e)}"
         )
 
+@router.patch("/{project_id}/links")
+def update_project_links(
+    project_id: str,
+    links: ProjectUpdateLinks,
+    db: Session = Depends(get_db),
+    current_user: UserProfile = Depends(get_current_user)  # Any authenticated employee/admin
+):
+    project = db.query(Project).filter(Project.project_id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if links.github_url is not None:
+        project.github_url = links.github_url.strip() or None
+    if links.deployed_url is not None:
+        project.deployed_url = links.deployed_url.strip() or None
+
+    db.commit()
+    db.refresh(project)
+
+    return {
+        "message": "Project links updated successfully",
+        "github_url": project.github_url,
+        "deployed_url": project.deployed_url
+    }
 
 @router.get("/{project_id}", response_model=ProjectResponse)
 def get_project_by_id(
