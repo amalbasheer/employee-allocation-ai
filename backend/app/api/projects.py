@@ -415,8 +415,23 @@ def create_project(
         # 1. AUTO PROJECT ID GENERATION
         # -------------------------------------------------------------
         if not project_data.get("project_id"):
-            total_count = db.query(func.count(Project.project_id)).scalar() or 0
-            project_data["project_id"] = f"rp2-proj-{(total_count + 1):04d}"
+            last_project = (
+                db.query(Project.project_id)
+                .order_by(Project.project_id.desc())
+                .first()
+            )
+            
+            if last_project and last_project[0]:
+                try:
+                    # Extract numeric suffix from 'rp2-proj-XXXX'
+                    last_num = int(last_project[0].split("-")[-1])
+                    next_num = last_num + 1
+                except (ValueError, IndexError):
+                    next_num = 1
+            else:
+                next_num = 1
+
+            project_data["project_id"] = f"rp2-proj-{next_num:04d}"
 
         new_project = Project(**project_data, status="open")
         db.add(new_project)
@@ -479,7 +494,20 @@ def create_project(
         # 3. POPULATE SKILLS & REQUIREMENTS TABLE
         # -------------------------------------------------------------
         project_category = getattr(new_project, "category", "General") or "General"
-        total_req_count = db.query(func.count(ProjectRequirement.requirement_id)).scalar() or 0
+
+        # Fetch last requirement ID to avoid collisions here as well
+        last_req = (
+            db.query(ProjectRequirement.requirement_id)
+            .order_by(ProjectRequirement.requirement_id.desc())
+            .first()
+        )
+        if last_req and last_req[0]:
+            try:
+                last_req_num = int(last_req[0].split("-")[-1])
+            except (ValueError, IndexError):
+                last_req_num = 0
+        else:
+            last_req_num = 0
 
         # List to hold response structure with skill_name included
         formatted_requirements_output = []
@@ -504,9 +532,9 @@ def create_project(
                 except Exception as e:
                     logger.warning(f"Embedding generation failed for '{clean_skill_name}': {e}")
 
-            # Generate unique requirement ID
-            req_id = f"rp2-req-{(total_req_count + idx):04d}"
-
+            # Generate unique requirement ID based on highest existing ID
+            req_id = f"rp2-req-{(last_req_num + idx):04d}"
+            
             db_req = ProjectRequirement(
                 requirement_id=req_id,
                 project_id=new_project.project_id,
