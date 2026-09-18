@@ -5,7 +5,7 @@ import api from '../../services/api';
 
 import { 
   Check, X, Clock, Briefcase, Video, Calendar, Hourglass, Flag,
-  ExternalLink, ChevronRight, Loader2, AlertCircle, CheckCircle
+  ExternalLink, ChevronRight, Loader2, AlertCircle, CheckCircle, Edit2,
 } from 'lucide-react';
 
 export type ProjectStatus = 'open' | 'completed' |'in_progress';
@@ -40,6 +40,8 @@ export interface Project {
   completedMilestones?: string[];
   milestones?: (string | MilestoneObject)[];
   progressPercentage?: number;
+  github_url?: string;
+  deployed_url?: string;
 }
 
 export interface Proposal {
@@ -65,6 +67,8 @@ export interface ActiveProject {
   progressPercentage: number;
   nextSyncDate: string;
   milestones?: (string | MilestoneObject)[];
+  github_url?: string;
+  deployed_url?: string;
 }
 
 export interface Webinar {
@@ -138,6 +142,12 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const [activeProjects, setActiveProjects] = useState<ActiveProject[]>([]);
   const pendingCount = proposals.filter((p) => p.status === 'proposed').length;
   const [completedProjects, setCompletedProjects] = useState<ActiveProject[]>([]);
+
+  // States for Inline Project Links Editor
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [githubInput, setGithubInput] = useState<string>('');
+  const [deployedInput, setDeployedInput] = useState<string>('');
+  const [isSavingLinks, setIsSavingLinks] = useState<boolean>(false);
 
   const formatMilestoneLabel = (key: string): string => {
   return key
@@ -283,7 +293,9 @@ const fetchDashboardData = useCallback(async () => {
             nextSyncDate: a.due_date || 'Next Week',
             status: 'in_progress',
             milestones: a.milestones && a.milestones.length > 0 ? a.milestones : Object.keys(MILESTONE_WEIGHTS),
-            };
+            github_url: a.github_url || '',
+            deployed_url: a.deployed_url || '',  
+          };
           });
 
         // D. Map Completed Projects (Project Only)
@@ -302,6 +314,8 @@ const fetchDashboardData = useCallback(async () => {
             progressPercentage: 100,
             nextSyncDate: 'Finished',
             status: 'completed',
+            github_url: a.github_url || '',
+            deployed_url: a.deployed_url || '',
           }));
 
         setProposals(fetchedProposals);
@@ -331,6 +345,72 @@ const fetchDashboardData = useCallback(async () => {
 useEffect(() => {
   fetchDashboardData();
 }, [fetchDashboardData]);
+
+// Link Handlers
+  const handleStartEditLinks = (project: ActiveProject) => {
+    setEditingProjectId(project.id);
+    setGithubInput(project.github_url || '');
+    setDeployedInput(project.deployed_url || '');
+  };
+
+  const handleSaveLinks = async (projectId: string) => {
+    setIsSavingLinks(true);
+
+    const rawToken = localStorage.getItem('auth_token');
+    let token = rawToken;
+    if (rawToken) {
+      try {
+        const parsed = JSON.parse(rawToken);
+        token = parsed.token || parsed.access_token || rawToken;
+      } catch {
+        token = rawToken;
+      }
+    }
+
+    try {
+      const response = await fetch(`${API_BASE}/api/projects/${projectId}/links`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          github_url: githubInput.trim(),
+          deployed_url: deployedInput.trim(),
+        }),
+      });
+
+      if (!response.ok) throw new Error('Failed to update project links');
+
+      const updatedData = await response.json();
+      const newGithub = updatedData.github_url || githubInput.trim();
+      const newDeployed = updatedData.deployed_url || deployedInput.trim();
+
+      // Update Active Projects locally
+      setActiveProjects((prev) =>
+        prev.map((proj) =>
+          proj.id === projectId
+            ? { ...proj, github_url: newGithub, deployed_url: newDeployed }
+            : proj
+        )
+      );
+
+      // Update Completed Projects locally
+      setCompletedProjects((prev) =>
+        prev.map((proj) =>
+          proj.id === projectId
+            ? { ...proj, github_url: newGithub, deployed_url: newDeployed }
+            : proj
+        )
+      );
+
+      setEditingProjectId(null);
+    } catch (err: any) {
+      alert(err.message || 'Error updating links');
+    } finally {
+      setIsSavingLinks(false);
+    }
+  };
 
 // Handler: Toggle Milestone Status
   const handleToggleMilestone = async (projectId: string, milestoneKey: string) => {
@@ -513,7 +593,12 @@ const handleRejectionAction = async (id: string, action: 'reject') => {
   // Update Local UI States
   setProposals((prev) => prev.filter((p) => p.id !== id));
 };
-  
+
+// Helper JSX Component to render hyperlinks or the input form inside project cards
+const renderProjectLinksSection = (project: ActiveProject) => {
+  const isEditingThisCard = editingProjectId === project.id;
+  const hasLinks = Boolean(project.github_url || project.deployed_url);}
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-24 space-y-3">
@@ -689,6 +774,9 @@ const handleRejectionAction = async (id: string, action: 'reject') => {
           ? formatLabel(project.currentMilestone) 
           : 'Not Set';
 
+        const isEditingThisProject = editingProjectId === project.id;
+        const hasLinks = Boolean(project.github_url || project.deployed_url);
+
         return (
           <div key={project.id} className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
             {/* Header Info */}
@@ -779,6 +867,91 @@ const handleRejectionAction = async (id: string, action: 'reject') => {
               })()}
             </div>
 
+            {/* RESOURCE LINKS & INLINE EDITING SECTION */}
+            {isEditingThisProject ? (
+              <div className="p-3 bg-slate-900/90 rounded-lg border border-slate-800 space-y-2 text-xs">
+                <p className="font-semibold text-slate-300 text-[11px]">Update Resource Links</p>
+                <div>
+                  <label className="text-[10px] text-slate-400 block mb-0.5">GitHub Repository URL</label>
+                  <input
+                    type="url"
+                    placeholder="https://github.com/org/repo"
+                    value={githubInput}
+                    onChange={(e) => setGithubInput(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-400 block mb-0.5">Live Deployed App URL</label>
+                  <input
+                    type="url"
+                    placeholder="https://myapp.vercel.app"
+                    value={deployedInput}
+                    onChange={(e) => setDeployedInput(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setEditingProjectId(null)}
+                    className="px-2.5 py-1 rounded text-[11px] bg-slate-800 text-slate-300 hover:bg-slate-700"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSaveLinks(project.id)}
+                    disabled={isSavingLinks}
+                    className="px-2.5 py-1 rounded text-[11px] bg-indigo-600 text-white hover:bg-indigo-500 font-medium disabled:opacity-50"
+                  >
+                    {isSavingLinks ? 'Saving...' : 'Save Links'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="pt-2 border-t border-slate-900 flex items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {project.github_url ? (
+                    <a
+                      href={project.github_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] font-medium text-purple-300 hover:text-purple-200 transition-colors"
+                    >
+                      <ExternalLink className="w-3 h-3 text-purple-400" />
+                      GitHub
+                    </a>
+                  ) : null}
+
+                  {project.deployed_url ? (
+                    <a
+                      href={project.deployed_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-800/50 text-[11px] font-medium text-emerald-300 hover:text-emerald-200 transition-colors"
+                    >
+                      <ExternalLink className="w-3 h-3 text-emerald-400" />
+                      Live App
+                    </a>
+                  ) : null}
+
+                  {!hasLinks && (
+                    <span className="text-[11px] text-slate-500 italic">No links added</span>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleStartEditLinks(project)}
+                  className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium px-2 py-1 rounded hover:bg-slate-900 transition-colors flex items-center gap-1 cursor-pointer"
+                >
+                  <Edit2 className="w-3 h-3" />
+                  {hasLinks ? 'Edit Links' : 'Add Links'}
+                </button>
+              </div>
+            )}
+
             {/* Footer */}
             <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-900 text-slate-400">
               <span className="flex items-center gap-1 text-[11px]">
@@ -797,12 +970,6 @@ const handleRejectionAction = async (id: string, action: 'reject') => {
                   Mark Completed
                 </button>
 
-                <button 
-                  type="button" 
-                  className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-semibold text-[11px] cursor-pointer"
-                >
-                  View Details <ChevronRight className="w-3 h-3" />
-                </button>
               </div>
             </div>
           </div>
