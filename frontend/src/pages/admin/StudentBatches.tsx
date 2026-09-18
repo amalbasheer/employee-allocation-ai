@@ -2,8 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Card } from '../../components/common/Card';
 import { 
   Video, Plus, Clock, CheckCircle2, XCircle, Send, Pencil, Edit2, Trash2,
-  UserCheck, Star, UserPlus, Sliders, ArrowRight, Download, FolderSync, Hourglass,
-  GraduationCap, RefreshCw, Sparkles, Filter, AlertCircle, X, Loader2, Crown, Users
+  UserCheck, Star, UserPlus, Sliders, ArrowRight, Download, Database, BarChart3,
+  GraduationCap, RefreshCw, Sparkles, Filter, AlertCircle, Layers, Bot, 
 } from 'lucide-react';
 
 export interface RecommendedMentor {
@@ -78,11 +78,12 @@ const fallbackBatches: StudentBatch[] = [
     delivery_mode: 'hybrid'
   }
 ];
-
 export const StudentBatches: React.FC = () => {
   const [mainTab, setMainTab] = useState<'student_batch'>('student_batch');
-  
   const [subTab, setSubTab] = useState<'list' | 'allocation' | 'optimizations'>('list');
+
+  // Domain Filter Tab State ('all' | 'DS' | 'DA' | 'Agentic AI')
+  const [activeDomainTab, setActiveDomainTab] = useState<string>('all');
 
   // Real Data States
   const [batches, setBatches] = useState<StudentBatch[]>([]);
@@ -101,12 +102,10 @@ export const StudentBatches: React.FC = () => {
   // Modal & Form States
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
-  
-  
+
   const API_BASE = import.meta.env.VITE_BACKEND_URL || 'https://employee-allocation-ai.onrender.com';
 
-  
-  // 2. Fetch Real Student Batches from API
+  // Fetch Real Student Batches from API
   const fetchStudentBatches = async () => {
     try {
       const res = await fetch(`${API_BASE}/api/training/student-batches`);
@@ -123,7 +122,7 @@ export const StudentBatches: React.FC = () => {
     fetchStudentBatches();
   }, []);
 
-  // 4. Fetch Real Recommended Mentors for Student Batch Drawer
+  // Fetch Real Recommended Mentors for Student Batch Drawer
   const handleToggleBatchMentorDrawer = async (batch: StudentBatch) => {
     if (selectedBatchIdForMentor === batch.batch_id) {
       setSelectedBatchIdForMentor(null);
@@ -140,7 +139,7 @@ export const StudentBatches: React.FC = () => {
       const formatted = data.map((item: any) => ({
         ...item,
         employee_id: item.employee_id || item.id,
-        skills: item.skills || ['Domain Expert', 'Mentorship']
+        skills: item.skills || ['Domain Expert', 'Mentorship'],
       }));
       setBatchRecommendedMentors(formatted);
     } catch (err) {
@@ -184,9 +183,11 @@ export const StudentBatches: React.FC = () => {
   // Auto Generate Next Batch
   const handleAutoGenerateBatch = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/training/student-batches/auto-generate-next`, { method: 'POST' });
+      const res = await fetch(`${API_BASE}/api/training/student-batches/auto-generate-next`, {
+        method: 'POST',
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      
+
       const generated = await res.json();
       setBatches([...generated, ...batches]);
     } catch (e) {
@@ -194,6 +195,42 @@ export const StudentBatches: React.FC = () => {
       alert('Failed to generate batch. Please try again or contact support.');
     }
   };
+
+  // Domain Helper Matching
+  const matchDomain = (batchDomain: string | undefined, targetKey: string): boolean => {
+    if (!batchDomain) return false;
+    const dom = batchDomain.toLowerCase().trim();
+
+    if (targetKey === 'DS') {
+      return dom === 'ds' || dom.includes('data science');
+    }
+    if (targetKey === 'DA') {
+      return dom === 'da' || dom.includes('data analytics') || dom.includes('analytics');
+    }
+    if (targetKey === 'Agentic AI') {
+      return dom.includes('agentic') || dom === 'ai' || dom.includes('agentic ai');
+    }
+    return false;
+  };
+
+  // Filter batches based on active domain tab
+  const filteredBatches = batches.filter((batch) => {
+    if (activeDomainTab === 'all') return true;
+    return matchDomain(batch.domain, activeDomainTab);
+  });
+
+  // Calculate domain counts for tab badges
+  const getDomainCount = (domainKey: string) => {
+    if (domainKey === 'all') return batches.length;
+    return batches.filter((b) => matchDomain(b.domain, domainKey)).length;
+  };
+
+  const domainTabs = [
+    { id: 'all', label: 'All Batches', icon: Layers },
+    { id: 'DS', label: 'Data Science (DS)', icon: Database },
+    { id: 'DA', label: 'Data Analytics (DA)', icon: BarChart3 },
+    { id: 'Agentic AI', label: 'Agentic AI', icon: Bot },
+  ];
 return (
   <div className="space-y-6">
     {/* Page Header Section */}
@@ -206,38 +243,89 @@ return (
       </div>
     </div>
 
-    {/* Student Batch Tab Content */}
-    {mainTab === 'student_batch' && (
-      <div className="space-y-6">
-        {/* Banner Action Bar */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900 p-3 rounded-xl border border-slate-800">
-          <div className="flex items-center gap-3">
-            <AlertCircle className="w-5 h-5 text-indigo-400 shrink-0" />
-            <div className="text-xs text-slate-300 leading-relaxed">
-              <span className="font-bold text-indigo-300">Batch Mentor Management:</span> Click{' '}
-              <span className="text-indigo-400 font-semibold">Change Mentor</span> on any batch to view AI recommendations and update assignments.
-            </div>
-          </div>
+    {/* Domain Domain Tabs (DS, DA, Agentic AI) */}
+    <div className="flex items-center gap-2 border-b border-slate-800 text-sm font-medium">
+      {[
+        { id: 'all', label: 'All Domains' },
+        { id: 'DS', label: 'Data Science (DS)' },
+        { id: 'DA', label: 'Data Analytics (DA)' },
+        { id: 'Agentic AI', label: 'Agentic AI' },
+      ].map((tab) => {
+        const count =
+          tab.id === 'all'
+            ? batches.length
+            : batches.filter((b) => b.domain?.toUpperCase() === tab.id.toUpperCase()).length;
 
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={handleAutoGenerateBatch}
-              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-all shadow-sm"
+        const isActive = activeDomainTab === tab.id;
+
+        return (
+          <button
+            key={tab.id}
+            onClick={() => setActiveDomainTab(tab.id)}
+            className={`pb-3 px-3 flex items-center gap-2 transition-all border-b-2 text-xs font-semibold ${
+              isActive
+                ? 'border-indigo-500 text-indigo-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+            }`}
+          >
+            {tab.label}
+            <span
+              className={`px-2 py-0.5 text-[10px] rounded-full border ${
+                isActive
+                  ? 'bg-indigo-950/60 text-indigo-300 border-indigo-500/40'
+                  : 'bg-slate-900 text-slate-400 border-slate-800'
+              }`}
             >
-              <Plus className="w-4 h-4" /> Auto-Generate Batch
-            </button>
+              {count}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+
+    {/* Main Content Area */}
+    <div className="space-y-6">
+      {/* Banner Action Bar */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900 p-3 rounded-xl border border-slate-800">
+        <div className="flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-indigo-400 shrink-0" />
+          <div className="text-xs text-slate-300 leading-relaxed">
+            <span className="font-bold text-indigo-300">Batch Mentor Management:</span> Click{' '}
+            <span className="text-indigo-400 font-semibold">Change Mentor</span> on any batch to view AI recommendations and update assignments.
           </div>
         </div>
 
-        {/* Batches Card List */}
-        <Card title="Student Batches">
-          <div className="space-y-3">
-            {batches.length === 0 ? (
-              <div className="p-8 text-center text-xs text-slate-400 bg-slate-950 border border-slate-800 rounded-xl">
-                No student batches found.
-              </div>
-            ) : (
-              batches.map((batch) => {
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={handleAutoGenerateBatch}
+            className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-all shadow-sm"
+          >
+            <Plus className="w-4 h-4" /> Auto-Generate Batch
+          </button>
+        </div>
+      </div>
+
+      {/* Batches Card List */}
+      <Card
+        title={
+          activeDomainTab === 'all'
+            ? 'All Student Batches'
+            : `${activeDomainTab} Batches`
+        }
+      >
+        <div className="space-y-3">
+          {batches.filter(
+            (b) => activeDomainTab === 'all' || b.domain?.toUpperCase() === activeDomainTab.toUpperCase()
+          ).length === 0 ? (
+            <div className="p-8 text-center text-xs text-slate-400 bg-slate-950 border border-slate-800 rounded-xl">
+              No batches found for {activeDomainTab === 'all' ? 'any domain' : activeDomainTab}.
+            </div>
+          ) : (
+            batches
+              .filter(
+                (b) => activeDomainTab === 'all' || b.domain?.toUpperCase() === activeDomainTab.toUpperCase()
+              )
+              .map((batch) => {
                 const isSelecting = selectedBatchIdForMentor === batch.batch_id;
 
                 return (
@@ -258,7 +346,7 @@ return (
                           <div className="flex items-center gap-2 flex-wrap">
                             <h4 className="font-bold text-white text-sm">{batch.batch_name}</h4>
                             {batch.domain && (
-                              <span className="text-[10px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded border border-slate-700">
+                              <span className="text-[10px] bg-slate-900 text-indigo-300 font-semibold px-2 py-0.5 rounded border border-indigo-500/30">
                                 {batch.domain}
                               </span>
                             )}
@@ -293,7 +381,7 @@ return (
                           </span>
                         </div>
 
-                        {/* Action Button: Triggers Mentor Selection Drawer */}
+                        {/* Action Button */}
                         <button
                           onClick={() => handleToggleBatchMentorDrawer(batch)}
                           className={`text-xs font-semibold px-3 py-2 rounded-lg border flex items-center gap-1.5 transition-all shrink-0 ${
@@ -387,10 +475,9 @@ return (
                   </div>
                 );
               })
-            )}
-          </div>
-        </Card>
-      </div>
-    )}
+          )}
+        </div>
+      </Card>
+    </div>
   </div>
 );}
