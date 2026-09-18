@@ -27,6 +27,8 @@ class Project(Base):
     category: Mapped[str] = mapped_column(String(30), default="General")
     status = Column(String(10), nullable=False)
     completed_milestones = Column(JSON, default=list, nullable=True)
+    github_url = Column(String(500), nullable=True)
+    deployed_url = Column(String(500), nullable=True)
 
     # Relationships
     allocations = relationship("Allocation", primaryjoin="and_("

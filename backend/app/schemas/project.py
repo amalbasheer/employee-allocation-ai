@@ -94,10 +94,16 @@ class StatusUpdateRequest(BaseModel):
     status: str
 
 
+class ProjectUpdateLinks(BaseModel):
+    github_url: Optional[str] = None
+    deployed_url: Optional[str] = None
+
 class ProjectResponse(ProjectBase):
     project_id: str
     status: Optional[Any] = None
     requirements: Optional[List[ProjectRequirementResponse]] = []
-    completed_milestones: List[str] = []
+    completed_milestones: Optional[List[str]] = []
+    github_url: Optional[str] = None
+    deployed_url: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)

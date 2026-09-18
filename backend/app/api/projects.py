@@ -266,6 +266,8 @@ async def get_all_projects(db: Session = Depends(get_db)):
                 p.project_type,
                 p.category,
                 p.completed_milestones,
+                p.github_url,
+                p.deployed_url,
                 s.skill_name,
                 a.allocation_id,
                 a.resource_id,
@@ -338,7 +340,9 @@ async def get_all_projects(db: Session = Depends(get_db)):
                     "category": row["category"] or "General",
                     "project_type": row["project_type"] or "internal_project",
                     "completed_milestones": completed_milestones, 
-                    "progress_percentage": progress_percentage,     
+                    "progress_percentage": progress_percentage, 
+                    "github_url": row["github_url"] or "",   
+                    "deployed_url": row["deployed_url"] or "",
                     "skills": set(),
                     "allocations": {}
                 }
@@ -373,6 +377,8 @@ async def get_all_projects(db: Session = Depends(get_db)):
                 "category": proj["category"],
                 "project_type": proj["project_type"],
                 "completed_milestones": proj["completed_milestones"],
+                "github_url": proj["github_url"],
+                "deployed_url": proj["deployed_url"],
                 "progress_percentage": proj["progress_percentage"],    
                 "skills": list(proj["skills"]),
                 "allocations": list(proj["allocations"].values())
@@ -534,7 +540,7 @@ def create_project(
 
             # Generate unique requirement ID based on highest existing ID
             req_id = f"rp2-req-{(last_req_num + idx):04d}"
-            
+
             db_req = ProjectRequirement(
                 requirement_id=req_id,
                 project_id=new_project.project_id,
