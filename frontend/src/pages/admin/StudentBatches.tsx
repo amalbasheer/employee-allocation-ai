@@ -196,34 +196,50 @@ export const StudentBatches: React.FC = () => {
     }
   };
 
-  // Domain Helper Matching
-  const matchDomain = (batchDomain: string | undefined, targetKey: string): boolean => {
-    if (!batchDomain) return false;
-    const dom = batchDomain.toLowerCase().trim();
+  // Domain Helper Matching (Handles casing and shorthand variations)
+const matchDomain = (batchDomain: string | undefined, targetKey: string): boolean => {
+  if (!batchDomain) return false;
+  const dom = batchDomain.toLowerCase().trim();
 
-    if (targetKey === 'DS') {
-      return dom === 'ds' || dom.includes('data science');
-    }
-    if (targetKey === 'DA') {
-      return dom === 'da' || dom.includes('data analytics') || dom.includes('analytics');
-    }
-    if (targetKey === 'Agentic AI') {
-      return dom.includes('agentic') || dom === 'ai' || dom.includes('agentic ai');
-    }
-    return false;
-  };
+  if (targetKey === 'DS') {
+    return dom === 'ds' || dom.includes('data science');
+  }
+  if (targetKey === 'DA') {
+    return dom === 'da' || dom.includes('data analytics') || dom.includes('analytics');
+  }
+  if (targetKey === 'Agentic AI') {
+    return dom.includes('agentic') || dom === 'ai' || dom.includes('agentic ai');
+  }
+  return false;
+};
 
-  // Filter batches based on active domain tab
-  const filteredBatches = batches.filter((batch) => {
-    if (activeDomainTab === 'all') return true;
-    return matchDomain(batch.domain, activeDomainTab);
-  });
+// Main tab-filtered list for rendering in the active tab view
+const filteredBatches = useMemo(() => {
+  if (activeDomainTab === 'all') return batches;
+  return batches.filter((batch) => matchDomain(batch.domain, activeDomainTab));
+}, [batches, activeDomainTab]);
 
-  // Calculate domain counts for tab badges
-  const getDomainCount = (domainKey: string) => {
-    if (domainKey === 'all') return batches.length;
-    return batches.filter((b) => matchDomain(b.domain, domainKey)).length;
-  };
+// Dedicated domain lists using the same helper function
+const dsBatches = useMemo(
+  () => batches.filter((b) => matchDomain(b.domain, 'DS')),
+  [batches]
+);
+
+const daBatches = useMemo(
+  () => batches.filter((b) => matchDomain(b.domain, 'DA')),
+  [batches]
+);
+
+const agenticAiBatches = useMemo(
+  () => batches.filter((b) => matchDomain(b.domain, 'Agentic AI')),
+  [batches]
+);
+
+// Tab counter badge helper
+const getDomainCount = (domainKey: string) => {
+  if (domainKey === 'all') return batches.length;
+  return batches.filter((b) => matchDomain(b.domain, domainKey)).length;
+};
 
   const domainTabs = [
     { id: 'all', label: 'All Batches', icon: Layers },
@@ -243,7 +259,7 @@ return (
       </div>
     </div>
 
-    {/* Domain Domain Tabs (DS, DA, Agentic AI) */}
+    {/* Domain Tabs (DS, DA, Agentic AI) */}
     <div className="flex items-center gap-2 border-b border-slate-800 text-sm font-medium">
       {[
         { id: 'all', label: 'All Domains' },
@@ -254,7 +270,7 @@ return (
         const count =
           tab.id === 'all'
             ? batches.length
-            : batches.filter((b) => b.domain?.toUpperCase() === tab.id.toUpperCase()).length;
+            : batches.filter((b) => matchDomain(b.domain, tab.id)).length;
 
         const isActive = activeDomainTab === tab.id;
 
@@ -315,7 +331,7 @@ return (
       >
         <div className="space-y-3">
           {batches.filter(
-            (b) => activeDomainTab === 'all' || b.domain?.toUpperCase() === activeDomainTab.toUpperCase()
+            (b) => activeDomainTab === 'all' || matchDomain(b.domain, activeDomainTab)
           ).length === 0 ? (
             <div className="p-8 text-center text-xs text-slate-400 bg-slate-950 border border-slate-800 rounded-xl">
               No batches found for {activeDomainTab === 'all' ? 'any domain' : activeDomainTab}.
@@ -323,7 +339,7 @@ return (
           ) : (
             batches
               .filter(
-                (b) => activeDomainTab === 'all' || b.domain?.toUpperCase() === activeDomainTab.toUpperCase()
+                (b) => activeDomainTab === 'all' || matchDomain(b.domain, activeDomainTab)
               )
               .map((batch) => {
                 const isSelecting = selectedBatchIdForMentor === batch.batch_id;
