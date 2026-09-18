@@ -1334,7 +1334,7 @@ const renderProjectLinks = (project: Project) => {
       : str;
 
                     return (
-                      <div className="pt-2 max-w-md">
+                      <div className="pt-2 w-full">
                         <div className="flex items-center justify-between text-xs mb-1.5">
                           <span className="text-slate-400 font-medium flex items-center gap-1.5">
                             <Flag className="w-3.5 h-3.5 text-indigo-400" /> Progress
@@ -1343,7 +1343,7 @@ const renderProjectLinks = (project: Project) => {
                         </div>
 
                         {/* Progress Bar Container with Hover Tooltip */}
-                        <div className="relative group cursor-pointer">
+                        <div className="relative group cursor-pointer w-full">
                           {/* Track & Filled Bar */}
                           <div className="w-full bg-slate-900 border border-slate-800 rounded-full h-2.5 overflow-hidden">
                             <div
