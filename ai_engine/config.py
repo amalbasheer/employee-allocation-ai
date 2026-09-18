@@ -8,8 +8,10 @@ place to change models or keys.
 import os
 from dotenv import load_dotenv
 from google import genai
+from pathlib import Path
 
-load_dotenv()  # reads .env in this folder (make sure .env is in .gitignore)
+ENV_PATH = Path(__file__).resolve().parent / ".env"
+load_dotenv(dotenv_path=ENV_PATH)  # reads .env in this folder (make sure .env is in .gitignore)
 
 RAW_API_KEY = os.getenv("GEMINI_API_KEY")
 

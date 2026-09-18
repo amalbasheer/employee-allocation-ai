@@ -2,7 +2,7 @@
 from datetime import date
 from typing import List, Optional, Any, Dict
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, AliasChoices
 from app.models.enums import ProjectStatus
 
 # ==========================================
@@ -27,6 +27,7 @@ class ProjectRequirementBase(BaseModel):
 class ProjectRequirementCreate(ProjectRequirementBase):
     project_id: Optional[str] = None
     requirement_embedding: Optional[List[float]] = None  # 768-dim vector
+    skill_name: Optional[str] = None
 
 
 class ProjectRequirementUpdate(BaseModel):
@@ -76,6 +77,10 @@ class ProjectBase(BaseModel):
 
 class ProjectCreate(ProjectBase):
     requirements: Optional[List[ProjectRequirementCreate]] = None
+    raw_skills: Optional[List[str]] = Field(
+        default=None,
+        validation_alias=AliasChoices("raw_skills", "requiredSkills", "skills")
+    )
 
 
 class ProjectUpdate(BaseModel):
