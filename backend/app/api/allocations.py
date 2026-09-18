@@ -347,6 +347,26 @@ def assign_allocation(
         if training_obj:
             training_obj.status = "in_progress"
 
+            person = None
+            if resource_type in ["employee", "mentor"]:
+                person = db.query(CompanyEmployee).filter(
+                    CompanyEmployee.employee_id == allocation.resource_id
+                ).first()
+
+            if person and person.email:
+                try:
+                    send_assignment_notification(
+                        recipient_email=person.email,
+                        recipient_name=person.name,
+                        project_title=training_obj.title,
+                        description=training_obj.description or "",
+                        start_date=str(training_obj.start_date),
+                        end_date=str(training_obj.end_date) if training_obj.end_date else "TBD",
+                        priority="N/A",
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to send assignment notification email: {e}")
+
     # 7. Create Audit Log
     log = AllocationLog(
         log_id=generate_next_log_id(db),
@@ -476,26 +496,30 @@ def update_allocation_status(
         ).first()
 
         project = None
+        training_obj = None                                                    # ← NEW line
 
         if ref_type == "project" and ref_id:
-            project = db.query(Project).filter(
-                Project.project_id == ref_id
-            ).first()
+            project = db.query(Project).filter(Project.project_id == ref_id).first()
+        elif ref_type in ["training", "webinar", "engagement"] and ref_id:       # ← NEW block
+            training_obj = db.query(TrainingEngagement).filter(TrainingEngagement.engagement_id == ref_id).first()
 
-        if employee and employee.email and project:
+        entity = project or training_obj                                        # ← NEW line
+
+        if employee and employee.email and entity:                             # ← CHANGED: project → entity
             try:
-                response = send_allocation_assigned_email(
-                    to_email=employee.email,
-                    employee_name=employee.name,
-                    project_title=project.title,
-                    admin_name=getattr(current_user, "name", "Admin")
+                send_assignment_notification(
+                    recipient_email=employee.email,
+                    recipient_name=employee.name,
+                    project_title=entity.title,                                # ← CHANGED: project → entity
+                    description=entity.description or "",                      # ← CHANGED: project → entity
+                    start_date=str(entity.start_date),                         # ← CHANGED: project → entity
+                    end_date=str(entity.end_date) if entity.end_date else "TBD", # ← CHANGED: project → entity
+                    priority=getattr(entity, "priority_level", None) or "N/A",  # ← CHANGED: different logic
                 )
-
-                print(f"✅ Assignment email sent: {response}")
+                print(f"✅ Assignment email sent to {employee.email}")
 
             except Exception as e:
                 print(f"❌ Failed to send assignment email: {repr(e)}")
-
     return allocation
 
 # -------------------------------------------------------------------
