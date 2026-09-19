@@ -23,6 +23,7 @@ from ai_engine.db import (
 
 )
 
+from datetime import timedelta
 from ai_engine.matching import rank_candidates, score_with_workload_penalty, score_with_training_load_penalty
 from ai_engine.project_taxonomy import get_required_roles
 
@@ -191,7 +192,6 @@ def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
         ).fetchall()
         conflicting_ids = {row[0] for row in conflicting_leads}
 
-        # NEW — count each candidate's OTHER active training commitments
         training_counts_rows = conn.execute(
             text("""
                 SELECT resource_id, COUNT(*) AS training_count
@@ -202,6 +202,19 @@ def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
             """)
         ).fetchall()
         training_counts = {row[0]: row[1] for row in training_counts_rows}
+
+        # Find mentors on-leave for the week containing this training
+        week_start = engagement["start_date"] - timedelta(days=engagement["start_date"].weekday())
+        on_leave_rows = conn.execute(
+            text("""
+                SELECT resource_id FROM availability
+                WHERE resource_type = 'employee'
+                AND week_start_date = :week_start
+                AND is_on_leave = TRUE
+            """),
+            {"week_start": week_start},
+        ).fetchall()
+        on_leave_ids = {row[0] for row in on_leave_rows}
 
     requirements = [
         {
@@ -218,7 +231,7 @@ def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
     mentors = get_available_mentors(domain=engagement.get("domain"), region=region_filter, check_project_conflicts=False)
     team_leads = [
         m for m in mentors
-        if m.get("is_team_lead") and m["id"] not in conflicting_ids
+        if m.get("is_team_lead") and m["id"] not in conflicting_ids and m["id"] not in on_leave_ids
     ]
 
     for tl in team_leads:
@@ -229,13 +242,9 @@ def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
     training_audience = engagement.get("audience")
     for candidate in ranked:
         raw_skill_score = candidate["suitability_score"]
-
-        # Apply audience penalty first
         audience_adjusted = score_with_audience_preference(
             raw_skill_score, candidate.get("preferred_audience"), training_audience
         )
-
-        # Then apply training-load penalty on top
         active_count = training_counts.get(candidate["id"], 0)
         candidate["suitability_score"] = score_with_training_load_penalty(audience_adjusted, active_count)
         candidate["active_training_count"] = active_count
@@ -243,6 +252,7 @@ def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
     ranked.sort(key=lambda c: c["suitability_score"], reverse=True)
 
     return ranked
+
 
 if __name__ == "__main__":
     print("Import recommend_candidates_for_project, recommend_projects_for_person,")

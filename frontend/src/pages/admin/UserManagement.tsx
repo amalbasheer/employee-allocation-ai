@@ -873,6 +873,7 @@ export const UserManagement: React.FC = () => {
                       >
                         <option value="Data Science">Data Science</option>
                         <option value="Data Analytics">Data Analytics</option>
+                        <option value="Soft Skills">Soft Skills</option>
                       </select>
                     </div>
                     
