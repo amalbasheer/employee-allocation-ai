@@ -164,6 +164,7 @@ async def fetch_recommendations(
                     "id": str(c.get("id") or c.get("resource_id") or c.get("employee_id") or c.get("_id") or "unknown"),
                     "name": str(c.get("name") or c.get("full_name") or "Unnamed Candidate"),
                     "matchScore": match_score,
+                    "session": str(c.get("session")),
                     "skills": skills_list,
                     "role": str(role_val),
                     "university": univ_val,
@@ -272,6 +273,7 @@ async def get_all_projects(db: Session = Depends(get_db)):
                 s.skill_name,
                 a.allocation_id,
                 a.resource_id,
+                a.session,
                 a.status AS allocation_status,
                 COALESCE(e.name, i.name, 'Unknown') AS resource_name,
                 CASE 
@@ -344,6 +346,7 @@ async def get_all_projects(db: Session = Depends(get_db)):
                     "progress_percentage": progress_percentage, 
                     "github_url": row["github_url"] or "",   
                     "deployed_url": row["deployed_url"] or "",
+                    "session": row["session"],
                     "skills": set(),
                     "allocations": {}
                 }
@@ -380,7 +383,8 @@ async def get_all_projects(db: Session = Depends(get_db)):
                 "completed_milestones": proj["completed_milestones"],
                 "github_url": proj["github_url"],
                 "deployed_url": proj["deployed_url"],
-                "progress_percentage": proj["progress_percentage"],    
+                "progress_percentage": proj["progress_percentage"], 
+                "session": proj["session"],   
                 "skills": list(proj["skills"]),
                 "allocations": list(proj["allocations"].values())
             })

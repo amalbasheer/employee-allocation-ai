@@ -40,6 +40,7 @@ class AvailabilityBase(BaseModel):
 class AvailabilityUpdate(BaseModel):
     available_hours: Optional[int] = None
     is_on_leave: Optional[bool] = None
+    session: Optional[str]
 
 
 class AvailabilityCreate(BaseModel):
@@ -65,6 +66,7 @@ class DateRangeLeaveRequest(BaseModel):
     start_date: date
     end_date: date
     reason: Optional[str] = None
+    session: Optional[str]
 
 
 class BatchAvailabilityUpdate(BaseModel):

@@ -291,6 +291,7 @@ def get_dashboard_overview(db: Session = Depends(get_db)) -> Dict[str, Any]:
             ),
             "available_hour": getattr(avail, "available_hour", getattr(avail, "available_hours", 0)),
             "is_on_leave": avail.is_on_leave,
+            "session": avail.session,
         }
         for avail, emp in availability_records
     ]

@@ -486,6 +486,7 @@ def add_or_update_availability(
         week_start_date=monday,
         available_hours=0 if avail_in.is_on_leave else avail_in.available_hours,
         is_on_leave=avail_in.is_on_leave,
+        session=avail_in.session,
     )
     db.add(new_avail)
     db.commit()
@@ -536,6 +537,7 @@ def submit_date_range_leave(
                 available_hours=0,
                 is_on_leave=True,
                 leave_reason=payload.reason,
+                session=payload.session,
             )
             db.add(new_avail)
 
@@ -553,6 +555,7 @@ class UrgentLeaveRequest(BaseModel):
     duration_value: int = Field(..., gt=0, description="Number of days or weeks")
     duration_unit: Literal["days", "weeks"]
     reason: str
+    session: Optional[str]
 
 
 @router.post("/{employee_id}/urgent-leave", status_code=status.HTTP_200_OK)
@@ -617,6 +620,7 @@ def submit_urgent_leave(
                 available_hours=calculated_available_hours,
                 is_on_leave=True,
                 leave_reason=payload.reason,
+                session=payload.session,
             )
             db.add(new_avail)
             db.flush()  # Ensure the new record is written before proceeding
@@ -731,8 +735,8 @@ def get_employee_daily_bandwidth(
         Availability.week_start_date == current_monday
     ).first()
 
-    gross_weekly_hours = avail.available_hours if avail else 40
-    is_on_leave = avail.is_on_leave if avail else False
+    gross_weekly_hours = sum(getattr(a, "available_hours", 0) or 0 for a in avail)
+    is_on_leave = any(getattr(a, "is_on_leave", False) for a in avail)
 
     if is_on_leave:
         return {
@@ -943,7 +947,8 @@ def get_employee_full_details(employee_id: str, db: Session = Depends(get_db)):
             p.title,
             COALESCE(p.category, 'Data Science') as category,
             COALESCE(a.role_on_project, 'Team Member') as role,
-            COALESCE(a.allocated_hours, 10) as allocated_hours_per_week,
+            COALESCE(a.allocated_hours, 10) as allocated_hours,
+            COALESCE(a.session, 'Morning') as session,
             CAST(p.start_date AS VARCHAR) as start_date,
             CAST(p.end_date AS VARCHAR) as end_date,
             LOWER(COALESCE(p.status, 'open')) as status,
@@ -972,6 +977,7 @@ def get_employee_full_details(employee_id: str, db: Session = Depends(get_db)):
             b.batch_name,
             b.domain as program_name,
             b.delivery_mode as mode,
+            b.session as session,
             CAST(b.start_date AS VARCHAR) as start_date,
             CAST(b.end_date AS VARCHAR) as end_date,
             LOWER(COALESCE(b.status, 'ongoing')) as batch_status
@@ -1002,6 +1008,7 @@ def get_employee_full_details(employee_id: str, db: Session = Depends(get_db)):
             COALESCE(t.audience, 'Employees & Interns') as target_audience,
             COALESCE(t.mode, 'online') as mode,
             COALESCE(t.domain, 'General') as domain,
+            COALESCE(t.session, 'Morning') as session,
             LOWER(COALESCE(t.status, 'assigned')) as engagement_status
         FROM allocations a
         JOIN training_engagements t ON a.reference_id = t.engagement_id
