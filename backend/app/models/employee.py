@@ -57,6 +57,7 @@ class Availability(Base):
     available_hours: Mapped[int] = mapped_column(Integer, nullable=False)
     is_on_leave: Mapped[bool] = mapped_column(Boolean, default=False)
     leave_reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    session: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
 
     __table_args__ = (UniqueConstraint('resource_id', 'week_start_date', name='uq_resource_week'),)
 

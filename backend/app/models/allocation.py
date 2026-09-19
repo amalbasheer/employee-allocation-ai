@@ -29,6 +29,7 @@ class Allocation(Base):
     suitability_score: Mapped[float] = mapped_column(Float, nullable=False)
     
     status = Column(String(20), nullable=False)
+    session = Column(String(20), nullable=True)
     
     assigned_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     assigned_by: Mapped[str] = mapped_column(String(100), default="AI_Engine")
