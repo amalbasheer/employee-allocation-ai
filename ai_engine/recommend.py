@@ -6,6 +6,7 @@ and matching.py (the ranking math).
 """
 
 from sqlalchemy import text
+from datetime import date
 from ai_engine.db import (
     engine,
     get_project,
@@ -46,6 +47,11 @@ def _strip_embeddings(candidates: list[dict]) -> list[dict]:
         cleaned.append(c_copy)
     return cleaned
 
+def get_this_weeks_monday() -> date:
+    today = date.today()
+    return today - timedelta(days=today.weekday())
+
+
 def recommend_candidates_for_project(project_id: str) -> dict:
     project = get_project(project_id)
     if not project:
@@ -54,16 +60,70 @@ def recommend_candidates_for_project(project_id: str) -> dict:
     requirements = get_project_requirements(project_id)
     roles_needed = get_required_roles(project["project_type"])
     domain = category_to_department(project.get("category"))
+    current_monday = get_this_weeks_monday()
 
     result = {"project_title": project["title"], "roles_needed": roles_needed}
 
-    # MENTORS — fetch all mentors, then BULK fetch all their skills in ONE query
+    # -------------------------------------------------------------
+    # 1. MENTORS (EMPLOYEES) — Fetch skills & session availability
+    # -------------------------------------------------------------
     all_mentors = get_all_mentors_with_project_count(domain=domain)
     mentor_ids = [m["id"] for m in all_mentors]
     mentor_skills_map = get_bulk_person_skills(mentor_ids, "employee")
+
+    # Bulk fetch session availability ONLY for employees
+    mentor_availability_map = {}
+    if mentor_ids:
+        with engine.connect() as conn:
+            avail_rows = conn.execute(
+                text("""
+                    SELECT resource_id, available_hours, session
+                    FROM availability
+                    WHERE week_start_date = :week_start
+                      AND resource_id = ANY(:resource_ids)
+                """),
+                {"week_start": current_monday, "resource_ids": mentor_ids}
+            ).fetchall()
+
+            for row in avail_rows:
+                res_id, hrs, session = row[0], float(row[1] or 0.0), str(row[2]).lower().strip()
+                if res_id not in mentor_availability_map:
+                    mentor_availability_map[res_id] = {
+                        "morning_hours": 0.0,
+                        "evening_hours": 0.0,
+                        
+                    }
+                if session == "morning":
+                    mentor_availability_map[res_id]["morning_hours"] = hrs
+                elif session == "evening":
+                    mentor_availability_map[res_id]["evening_hours"] = hrs
+
+                
+
     for m in all_mentors:
         m["skills"] = mentor_skills_map.get(m["id"], [])
 
+        # Attach session availability for employees
+        m_avail = mentor_availability_map.get(
+            m["id"], 
+            {"morning_hours": 20.0, "evening_hours": 20.0}  # Default fallback
+        )
+    
+        m["session_availability"] = {
+            "morning": m_avail["morning_hours"],
+            "evening": m_avail["evening_hours"]
+        }
+        morning_hrs = m_avail["morning_hours"]
+        evening_hrs = m_avail["evening_hours"]
+
+        if morning_hrs >= evening_hrs and morning_hrs > 1:
+            m["session"] = "morning"
+        elif evening_hrs > morning_hrs and evening_hrs > 1:
+            m["session"] = "evening"
+        else:
+            m["session"] = "morning"  # Fallback
+
+    # Rank mentors and apply workload penalty
     ranked_mentors = rank_candidates(all_mentors, requirements)
     for candidate in ranked_mentors:
         raw_skill_score = candidate["suitability_score"]
@@ -73,16 +133,21 @@ def recommend_candidates_for_project(project_id: str) -> dict:
     ranked_mentors.sort(key=lambda c: c["suitability_score"], reverse=True)
     result["mentors"] = _strip_embeddings(ranked_mentors)
 
+    # -------------------------------------------------------------
+    # 2. INTERNS — Fetch skills only (NO availability check)
+    # -------------------------------------------------------------
     if "intern" in roles_needed:
-        # INTERNS — same bulk pattern
         interns = get_available_interns(domain=domain)
         intern_ids = [i["id"] for i in interns]
         intern_skills_map = get_bulk_person_skills(intern_ids, "intern")
+
         for i in interns:
             i["skills"] = intern_skills_map.get(i["id"], [])
+
+        # Rank interns purely on skills
         result["interns"] = _strip_embeddings(rank_candidates(interns, requirements))
 
-        # Completed project count — already a single batched query, fine as-is
+        # Completed project count query
         with engine.connect() as conn:
             completed_counts = conn.execute(
                 text("""
@@ -96,8 +161,7 @@ def recommend_candidates_for_project(project_id: str) -> dict:
         for intern in result["interns"]:
             intern["completed_projects_count"] = completed_count_map.get(intern["id"], 0)
 
-        # Currently assigned interns — reuse the bulk intern_skills_map
-        # from above where possible, only bulk-fetch missing ones separately
+        # Currently assigned interns
         assignments = get_project_assignments(project_id)
         current_interns = [a for a in assignments if a["resource_type"] == "intern"]
 

@@ -512,6 +512,7 @@ export const ProjectAllocation: React.FC = () => {
         role_on_project: mentor.role || 'Project Mentor',
         allocated_hours: mentor.allocatedHours || 10,
         suitability_score: mentor.matchScore || 0.85,
+        session: mentor.session,
       };
 
       res = await api.post(`${API_BASE}/api/allocations/propose`, proposePayload);
