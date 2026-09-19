@@ -11,6 +11,7 @@ import { EmployeeDashboard } from './pages/employee/EmployeeDashboard';
 import StudentDashboard from './pages/student/StudentDashboard';
 import { Role } from './types';
 import { ProjectAllocation } from './pages/admin/ProjectAllocations';
+import { WeeklySchedule } from './pages/admin/WeeklySchedule';
 import { EmployeeAvailabilityPage } from './pages/employee/EmployeeAvailability';
 import { EmployeeSkillsManager } from './pages/employee/profile';
 import { TrainingAllocationsDashboard } from './pages/employee/TrainingEngagement';
@@ -62,6 +63,14 @@ export default function App() {
                 element={
                   <ProtectedRoute allowedRoles={['ADMIN']}>
                     <DashboardOverview />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/schedule"
+                element={
+                  <ProtectedRoute allowedRoles={['ADMIN']}>
+                    <WeeklySchedule />
                   </ProtectedRoute>
                 }
               />

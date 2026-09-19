@@ -9,7 +9,8 @@ import {
   DockIcon,
   Clock,
   WrapText,
-  Book
+  Book,
+  Calendar
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -19,6 +20,7 @@ export const Sidebar: React.FC = () => {
 
   const adminNav = [
     { label: 'Overview', path: '/admin/overview', icon: LayoutDashboard },
+    { label: 'Schedule', path: '/admin/schedule', icon: Calendar },
     { label: 'Project Allocations', path: '/admin/allocations', icon: GitMerge },
     { label: 'User Management', path: '/admin/users', icon: Users },
     { label: 'Webinars & Workshops', path: '/admin/webinars', icon: Video },
