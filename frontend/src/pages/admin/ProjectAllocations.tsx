@@ -5,7 +5,9 @@ import {
   Star, UserPlus, RefreshCw, Users, FolderPlus, X, PlayCircle, Crown, Sparkles, 
   FolderSync, Trash2, Check, Flag, ExternalLink,
   User,
-  Edit2
+  Edit2,
+  Sun,
+  Type
 } from 'lucide-react';
 import { Card } from '../../components/common/Card';
 import AIProjectModal from "../../components/AIProjectModal";
@@ -25,6 +27,7 @@ export interface Mentor {
   matchScore: number;
   allocatedHours?: number;
   skills: string[];
+  session?: string;
 }
 
 export interface Student {
@@ -43,6 +46,7 @@ export interface Allocation {
   resource_name: string;
   resource_type: 'employee' | 'intern' | string;
   allocation_status: string;
+  session?: string;
 }
 
 export interface Project {
@@ -73,6 +77,7 @@ export interface Project {
   progress?: number;
   github_url?: string;
   deployed_url?: string;
+  session?: string;
 }
 
 // --- Optimization API Interfaces ---
@@ -325,6 +330,7 @@ export const ProjectAllocation: React.FC = () => {
           ? createdProject.requirements.map((r: any) => r.skill_name || r.skill_id)
           : payload.requirements,
         proposedMentorStatus: 'unassigned',
+        session: 'unassigned',
       };
 
     // 4. Update UI State
@@ -382,7 +388,8 @@ export const ProjectAllocation: React.FC = () => {
           progressPercentage: calculateProgress,
           progress: calculateProgress,
           github_url: p.github_url || 'Not Provided',
-          deployed_url: p.deployed_url || 'Not provided'
+          deployed_url: p.deployed_url || 'Not provided',
+          session: p.session,
         };
       });
 
@@ -1276,10 +1283,13 @@ const renderProjectLinks = (project: Project) => {
                       <Tag className="w-3.5 h-3.5 text-indigo-400" /> {project.category}
                     </span>
                     <span className="flex items-center gap-1 text-slate-300">
-                      <Tag className="w-3.5 h-3.5 text-indigo-400" /> {project.project_type}
+                      <Type className="w-3.5 h-3.5 text-indigo-400" /> {project.project_type}
                     </span>
                     <span className="flex items-center gap-1">
                       <Calendar className="w-3.5 h-3.5" /> Start: {project.startDate}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Sun className="w-3.5 h-3.5" /> Session: {project.session}
                     </span>
                   </div>
 

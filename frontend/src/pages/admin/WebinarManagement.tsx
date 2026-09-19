@@ -48,21 +48,10 @@ export interface TrainingEngagement {
   status: EngagementStatus;
   created_at?: string;
   location: string;
+  session?: string;
 }
 
 export type EditEngagement = Omit<TrainingEngagement, 'engagement_id'>;
-
-export interface StudentBatch {
-  batch_id: string;
-  batch_name: string;
-  domain: string;
-  start_date: string;
-  end_date: string;
-  trainer_ids?: string;
-  trainer_name?: string;
-  status: string;
-  delivery_mode?: string;
-}
 
 export interface TrainingAssignment {
   engagement_id: string;
@@ -102,31 +91,6 @@ const fallbackMentors: RecommendedMentor[] = [
   }
 ];
 
-const fallbackBatches: StudentBatch[] = [
-  {
-    batch_id: 'rp2-batch-0001',
-    batch_name: 'Batch-Jun-Jul-2026',
-    domain: 'Data Analytics',
-    start_date: '2026-06-15',
-    end_date: '2026-07-15',
-    trainer_ids: 'emp-101',
-    trainer_name: 'Dr. Sarah Jenkins',
-    status: 'open',
-    delivery_mode: 'online'
-  },
-  {
-    batch_id: 'rp2-batch-0002',
-    batch_name: 'Batch-Jul-Aug-2026',
-    domain: 'Data Science',
-    start_date: '2026-07-15',
-    end_date: '2026-08-15',
-    trainer_ids: 'emp-102',
-    trainer_name: 'Alex Morgan',
-    status: 'open',
-    delivery_mode: 'hybrid'
-  }
-];
-
 const fallbackEngagements: TrainingEngagement[] = [
   {
     engagement_id: 'rp2-train-0001',
@@ -143,13 +107,12 @@ const fallbackEngagements: TrainingEngagement[] = [
 ];
 
 export const TrainingManagement: React.FC = () => {
-  const [mainTab, setMainTab] = useState<'engagements' | 'student_batch'>('engagements');
+  const [mainTab, setMainTab] = useState<'engagements'>('engagements');
   const [typeFilter, setTypeFilter] = useState<EngagementTypeFilter>('all');
   const [subTab, setSubTab] = useState<'list' | 'allocation' | 'optimizations'>('list');
 
   // Real Data States
   const [engagements, setEngagements] = useState<TrainingEngagement[]>([]);
-  const [batches, setBatches] = useState<StudentBatch[]>([]);
   const [selectedEngagementId, setSelectedEngagementId] = useState<string>('');
   const [recommendedMentors, setRecommendedMentors] = useState<RecommendedMentor[]>([]);
 
@@ -158,11 +121,7 @@ export const TrainingManagement: React.FC = () => {
   const [optimizationResult, setOptimizationResult] = useState<TrainingOptimizeResponse | null>(null);
   const [optimizationError, setOptimizationError] = useState<string | null>(null);
 
-  // Active Batch Mentor Recommendation Expansion State
-  const [selectedBatchIdForMentor, setSelectedBatchIdForMentor] = useState<string | null>(null);
-  const [batchRecommendedMentors, setBatchRecommendedMentors] = useState<RecommendedMentor[]>([]);
-  const [isLoadingBatchMentors, setIsLoadingBatchMentors] = useState(false);
-
+  
   // Modal & Form States
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -178,6 +137,7 @@ export const TrainingManagement: React.FC = () => {
   const [newAud, setNewAud] = useState('');
   const [newMode, setNewMode] = useState<'online' | 'offline'>('online');
   const [newDom, setNewDom] = useState<'Data Science' | 'Data Analytics'>('Data Science');
+  const [newSes, setNewSes] = useState<'Morning' | 'Evening' | 'Full Day'>('Morning');
   const [editingEngagementId, setEditingEngagementId] = useState<string | null>(null);
 
   // AI Webinar Generator Modal & State
@@ -213,23 +173,6 @@ export const TrainingManagement: React.FC = () => {
         setEngagements(fallbackEngagements);
         setSelectedEngagementId(fallbackEngagements[0].engagement_id);
       });
-  }, []);
-
-  // 2. Fetch Real Student Batches from API
-  const fetchStudentBatches = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/training/student-batches`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data: StudentBatch[] = await res.json();
-      setBatches(data);
-    } catch (e) {
-      console.warn('API error fetching student batches, using fallback data:', e);
-      setBatches(fallbackBatches);
-    }
-  };
-
-  useEffect(() => {
-    fetchStudentBatches();
   }, []);
 
   // 3. Fetch Real Recommended Mentors for Selected Engagement
@@ -322,64 +265,6 @@ export const TrainingManagement: React.FC = () => {
     }
   };
 
-  // 4. Fetch Real Recommended Mentors for Student Batch Drawer
-  const handleToggleBatchMentorDrawer = async (batch: StudentBatch) => {
-    if (selectedBatchIdForMentor === batch.batch_id) {
-      setSelectedBatchIdForMentor(null);
-      return;
-    }
-
-    setSelectedBatchIdForMentor(batch.batch_id);
-    setIsLoadingBatchMentors(true);
-
-    try {
-      const res = await fetch(`${API_BASE}/api/batches/${batch.batch_id}/recommended-mentors`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const formatted = data.map((item: any) => ({
-        ...item,
-        employee_id: item.employee_id || item.id,
-        skills: item.skills || ['Domain Expert', 'Mentorship']
-      }));
-      setBatchRecommendedMentors(formatted);
-    } catch (err) {
-      console.warn('API error fetching batch mentor recommendations, using fallback:', err);
-      setBatchRecommendedMentors(fallbackMentors);
-    } finally {
-      setIsLoadingBatchMentors(false);
-    }
-  };
-
-  // Assign Mentor to Student Batch (PUT request to real API)
-  const handleAssignBatchMentor = async (batchId: string, mentor: RecommendedMentor) => {
-    const selectedMentorId = mentor.employee_id || mentor.id;
-    if (!selectedMentorId) return;
-
-    // Optimistic UI update
-    setBatches((prev) =>
-      prev.map((b) =>
-        b.batch_id === batchId
-          ? { ...b, trainer_ids: selectedMentorId, trainer_name: mentor.name }
-          : b
-      )
-    );
-
-    setSelectedBatchIdForMentor(null);
-
-    try {
-      const res = await fetch(`${API_BASE}/api/batches/${batchId}/assign-mentor`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mentor_id: selectedMentorId }),
-      });
-
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    } catch (err) {
-      console.error('API assignment failed, refreshing real batch data:', err);
-      fetchStudentBatches();
-    }
-  };
-
   // Propose Mentor for Engagement
   const handleProposeMentor = async (engagementId: string, mentor: RecommendedMentor) => {
     setEngagements((prev) =>
@@ -428,6 +313,7 @@ export const TrainingManagement: React.FC = () => {
   setNewInst('');
   setNewMode('online'); // or your default mode
   setNewAud('');
+  setNewSes('Morning');
   setNewDesc('');
 };
 
@@ -450,6 +336,7 @@ export const TrainingManagement: React.FC = () => {
       institution_name: newInst,
       mode: newMode,
       domain: newDom,
+      session: newSes,
     };
 
     setNewTitle('');
@@ -480,20 +367,7 @@ export const TrainingManagement: React.FC = () => {
     }
   };
 
-  // Auto Generate Next Batch
-  const handleAutoGenerateBatch = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/training/student-batches/auto-generate-next`, { method: 'POST' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      
-      const generated = await res.json();
-      setBatches([...generated, ...batches]);
-    } catch (e) {
-      console.error('Failed to auto-generate batch:', e);
-      alert('Failed to generate batch. Please try again or contact support.');
-    }
-  };
-
+ 
   const handleGenerateWebinarIdeas = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsGeneratingWebinars(true);
@@ -580,6 +454,7 @@ const handleOpenCreateModal = () => {
   setNewAud('');
   setNewMode('online');
   setNewDom('Data Science');
+  setNewSes('Morning');
   setIsModalOpen(true);
 };
 
@@ -598,6 +473,7 @@ const handleOpenEditModal = (engagement: TrainingEngagement) => {
   setNewAud(engagement.audience || '');
   setNewMode(engagement.mode === 'offline' ? 'offline' : 'online');
   setNewDom(engagement.domain === 'Data Analytics' ? 'Data Analytics' : 'Data Science');
+  setNewSes(engagement.session === 'Morning' ? 'Morning' : 'Evening');
   setIsModalOpen(true);
 };
 
@@ -627,6 +503,7 @@ const handleFormSubmit = async (e: React.FormEvent) => {
       audience: newAud,
       mode: newMode,
       domain: newDom,
+      session: newSes,
     };
 
     // Optimistic UI Update
@@ -810,16 +687,7 @@ const handleBulkDeleteEngagements = async () => {
       >
         <Video className="w-4 h-4" /> Training Engagements
       </button>
-      <button
-        onClick={() => setMainTab('student_batch')}
-        className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition-all ${
-          mainTab === 'student_batch'
-            ? 'border-indigo-500 text-indigo-400'
-            : 'border-transparent text-slate-400 hover:text-slate-200'
-        }`}
-      >
-        <GraduationCap className="w-4 h-4" /> Student Batches
-      </button>
+      
     </div>
 
     {mainTab === 'engagements' && (
@@ -955,7 +823,7 @@ const handleBulkDeleteEngagements = async () => {
                 </div>
                 
                 <p className="text-xs text-slate-400 mt-1">
-                  Speaker: <span className="text-slate-200 font-medium">{item.mentor_name || 'Unassigned'}</span> • Location: <span className="text-slate-200 font-medium">{item.location || 'Unassigned'}</span> • Mode: <span className="text-slate-200 font-medium">{item.mode || 'Unassigned'}</span> • Duration: <span className="text-slate-300">{item.required_hours} hrs</span> • Schedule: <span className="text-slate-300">{item.start_date}</span>
+                  Speaker: <span className="text-slate-200 font-medium">{item.mentor_name || 'Unassigned'}</span> • Location: <span className="text-slate-200 font-medium">{item.location || 'Unassigned'}</span> • Mode: <span className="text-slate-200 font-medium">{item.mode || 'Unassigned'}</span> • Duration: <span className="text-slate-300">{item.required_hours} hrs</span> • Schedule: <span className="text-slate-300">{item.start_date}</span> • Session: <span className="text-slate-200 font-medium">{item.session || 'Unassigned'}</span>
                 </p>
               </div>
             </div>
@@ -1431,183 +1299,7 @@ const handleBulkDeleteEngagements = async () => {
     )}
   </div>
 )}
-    {/* STUDENT BATCH TAB CONTENT */}
-      {mainTab === 'student_batch' && (
-        <div className="space-y-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900 p-3 rounded-xl border border-slate-800">
-            <div className="flex items-center gap-3">
-              <AlertCircle className="w-5 h-5 text-indigo-400 shrink-0" />
-              <div className="text-xs text-slate-300 leading-relaxed">
-                <span className="font-bold text-indigo-300">Batch Mentor Management:</span> Click <span className="text-indigo-400 font-semibold">Change Mentor</span> on any batch to view AI recommendations and update assignments.
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                onClick={handleAutoGenerateBatch}
-                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-all shadow-sm"
-              >
-                <Plus className="w-4 h-4" /> Auto-Generate Batch
-              </button>
-            </div>
-          </div>
-
-          <Card title="Student Batches">
-            <div className="space-y-3">
-              {batches.length === 0 ? (
-                <div className="p-8 text-center text-xs text-slate-400 bg-slate-950 border border-slate-800 rounded-xl">
-                  No student batches found.
-                </div>
-              ) : (
-                batches.map((batch) => {
-                  const isSelecting = selectedBatchIdForMentor === batch.batch_id;
-
-                  return (
-                    <div
-                      key={batch.batch_id}
-                      className={`p-4 bg-slate-950 border rounded-xl transition-all ${
-                        isSelecting ? 'border-indigo-500/70 bg-indigo-950/10' : 'border-slate-800 hover:border-slate-700'
-                      }`}
-                    >
-                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-400">
-                            <GraduationCap className="w-5 h-5" />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <h4 className="font-bold text-white text-sm">{batch.batch_name}</h4>
-                              {batch.domain && (
-                                <span className="text-[10px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded border border-slate-700">
-                                  {batch.domain}
-                                </span>
-                              )}
-                              {batch.status && (
-                                <span
-                                  className={`text-[10px] px-2 py-0.5 rounded border capitalize ${
-                                    batch.status === 'open' || batch.status === 'active'
-                                      ? 'bg-emerald-950/40 text-emerald-400 border-emerald-500/30'
-                                      : 'bg-slate-900 text-slate-400 border-slate-700'
-                                  }`}
-                                >
-                                  {batch.status}
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-xs text-slate-400 mt-1">
-                              Duration: <span className="text-slate-200">{batch.start_date || 'N/A'}</span> to <span className="text-slate-200">{batch.end_date || 'N/A'}</span> • Mode: <span className="text-slate-300 capitalize">{batch.delivery_mode || 'online'}</span>
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-3">
-                          {/* Current Assigned Mentor Badge */}
-                          <div className="flex flex-col items-start md:items-end bg-slate-900 border border-slate-800 px-3.5 py-2 rounded-lg shrink-0">
-                            <span className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">Assigned Mentor</span>
-                            <span className="text-xs font-bold text-indigo-400 mt-0.5">
-                              {batch.trainer_name || 'Unassigned'}
-                            </span>
-                          </div>
-
-                          {/* Action Button: Triggers Mentor Selection Drawer */}
-                          <button
-                            onClick={() => handleToggleBatchMentorDrawer(batch)}
-                            className={`text-xs font-semibold px-3 py-2 rounded-lg border flex items-center gap-1.5 transition-all shrink-0 ${
-                              isSelecting
-                                ? 'bg-indigo-600 text-white border-indigo-500 shadow-lg'
-                                : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-700'
-                            }`}
-                          >
-                            <UserPlus className="w-3.5 h-3.5 text-indigo-400" />
-                            {isSelecting ? 'Cancel' : 'Change Mentor'}
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* INLINE RECOMMENDED MENTORS EXPANSION PANEL */}
-                      {isSelecting && (
-                        <div className="mt-4 pt-4 border-t border-slate-800/80 space-y-3 bg-slate-900/60 -mx-4 -mb-4 p-4 rounded-b-xl">
-                          <div className="flex items-center justify-between">
-                            <h5 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                              <Sparkles className="w-4 h-4 text-amber-400" /> Recommended Mentors for {batch.batch_name}
-                            </h5>
-                            <span className="text-[11px] text-slate-400">Click assign to set as new mentor</span>
-                          </div>
-
-                          {isLoadingBatchMentors ? (
-                            <div className="p-4 text-center text-xs text-slate-400">Loading AI recommendations...</div>
-                          ) : (
-                            <div className="grid grid-cols-1 gap-2.5">
-                              {batchRecommendedMentors.map((mentor) => {
-                                const mentorId = mentor.employee_id || mentor.id;
-                                const isCurrentlyAssigned = batch.trainer_name === mentor.name || batch.trainer_ids === mentorId;
-
-                                return (
-                                  <div
-                                    key={mentorId}
-                                    className={`p-3 bg-slate-950 border rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3 transition-all ${
-                                      isCurrentlyAssigned
-                                        ? 'border-emerald-500/50 bg-emerald-950/10'
-                                        : 'border-slate-800 hover:border-slate-700'
-                                    }`}
-                                  >
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-2">
-                                        <h6 className="font-bold text-white text-sm">{mentor.name}</h6>
-                                        <span className="text-[10px] bg-emerald-500/10 text-emerald-400 font-mono px-2 py-0.5 rounded border border-emerald-500/20 flex items-center gap-1">
-                                          <Star className="w-3 h-3 fill-emerald-400" /> {mentor.match_score}% Fit
-                                        </span>
-                                        {isCurrentlyAssigned && (
-                                          <span className="text-[10px] bg-emerald-500/20 text-emerald-300 font-semibold px-2 py-0.5 rounded border border-emerald-500/40">
-                                            Currently Assigned
-                                          </span>
-                                        )}
-                                      </div>
-                                      <p className="text-[11px] text-slate-400">
-                                        {mentor.designation} • ID: {mentorId}
-                                      </p>
-                                      <div className="flex flex-wrap gap-1 pt-0.5">
-                                        {(mentor.skills ?? []).map((skill, i) => (
-                                          <span
-                                            key={i}
-                                            className="text-[9px] bg-slate-900 text-slate-400 px-1.5 py-0.5 rounded border border-slate-800"
-                                          >
-                                            {skill}
-                                          </span>
-                                        ))}
-                                      </div>
-                                    </div>
-
-                                    <div>
-                                      {!isCurrentlyAssigned ? (
-                                        <button
-                                          onClick={() => handleAssignBatchMentor(batch.batch_id, mentor)}
-                                          className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all shadow-md shrink-0"
-                                        >
-                                          <CheckCircle2 className="w-3.5 h-3.5" /> Assign to Batch
-                                        </button>
-                                      ) : (
-                                        <span className="text-xs text-emerald-400 font-semibold flex items-center gap-1 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/20">
-                                          <CheckCircle2 className="w-3.5 h-3.5" /> Active
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </Card>
-        </div>
-      )}
-
+    
       {/* Ensure array check handles both direct arrays and potential state objects */}
 {Array.isArray(suggestedWebinars) && suggestedWebinars.length > 0 && (
   <div className="pt-6 border-t border-slate-800 space-y-4">
@@ -1799,6 +1491,21 @@ const handleBulkDeleteEngagements = async () => {
           </div>
 
           <div>
+            <div>
+            <label className="text-xs text-slate-400 block mb-1">Session</label>
+            <select
+          
+              value={newSes}
+              onChange={(e) => setNewSes(e.target.value as any)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+              
+            >
+              <option value="morning">morning</option>
+              <option value="evening">evening</option>
+              <option value="full day">full day</option>
+            
+            </select>
+          </div>
             <label className="text-xs text-slate-400 block mb-1">Description</label>
             <textarea
               rows={3}

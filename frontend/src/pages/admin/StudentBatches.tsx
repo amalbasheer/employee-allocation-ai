@@ -15,6 +15,7 @@ export interface RecommendedMentor {
   skills?: string[];
   is_team_lead?: boolean;
   batch_count?: number;
+  session?: string;
 }
 
 export interface StudentBatch {
@@ -27,6 +28,7 @@ export interface StudentBatch {
   trainer_name?: string;
   status: string;
   delivery_mode?: string;
+  session?: string;
 }
 
 // Fallback Data (Used only if API calls fail)
@@ -381,7 +383,8 @@ return (
                           <p className="text-xs text-slate-400 mt-1">
                             Duration: <span className="text-slate-200">{batch.start_date || 'N/A'}</span> to{' '}
                             <span className="text-slate-200">{batch.end_date || 'N/A'}</span> • Mode:{' '}
-                            <span className="text-slate-300 capitalize">{batch.delivery_mode || 'online'}</span>
+                            <span className="text-slate-300 capitalize">{batch.delivery_mode || 'online'}</span> • Session:{' '}
+                            <span className="text-slate-300 capitalize">{batch.session || 'morning'}</span>
                           </p>
                         </div>
                       </div>
