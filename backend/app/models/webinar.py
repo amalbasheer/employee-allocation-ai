@@ -90,6 +90,7 @@ class StudentBatch(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(),)
     delivery_mode = Column(String(20), nullable=True)
     session = Column(String(20), nullable=True)
+    day_of_week = Column(String(20), nullable=True)
 
     __table_args__ = (CheckConstraint(r"batch_id ~ '^rp2-batch-\d{4}$'", name="check_batch_id_format",),)
 

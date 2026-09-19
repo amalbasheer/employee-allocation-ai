@@ -677,6 +677,7 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
         )
         mentor_id = assigned_mentor.get("employee_id") if assigned_mentor else None
         session = assigned_mentor.get("session")
+        day_of_week = assigned_mentor.get("day_of_week")
         short_domain = "DA" if department == "Data Analytics" else "DS"
 
         for mode in ["offline", "online"]:

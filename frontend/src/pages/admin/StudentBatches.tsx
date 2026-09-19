@@ -16,6 +16,7 @@ export interface RecommendedMentor {
   is_team_lead?: boolean;
   batch_count?: number;
   session?: string;
+  day_of_week?: string;
 }
 
 export interface StudentBatch {
@@ -29,6 +30,7 @@ export interface StudentBatch {
   status: string;
   delivery_mode?: string;
   session?: string;
+  day_of_week?: string;
 }
 
 // Fallback Data (Used only if API calls fail)
@@ -371,10 +373,14 @@ return (
                             {batch.status && (
                               <span
                                 className={`text-[10px] px-2 py-0.5 rounded border capitalize ${
-                                  batch.status === 'open' || batch.status === 'active'
-                                    ? 'bg-emerald-950/40 text-emerald-400 border-emerald-500/30'
-                                    : 'bg-slate-900 text-slate-400 border-slate-700'
-                                }`}
+  batch.status?.toLowerCase() === 'completed'
+    ? 'bg-emerald-950/40 text-emerald-400 border-emerald-500/30' // Green for completed
+    : batch.status?.toLowerCase() === 'in_progress' || batch.status?.toLowerCase() === 'in progress'
+    ? 'bg-blue-950/40 text-blue-400 border-blue-500/30'           // Blue for in_progress
+    : batch.status?.toLowerCase() === 'open' || batch.status?.toLowerCase() === 'active'
+    ? 'bg-amber-950/40 text-amber-400 border-amber-500/30'       // Amber/Yellow for open
+    : 'bg-slate-900 text-slate-400 border-slate-700'             // Slate gray for unknown/other
+}`}
                               >
                                 {batch.status}
                               </span>
@@ -384,7 +390,8 @@ return (
                             Duration: <span className="text-slate-200">{batch.start_date || 'N/A'}</span> to{' '}
                             <span className="text-slate-200">{batch.end_date || 'N/A'}</span> • Mode:{' '}
                             <span className="text-slate-300 capitalize">{batch.delivery_mode || 'online'}</span> • Session:{' '}
-                            <span className="text-slate-300 capitalize">{batch.session || 'morning'}</span>
+                            <span className="text-slate-300 capitalize">{batch.session || 'morning'}</span> • Days:{' '}
+                            <span className="text-slate-300 capitalize">{batch.day_of_week || 'monday'}</span>
                           </p>
                         </div>
                       </div>

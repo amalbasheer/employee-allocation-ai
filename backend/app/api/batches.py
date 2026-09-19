@@ -20,6 +20,7 @@ router = APIRouter()
 class AssignMentorRequest(BaseModel):
     mentor_id: str
     session: str
+    day_of_week: str
 
 
 class MentorResponse(BaseModel):
@@ -30,6 +31,7 @@ class MentorResponse(BaseModel):
     is_team_lead: Optional[bool] = False
     batch_count: Optional[int] = 0
     session: Optional[str]
+    day_of_week: Optional[str]
 
 
 class BatchResponse(BaseModel):
@@ -43,6 +45,7 @@ class BatchResponse(BaseModel):
     mentor_id: Optional[str]
     trainer_name: Optional[str]
     session: Optional[str]
+    day: Optional[str]
 
 
 # -------------------------------------------------------------------------
@@ -55,7 +58,7 @@ def get_student_batches(db: Session = Depends(get_db)):
     """
     query = text("""
         SELECT 
-            b.batch_id, b.batch_name, b.domain, b.status, b.session,
+            b.batch_id, b.batch_name, b.domain, b.status, b.session, b.day_of_week as day
             b.start_date, b.end_date, b.delivery_mode, b.mentor_id,
             e.name AS trainer_name
         FROM student_batches b
@@ -86,6 +89,7 @@ def get_recommended_mentors(batch_id: str):
 
             designation = "Team Lead" if rec.get("is_team_lead") else "Mentor"
             session = rec.get("session")
+            day_of_week = rec.get("day_of_week")
 
             formatted_mentors.append({
                 "id": rec["id"],
@@ -95,6 +99,7 @@ def get_recommended_mentors(batch_id: str):
                 "is_team_lead": bool(rec.get("is_team_lead")),
                 "batch_count": batch_count,
                 "session": session,
+                "day_of_week": day_of_week,
             })
 
         return formatted_mentors
@@ -122,6 +127,7 @@ def assign_mentor_to_batch(batch_id: str, payload: AssignMentorRequest, db: Sess
 
     batch.mentor_id = payload.mentor_id
     batch.session = payload.session
+    batch.day_of_week = payload.day_of_week
 
     db.commit()
     db.refresh(batch)
@@ -155,6 +161,7 @@ def get_recommended_mentors(batch_id: str, db: Session = Depends(get_db)):
             calculated_score = max(0.0, 100.0 - (batch_count * 10))
             designation = "Team Lead" if rec.get("is_team_lead") else "Mentor"
             session = rec.get("session")
+            day_of_week = rec.get("day_of_week")
 
             formatted_mentors.append({
                 "id": rec["id"],
@@ -164,7 +171,8 @@ def get_recommended_mentors(batch_id: str, db: Session = Depends(get_db)):
                 "is_team_lead": bool(rec.get("is_team_lead")),
                 "batch_count": batch_count,
                 "is_top_pick": rec["id"] == top_pick_id,
-                "sesssion": session,
+                "session": session,
+                "day_of_week": day_of_week,
             })
 
         formatted_mentors.sort(key=lambda m: (not m["is_top_pick"], -m["match_score"]))
