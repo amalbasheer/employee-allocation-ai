@@ -19,6 +19,7 @@ router = APIRouter()
 # --- Pydantic Schemas ---
 class AssignMentorRequest(BaseModel):
     mentor_id: str
+    session: str
 
 
 class MentorResponse(BaseModel):
@@ -28,6 +29,7 @@ class MentorResponse(BaseModel):
     match_score: Optional[float] = 90.0
     is_team_lead: Optional[bool] = False
     batch_count: Optional[int] = 0
+    session: Optional[str]
 
 
 class BatchResponse(BaseModel):
@@ -40,6 +42,7 @@ class BatchResponse(BaseModel):
     delivery_mode: Optional[str]
     mentor_id: Optional[str]
     trainer_name: Optional[str]
+    session: Optional[str]
 
 
 # -------------------------------------------------------------------------
@@ -52,7 +55,7 @@ def get_student_batches(db: Session = Depends(get_db)):
     """
     query = text("""
         SELECT 
-            b.batch_id, b.batch_name, b.domain, b.status, 
+            b.batch_id, b.batch_name, b.domain, b.status, b.session,
             b.start_date, b.end_date, b.delivery_mode, b.mentor_id,
             e.name AS trainer_name
         FROM student_batches b
@@ -82,6 +85,7 @@ def get_recommended_mentors(batch_id: str):
             calculated_score = max(50.0, 100.0 - (batch_count * 10))
 
             designation = "Team Lead" if rec.get("is_team_lead") else "Mentor"
+            session = rec.get("session")
 
             formatted_mentors.append({
                 "id": rec["id"],
@@ -89,7 +93,8 @@ def get_recommended_mentors(batch_id: str):
                 "designation": designation,
                 "match_score": calculated_score,
                 "is_team_lead": bool(rec.get("is_team_lead")),
-                "batch_count": batch_count
+                "batch_count": batch_count,
+                "session": session,
             })
 
         return formatted_mentors
@@ -116,9 +121,12 @@ def assign_mentor_to_batch(batch_id: str, payload: AssignMentorRequest, db: Sess
         raise HTTPException(status_code=404, detail="Batch not found")
 
     batch.mentor_id = payload.mentor_id
+    batch.session = payload.session
+
     db.commit()
     db.refresh(batch)
     return batch
+
 # -------------------------------------------------------------------------
 @router.get("/{batch_id}/recommended-mentors", response_model=List[MentorResponse])
 def get_recommended_mentors(batch_id: str, db: Session = Depends(get_db)):
@@ -146,6 +154,7 @@ def get_recommended_mentors(batch_id: str, db: Session = Depends(get_db)):
             batch_count = rec.get("batch_count", 0)
             calculated_score = max(0.0, 100.0 - (batch_count * 10))
             designation = "Team Lead" if rec.get("is_team_lead") else "Mentor"
+            session = rec.get("session")
 
             formatted_mentors.append({
                 "id": rec["id"],
@@ -155,6 +164,7 @@ def get_recommended_mentors(batch_id: str, db: Session = Depends(get_db)):
                 "is_team_lead": bool(rec.get("is_team_lead")),
                 "batch_count": batch_count,
                 "is_top_pick": rec["id"] == top_pick_id,
+                "sesssion": session,
             })
 
         formatted_mentors.sort(key=lambda m: (not m["is_top_pick"], -m["match_score"]))

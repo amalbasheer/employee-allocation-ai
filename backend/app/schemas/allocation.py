@@ -13,6 +13,7 @@ class ProposeAllocationRequest(BaseModel):
     role_on_project: str = "lead_mentor"
     allocated_hours: int
     suitability_score: float = 1.0
+    session: Optional[str]
 
 class AllocationStatusUpdateRequest(BaseModel):
     status: str
@@ -21,6 +22,8 @@ class SubstituteRequest(BaseModel):
     substitute_resource_type: str
     substitute_resource_id: str
     reason: str
+    session: Optional[str]
+    suitability_score: Optional[str]
 
 class AllocationLogResponse(BaseModel):
     log_id: str
@@ -53,5 +56,6 @@ class AllocationResponse(BaseModel):
     status: str
     assigned_at: datetime
     assigned_by: str
+    session: str
 
     model_config = ConfigDict(from_attributes=True)

@@ -28,6 +28,7 @@ interface WeeklyAvailableEmployee {
   week_start_date: string;
   available_hour: number;
   is_on_leave: boolean;
+  session: string;
 }
 
 interface DashboardData {
@@ -514,6 +515,7 @@ const skillSubtext = totalSkillsTracked > 0
           <th style={styles.th}>Department</th>
           <th style={styles.th}>Week Start Date</th>
           <th style={styles.th}>Available Hours</th>
+          <th style={styles.th}>Session</th>
           <th style={styles.th}>Leave Status</th>
         </tr>
       </thead>
@@ -525,7 +527,7 @@ const skillSubtext = totalSkillsTracked > 0
                 <div
                   style={{
                     fontWeight: 600,
-                    color: "var(--text-main, \"#0f172a\")",
+                    color: "var(--text-main, \"#0939b1\")",
                   }}
                 >
                   {emp.employee_name}
@@ -534,14 +536,15 @@ const skillSubtext = totalSkillsTracked > 0
                   ID: {emp.resource_id}
                 </div>
               </td>
-              <td style={styles.td}>{emp.department}</td>
-              <td style={styles.td}>{emp.week_start_date}</td>
+              <td style={{...styles.td, color: '#6d84aa'}}>{emp.department}</td>
+              <td style={{...styles.td, color: '#6d84aa'}}>{emp.week_start_date}</td>
               
               <td style={styles.td}>
-                <span style={{ fontWeight: 600 }}>
+                <span style={{ fontWeight: 600, color: '#6d84aa' }}>
                   {emp.is_on_leave ? "0 hrs" : `${emp.available_hour} hrs`}
                 </span>
               </td>
+              <td style={{...styles.td, color: '#6d84aa'}}>{emp.session}</td>
               <td style={styles.td}>
                 {emp.is_on_leave ? (
                   <span style={styles.badgeLeave}>On Leave</span>

@@ -38,10 +38,12 @@ class CreateEngagementSchema(BaseModel):
     audience: Optional[str] = None
     domain: Optional[str] = None
     mode: Optional[str] = "online"  # "online" or "offline"
+    session: Optional[str] = "Morining"
 
 class ProposeMentorSchema(BaseModel):
     mentor_id: str
     suitability_score: float = 1.0
+    session: Optional[str]
 
 class EmployeeActionSchema(BaseModel):
     action: str  # "accept" or "reject"
@@ -178,6 +180,7 @@ def schedule_engagement(payload: CreateEngagementSchema, db: Session = Depends(g
         audience=payload.audience,
         domain=payload.domain,
         mode=payload.mode,
+        session=payload.session,
     )
 
     db.add(new_engagement)
@@ -442,7 +445,8 @@ def propose_mentor(engagement_id: str, payload: ProposeMentorSchema, db: Session
             role_on_project="trainer",
             assigned_at=datetime.now(timezone.utc),
             assigned_by="admin",
-            allocated_hours=2
+            allocated_hours=2,
+            session=engagement.session,
 
 
         )
@@ -639,7 +643,7 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
     """
     all_created_batches = []
 
-    for department in ["Data Analytics", "Data Science"]:
+    for department in ["Data Analytics", "Data Science", "Agentic AI"]:
         last_batch = (
             db.query(StudentBatch)
             .filter(func.lower(StudentBatch.domain) == department.lower())
@@ -672,6 +676,7 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
             year=start_dt.year
         )
         mentor_id = assigned_mentor.get("employee_id") if assigned_mentor else None
+        session = assigned_mentor.get("session")
         short_domain = "DA" if department == "Data Analytics" else "DS"
 
         for mode in ["offline", "online"]:
@@ -683,6 +688,7 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
                 end_date=end_dt,
                 delivery_mode=mode,
                 mentor_id=mentor_id,
+                sesion=session,
                 status="open"
             )
             db.add(new_batch)
@@ -710,6 +716,7 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
             "mentor_id": b.mentor_id,
             "trainer_name": mentor_map.get(b.mentor_id, "Unassigned"),
             "status": b.status,
+            "session": b.session,
         })
 
     return response
@@ -728,6 +735,7 @@ class UpdateEngagementSchema(BaseModel):
     audience: Optional[str] = None
     domain: Optional[str] = None
     mode: Optional[str] = None
+    session: Optional[str] = None
 
 class BulkCancelSchema(BaseModel):
     engagement_ids: List[str]

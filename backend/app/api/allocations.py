@@ -130,7 +130,8 @@ def propose_allocation(
         suitability_score=payload.suitability_score,
         status="proposed",
         assigned_by=admin_user.name,
-        assigned_at=datetime.now(timezone.utc)
+        assigned_at=datetime.now(timezone.utc),
+        session=payload.session,
     )
     # --- CATCH EXACT DATABASE ERROR HERE ---
     try:
@@ -743,10 +744,11 @@ def substitute_allocation(
         resource_id=payload.substitute_resource_id,
         role_on_project=orig_allocation.role_on_project,
         allocated_hours=orig_allocation.allocated_hours,
-        suitability_score=orig_allocation.suitability_score,
+        suitability_score=payload.suitability_score,
         status="proposed",
         assigned_by=admin_user.name, 
-        assigned_at=datetime.now(timezone.utc)
+        assigned_at=datetime.now(timezone.utc),
+        session=payload.session,
     )
     db.add(new_allocation)
     db.flush()
@@ -960,6 +962,7 @@ def get_my_allocations(
                 start_date = safe_get(batch_obj, "start_date")
                 end_date = safe_get(batch_obj, "end_date")
                 mentor_name = safe_get(batch_obj, "instructor_name") or safe_get(batch_obj, "trainer_name") or "Batch Instructor"
+                session = safe_get(batch_obj, "session")
 
             # -------------------------------------------------------
             # C. TRAINING REFERENCE
@@ -976,12 +979,13 @@ def get_my_allocations(
                 start_date = safe_get(training_obj, "start_date") or safe_get(training_obj, "scheduled_at")
                 end_date = safe_get(training_obj, "end_date")
                 mentor_name = safe_get(training_obj, "instructor") or safe_get(training_obj, "speaker") or "Training Lead"
-
+                session = safe_get(training_obj, "session")
             else:
                 continue
 
             suitability_score = safe_get(alloc, "suitability_score") or 0.0
             alloc_status = safe_get(alloc, "status") or "assigned"
+            session = safe_get(alloc, "session")
 
             results.append({
                 "allocation_id": str(alloc.allocation_id),
@@ -1004,7 +1008,8 @@ def get_my_allocations(
                 "progress_percentage": calculate_progress(completed_milestones),
                 "completed_milestones" :completed_milestones,
                 "start_date": str(start_date) if start_date else "N/A",
-                "due_date": str(end_date) if end_date else "N/A"
+                "due_date": str(end_date) if end_date else "N/A",
+                "session": str(session),
             })
 
         return results
@@ -1081,6 +1086,7 @@ class AssignedBatchResponse(BaseModel):
     delivery_mode: str
     status: str
     mentor_id: str
+    session: str
 
     class Config:
         from_attributes = True

@@ -39,6 +39,7 @@ class TrainingEngagementBase(BaseModel):
     required_hours: int = 2
     mentor_id: Optional[str] = None
     status: str = "open"
+    session: Optional[str]
 
 
 class TrainingEngagementCreate(TrainingEngagementBase):
@@ -54,6 +55,7 @@ class TrainingEngagementUpdate(BaseModel):
     required_hours: Optional[int] = None
     mentor_id: Optional[str] = None
     status: Optional[str] = None
+    session: Optional[str]
 
 
 class TrainingEngagementResponse(TrainingEngagementBase):
@@ -76,6 +78,7 @@ class StudentBatchBase(BaseModel):
     mentor_id: Optional[str] = None
     status: str = "open"
     delivery_mode: Optional[str] = None
+    session: Optional[str]
 
 
 class StudentBatchCreate(StudentBatchBase):
@@ -89,6 +92,7 @@ class StudentBatchUpdate(BaseModel):
     end_date: Optional[date] = None
     mentor_id: Optional[str] = None
     status: Optional[str] = None
+    session: Optional[str]
 
 
 class StudentBatchResponse(StudentBatchBase):
