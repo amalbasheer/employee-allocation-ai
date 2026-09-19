@@ -53,5 +53,6 @@ class AllocationResponse(BaseModel):
     status: str
     assigned_at: datetime
     assigned_by: str
+    session: str
 
     model_config = ConfigDict(from_attributes=True)
