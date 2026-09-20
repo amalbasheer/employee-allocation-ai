@@ -275,7 +275,183 @@ def get_weekly_calendar_schedule(
         "schedules": list(employee_map.values())
     }
 
+@router.get("/my-schedule")
+def get_my_weekly_schedule(
+    week_start: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)  # Resolves logged-in employee
+):
+    """
+    Retrieves the weekly schedule specifically for the currently logged-in employee.
+    Includes active Projects, Training Engagements, Student Batches, and Schedule Overrides.
+    """
+    # Extract employee_id from authenticated user session/token
+    employee_id = current_user.get("employee_id") or current_user.get("id")
+    if not employee_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="User does not have an associated employee ID."
+        )
 
+    # 1. Resolve Target Week Range
+    if not week_start:
+        today = datetime.now(timezone.utc).date()
+        monday = today - timedelta(days=today.weekday())
+        target_week_start = monday
+    else:
+        target_week_start = datetime.strptime(week_start, "%Y-%m-%d").date()
+
+    target_week_end = target_week_start + timedelta(days=6)
+
+    # 2. Fetch Overrides for this Week Range
+    overrides_query = text("""
+        SELECT 
+            LOWER(TRIM(entity_type)) AS entity_type,
+            LOWER(TRIM(entity_id)) AS entity_id,
+            override_date,
+            LOWER(TRIM(original_session)) AS original_session,
+            LOWER(TRIM(new_session)) AS new_session,
+            scope
+        FROM schedule_overrides
+        WHERE override_date BETWEEN :w_start AND :w_end
+           OR week_start_date = :w_start
+    """)
+    override_rows = db.execute(
+        overrides_query, 
+        {"w_start": target_week_start, "w_end": target_week_end}
+    ).fetchall()
+
+    overrides_map = {}
+    for row in override_rows:
+        e_type, e_id, o_date, orig_sess, new_sess, scope = row
+        o_date_str = o_date.strftime("%Y-%m-%d") if isinstance(o_date, (date, datetime)) else str(o_date)
+        overrides_map[(e_type, e_id, o_date_str)] = {
+            "new_session": new_sess,
+            "original_session": orig_sess,
+            "scope": scope
+        }
+
+    # 3. Fetch Base Schedule FILTERED BY logged-in employee_id
+    query = text("""
+        -- 1. PROJECTS SCHEDULE
+        SELECT 
+            a.reference_id AS item_id,
+            'project' AS entity_type,
+            a.resource_id,
+            COALESCE(ce.name, 'Unknown Employee') AS employee_name,
+            COALESCE(p.title, a.reference_id) AS title,
+            LOWER(COALESCE(p.session, 'morning')) AS session,
+            p.start_date,
+            p.end_date,
+            p.day_of_week AS day_of_week
+        FROM allocations a
+        JOIN company_employees ce ON a.resource_id = ce.employee_id
+        JOIN projects p ON a.reference_id = p.project_id
+        WHERE a.resource_id = :emp_id 
+          AND LOWER(p.status) IN ('in_progress') 
+          AND LOWER(a.status) IN ('assigned')
+
+        UNION ALL
+
+        -- 2. TRAINING ENGAGEMENT SCHEDULE
+        SELECT 
+            te.engagement_id AS item_id,
+            'training_engagement' AS entity_type,
+            te.mentor_id AS resource_id,
+            COALESCE(ce.name, 'Unknown Employee') AS employee_name,
+            COALESCE(te.title, te.engagement_id) AS title,
+            LOWER(COALESCE(te.session, 'morning')) AS session,
+            te.start_date,
+            te.end_date,
+            NULL AS day_of_week
+        FROM training_engagements te
+        JOIN company_employees ce ON te.mentor_id = ce.employee_id
+        WHERE te.mentor_id = :emp_id 
+          AND LOWER(COALESCE(te.status, 'active')) IN ('allocated', 'in_progress', 'assigned')
+
+        UNION ALL
+
+        -- 3. STUDENT BATCH SCHEDULE
+        SELECT 
+            sb.batch_id AS item_id,
+            'student_batch' AS entity_type,
+            sb.mentor_id AS resource_id,
+            COALESCE(ce.name, 'Unknown Employee') AS employee_name,
+            COALESCE(sb.batch_name, sb.batch_id) AS title,
+            LOWER(COALESCE(sb.session, 'morning')) AS session,
+            sb.start_date,
+            sb.end_date,
+            sb.day_of_week AS day_of_week
+        FROM student_batches sb
+        JOIN company_employees ce ON sb.mentor_id = ce.employee_id
+        WHERE sb.mentor_id = :emp_id 
+          AND LOWER(COALESCE(sb.status, 'active')) IN ('in_progress')
+    """)
+
+    rows = db.execute(query, {"emp_id": employee_id}).fetchall()
+
+    # Structure response specifically for a single employee
+    employee_schedule = {
+        "Monday": {"morning": [], "evening": []},
+        "Tuesday": {"morning": [], "evening": []},
+        "Wednesday": {"morning": [], "evening": []},
+        "Thursday": {"morning": [], "evening": []},
+        "Friday": {"morning": [], "evening": []},
+    }
+
+    employee_name = "Employee"
+
+    for row in rows:
+        item_id, entity_type, res_id, emp_name, title, base_session, start_date_val, end_date_val, raw_day_of_week = row
+        employee_name = emp_name
+
+        item_start = to_date_obj(start_date_val)
+        item_end = to_date_obj(end_date_val)
+
+        # Date range filtering
+        if item_start and item_start > target_week_end:
+            continue
+        if item_end and item_end < target_week_start:
+            continue
+
+        active_days = get_active_days(raw_day_of_week, item_start, DAYS_OF_WEEK)
+
+        for day in active_days:
+            matched_day_key = next((d for d in DAYS_OF_WEEK if d.lower().startswith(day.lower()[:3])), None)
+
+            if matched_day_key and matched_day_key in employee_schedule:
+                day_offset = get_day_offset(matched_day_key)
+                actual_date = target_week_start + timedelta(days=day_offset)
+                date_str = actual_date.strftime("%Y-%m-%d")
+
+                override_key = (str(entity_type).strip().lower(), str(item_id).strip().lower(), date_str)
+
+                clean_base_session = str(base_session).lower() if base_session else "morning"
+                final_session = clean_base_session if clean_base_session in ["morning", "evening"] else "morning"
+                is_overridden = False
+
+                if override_key in overrides_map:
+                    final_session = overrides_map[override_key]["new_session"]
+                    is_overridden = True
+
+                schedule_item = {
+                    "item_id": item_id,
+                    "entity_type": entity_type,
+                    "title": title,
+                    "session": final_session,
+                    "date": date_str,
+                    "is_overridden": is_overridden
+                }
+
+                target_slot = final_session if final_session in ["morning", "evening"] else "morning"
+                employee_schedule[matched_day_key][target_slot].append(schedule_item)
+
+    return {
+        "week_start_date": target_week_start.strftime("%Y-%m-%d"),
+        "employee_id": employee_id,
+        "employee_name": employee_name,
+        "days": employee_schedule
+    }
 
 class ShiftOverrideRequest(BaseModel):
     entity_type: str                  # 'project', 'student_batch', 'training_engagement'
