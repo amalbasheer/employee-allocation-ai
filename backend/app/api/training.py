@@ -11,6 +11,7 @@ from app.api.deps import get_db
 from app.models.webinar import TrainingEngagement, TrainingRequirement, StudentBatch
 from app.models.allocation import Allocation, AllocationLog, Substitution
 from app.models.employee import CompanyEmployee, Availability
+from services.notifications import send_assignment_notification, send_proposed_notification
 from ai_engine.extraction import extract_skills_from_text
 from ai_engine.embedding import generate_embedding
 from ai_engine.recommend import recommend_mentor_for_training
@@ -417,25 +418,37 @@ def generate_next_log_id(db: Session) -> str:
                 max_num = max(max_num, int(parts[-1]))
 
     return f"rp2-log-{max_num + 1:04d}"
-
 @router.post("/engagements/{engagement_id}/propose")
-def propose_mentor(engagement_id: str, payload: ProposeMentorSchema, db: Session = Depends(get_db)):
-    engagement = db.query(TrainingEngagement).filter(TrainingEngagement.engagement_id == engagement_id).first()
+def propose_mentor(
+    engagement_id: str, 
+    payload: ProposeMentorSchema, 
+    db: Session = Depends(get_db)
+):
+    # 1. Fetch Training Engagement
+    engagement = (
+        db.query(TrainingEngagement)
+        .filter(TrainingEngagement.engagement_id == engagement_id)
+        .first()
+    )
     if not engagement:
         raise HTTPException(status_code=404, detail="Engagement not found")
 
     engagement.status = "proposed"
     engagement.mentor_id = payload.mentor_id
 
-    alloc = db.query(Allocation).filter(
-        Allocation.reference_id == engagement_id,
-        Allocation.reference_type.in_(["webinar", "training", "engagement"])
-    ).first()
+    # 2. Find or Create Allocation record
+    alloc = (
+        db.query(Allocation)
+        .filter(
+            Allocation.reference_id == engagement_id,
+            Allocation.reference_type.in_(["webinar", "training", "engagement"])
+        )
+        .first()
+    )
 
     if not alloc:
         alloc = Allocation(
             allocation_id=generate_next_allocation_id(db),
-            # FIX: Use engagement.engagement_type (instance value) instead of TrainingEngagement.engagement_type
             reference_type="training",
             reference_id=engagement_id,
             resource_id=payload.mentor_id,
@@ -447,14 +460,13 @@ def propose_mentor(engagement_id: str, payload: ProposeMentorSchema, db: Session
             assigned_by="admin",
             allocated_hours=2,
             session=engagement.session,
-
-
         )
         db.add(alloc)
     else:
         alloc.resource_id = payload.mentor_id
         alloc.status = "proposed"
 
+    # 3. Create Audit Log Entry
     log_entry = AllocationLog(
         log_id=generate_next_log_id(db),
         allocation_id=alloc.allocation_id,
@@ -463,7 +475,61 @@ def propose_mentor(engagement_id: str, payload: ProposeMentorSchema, db: Session
         timestamp=datetime.now(timezone.utc)
     )
     db.add(log_entry)
+
+    # 4. Commit Database Transaction
     db.commit()
+
+    # -------------------------------------------------------------------
+    # 5. SEND EMAIL NOTIFICATION TO PROPOSED MENTOR
+    # -------------------------------------------------------------------
+    if payload.mentor_id:
+        mentor = (
+            db.query(CompanyEmployee)
+            .filter(CompanyEmployee.employee_id == payload.mentor_id)
+            .first()
+        )
+
+        if mentor and mentor.email:
+            try:
+                training_title = (
+                    getattr(engagement, "title", None) 
+                    or getattr(engagement, "name", None) 
+                    or f"Training Engagement {engagement_id}"
+                )
+
+                base_desc = getattr(engagement, "description", "") or ""
+                session_str = f"Session: {engagement.session}" if getattr(engagement, "session", None) else ""
+                req_hours = (
+                    getattr(engagement, "required_hours", None) 
+                    or getattr(engagement, "duration_hours", None)
+                )
+                hours_str = f"Required Hours: {req_hours}" if req_hours else ""
+                extra_details = " | ".join(filter(None, [session_str, hours_str]))
+
+                full_description = (
+                    f"A new training engagement mentor proposal has been submitted for your review.\n"
+                    f"{extra_details}\n\n"
+                    f"Details: {base_desc}"
+                ).strip()
+
+                start_date_str = str(
+                    getattr(engagement, "start_date", None) 
+                    or getattr(engagement, "date", "TBD")
+                )
+                end_date_str = str(getattr(engagement, "end_date", "TBD"))
+                priority_str = getattr(engagement, "priority_level", "Medium") or "Medium"
+
+                send_proposed_notification(
+                    recipient_email=mentor.email,
+                    recipient_name=mentor.name,
+                    project_title=f"[Proposal] {training_title}",
+                    description=full_description,
+                    start_date=start_date_str,
+                    end_date=end_date_str,
+                    priority=priority_str,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send mentor proposal notification email: {e}")
 
     return {"message": "Proposal sent successfully", "status": engagement.status}
 
@@ -540,7 +606,6 @@ def update_mentor_availability_for_training(
             available_hours=new_hours
         )
         db.add(new_availability)
-
 @router.post("/engagements/{engagement_id}/confirm")
 def confirm_allocation(engagement_id: str, db: Session = Depends(get_db)):
     # 1. Fetch Training Engagement
@@ -571,6 +636,7 @@ def confirm_allocation(engagement_id: str, db: Session = Depends(get_db)):
         .first()
     )
 
+    mentor_id = None
     if alloc:
         alloc.status = "assigned"
 
@@ -609,6 +675,59 @@ def confirm_allocation(engagement_id: str, db: Session = Depends(get_db)):
     )
     db.add(log_entry)
     db.commit()
+
+    # -------------------------------------------------------------------
+    # 5. SEND EMAIL NOTIFICATION TO CONFIRMED MENTOR / TRAINER
+    # -------------------------------------------------------------------
+    target_mentor_id = mentor_id or getattr(engagement, "mentor_id", None)
+    if target_mentor_id:
+        mentor = (
+            db.query(CompanyEmployee)
+            .filter(CompanyEmployee.employee_id == target_mentor_id)
+            .first()
+        )
+
+        if mentor and mentor.email:
+            try:
+                training_title = (
+                    getattr(engagement, "title", None) 
+                    or getattr(engagement, "name", None) 
+                    or f"Training Engagement {engagement_id}"
+                )
+
+                base_desc = getattr(engagement, "description", "") or ""
+                session_str = f"Session: {engagement.session}" if getattr(engagement, "session", None) else ""
+                req_hours = (
+                    getattr(engagement, "required_hours", None) 
+                    or getattr(engagement, "duration_hours", None)
+                )
+                hours_str = f"Required Hours: {req_hours}" if req_hours else ""
+                extra_details = " | ".join(filter(None, [session_str, hours_str]))
+
+                full_description = (
+                    f"Your trainer allocation for '{training_title}' has been officially confirmed.\n"
+                    f"{extra_details}\n\n"
+                    f"Details: {base_desc}"
+                ).strip()
+
+                start_date_str = str(
+                    getattr(engagement, "start_date", None) 
+                    or getattr(engagement, "date", "TBD")
+                )
+                end_date_str = str(getattr(engagement, "end_date", "TBD"))
+                priority_str = getattr(engagement, "priority_level", "Medium") or "Medium"
+
+                send_assignment_notification(
+                    recipient_email=mentor.email,
+                    recipient_name=mentor.name,
+                    project_title=training_title,
+                    description=full_description,
+                    start_date=start_date_str,
+                    end_date=end_date_str,
+                    priority=priority_str,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send confirmation notification email: {e}")
 
     return {
         "message": "Engagement allocation confirmed and availability updated",

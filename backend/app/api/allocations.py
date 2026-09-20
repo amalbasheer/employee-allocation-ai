@@ -17,7 +17,7 @@ from app.models.employee import CompanyEmployee, Availability
 from app.models.intern import InternsAndStudents
 from app.models.enums import AllocationStatus, ProjectStatus
 from app.schemas.project import UserProfile, MILESTONE_WEIGHTS
-from services.notifications import send_assignment_notification
+from services.notifications import send_assignment_notification, send_proposed_notification
 from app.schemas.allocation import (
     ProposeAllocationRequest,
     AllocationStatusUpdateRequest,
@@ -120,7 +120,7 @@ def propose_allocation(
 
     # 2. Create the Allocation record
     new_allocation = Allocation(
-        allocation_id=new_alloc_id,  # Set formatted primary key here
+        allocation_id=new_alloc_id,
         reference_id=payload.reference_id,
         reference_type=payload.reference_type.lower().strip(),
         resource_type=payload.resource_type,
@@ -133,6 +133,7 @@ def propose_allocation(
         assigned_at=datetime.now(timezone.utc),
         session=payload.session,
     )
+
     # --- CATCH EXACT DATABASE ERROR HERE ---
     try:
         db.add(new_allocation)
@@ -146,7 +147,6 @@ def propose_allocation(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Database constraint error: {str(e.orig)}"
         )
-    # --------------------------------------
 
     # 3. Create Audit Log entry
     new_log_id = generate_next_log_id(db)
@@ -163,6 +163,53 @@ def propose_allocation(
     # 4. Commit transaction
     db.commit()
     db.refresh(new_allocation)
+
+    # -------------------------------------------------------------------
+    # 5. SEND EMAIL NOTIFICATION TO PROPOSED EMPLOYEE / MENTOR
+    # -------------------------------------------------------------------
+    if payload.resource_type.lower().strip() in ["employee", "mentor"]:
+        person = (
+            db.query(CompanyEmployee)
+            .filter(CompanyEmployee.employee_id == payload.resource_id)
+            .first()
+        )
+
+        if person and person.email:
+            try:
+                # Safely extract details across Project, Batch, or Training Engagement
+                target_title = (
+                    getattr(target_obj, "title", None)
+                    or getattr(target_obj, "batch_name", None)
+                    or getattr(target_obj, "name", None)
+                    or f"{target_type_label.capitalize()} {payload.reference_id}"
+                )
+
+                base_desc = getattr(target_obj, "description", "") or ""
+                role_str = f"Role: {payload.role_on_project}" if payload.role_on_project else ""
+                session_str = f"Session: {payload.session}" if payload.session else ""
+                extra_details = " | ".join(filter(None, [role_str, session_str]))
+
+                full_description = (
+                    f"A new {target_type_label} allocation proposal has been submitted for your review.\n"
+                    f"{extra_details}\n\n"
+                    f"Details: {base_desc}"
+                ).strip()
+
+                start_date_str = str(getattr(target_obj, "start_date", "TBD"))
+                end_date_str = str(getattr(target_obj, "end_date", "TBD"))
+                priority_str = getattr(target_obj, "priority_level", "Medium") or "Medium"
+
+                send_proposed_notification(
+                    recipient_email=person.email,
+                    recipient_name=person.name,
+                    project_title=f"[Proposal] {target_title}",
+                    description=full_description,
+                    start_date=start_date_str,
+                    end_date=end_date_str,
+                    priority=priority_str,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send proposal notification email: {e}")
 
     return new_allocation
 
