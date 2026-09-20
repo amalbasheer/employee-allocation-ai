@@ -1,6 +1,6 @@
 import uuid
 import traceback
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
 from typing import List, Optional, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
@@ -13,7 +13,7 @@ from app.models.allocation import Allocation, AllocationLog, Substitution
 from app.models.project import Project, ProjectRequirement
 from app.models.webinar import TrainingEngagement, StudentBatch
 from app.models.taxonomy import Skill
-from app.models.employee import CompanyEmployee
+from app.models.employee import CompanyEmployee, Availability
 from app.models.intern import InternsAndStudents
 from app.models.enums import AllocationStatus, ProjectStatus
 from app.schemas.project import UserProfile, MILESTONE_WEIGHTS
@@ -239,8 +239,136 @@ def assign_student(
 
     return new_allocation
 
+def get_week_start(d: date) -> date:
+    """Returns the Monday of the week for a given date."""
+    return d - timedelta(days=d.weekday())
+
+
+def get_week_starts_in_range(start_date: date, end_date: date) -> list[date]:
+    """Generates all week start dates (Mondays) between start_date and end_date inclusive."""
+    weeks = []
+    current_week = get_week_start(start_date)
+    last_week = get_week_start(end_date)
+
+    while current_week <= last_week:
+        weeks.append(current_week)
+        current_week += timedelta(days=7)
+
+    return weeks
+
+def generate_next_availability_id(db: Session) -> str:
+    """
+    Generates sequential availability IDs based on the highest existing ID.
+    """
+    # Fetch the lexicographically highest availability_id
+    max_id = db.query(func.max(Availability.availability_id)).scalar()
+    
+    if not max_id:
+        next_num = 1
+    else:
+        # Extract trailing numbers (e.g., 'rp2-avail-0005' -> 5)
+        try:
+            next_num = int(max_id.split("-")[-1]) + 1
+        except (ValueError, IndexError):
+            next_num = 1
+
+    return f"rp2-avail-{next_num:04d}"  
+
+def update_employee_availability_on_assignment(
+    db: Session,
+    employee_id: str,
+    project: Project,
+    session_name: str,
+    department_name: str,
+    default_session_capacity: float = 15.0  # Base capacity hours per session/week
+):
+    """
+    Deducts 3 hours/week from employee availability for the project duration.
+    - If week_start_date exists -> Updates available_hours (-3 hrs).
+    - If week_start_date missing -> Creates new Availability record with new availability_id.
+    - Department Data Science -> Skips week if another active project overlaps that week.
+    """
+    if not project.start_date or not project.end_date:
+        return
+
+    proj_start = project.start_date.date() if isinstance(project.start_date, datetime) else project.start_date
+    proj_end = project.end_date.date() if isinstance(project.end_date, datetime) else project.end_date
+
+    week_starts = get_week_starts_in_range(proj_start, proj_end)
+    is_data_science = "data science" in (department_name or "").strip().lower()
+    target_session = (session_name or "").strip().lower()
+
+    # Get active projects assigned to this employee (excluding current project)
+    other_active_project_ids = []
+    if is_data_science:
+        active_allocations = (
+            db.query(Allocation.reference_id)
+            .filter(
+                Allocation.resource_id == employee_id,
+                func.lower(Allocation.resource_type) == "employee",
+                Allocation.status == "assigned",
+                Allocation.reference_id != project.project_id
+            )
+            .all()
+        )
+        other_active_project_ids = [a[0] for a in active_allocations if a[0]]
+
+    for week_start in week_starts:
+        week_end = week_start + timedelta(days=6)
+
+        # ---------------------------------------------------------------
+        # DATA SCIENCE RULE: Skip reduction if another active project overlaps
+        # ---------------------------------------------------------------
+        if is_data_science and other_active_project_ids:
+            has_overlapping_project = (
+                db.query(Project)
+                .filter(
+                    Project.project_id.in_(other_active_project_ids),
+                    Project.status == "in_progress",
+                    Project.start_date <= week_end,
+                    Project.end_date >= week_start
+                )
+                .first()
+            ) is not None
+
+            if has_overlapping_project:
+                # Employee already committed to an active project this week; skip reduction
+                continue
+
+        # ---------------------------------------------------------------
+        # CHECK IF WEEK START DATE RECORD EXISTS IN AVAILABILITY TABLE
+        # ---------------------------------------------------------------
+        availability_record = (
+            db.query(Availability)
+            .filter(
+                Availability.employee_id == employee_id,
+                Availability.week_start_date == week_start,
+                func.lower(Availability.session) == target_session
+            )
+            .first()
+        )
+
+        if availability_record:
+            # CASE A: Record exists -> Deduct 3 hours from existing record
+            current_hours = float(availability_record.available_hours or 0.0)
+            availability_record.available_hours = max(0.0, current_hours - 3.0)
+        else:
+            # CASE B: Record missing -> Create new record with new availability_id
+            new_avail_id = generate_next_availability_id(db)
+            new_hours = max(0.0, default_session_capacity - 3.0)
+
+            new_availability = Availability(
+                availability_id=new_avail_id, # Set custom primary key ID
+                employee_id=employee_id,
+                week_start_date=week_start,
+                session=target_session,
+                available_hours=new_hours,
+                is_on_leave=False,
+            )
+            db.add(new_availability)
+
 # -------------------------------------------------------------------
-# CONFIRMATION BY ADMIN (Updated for Substitution Support)
+# CONFIRMATION BY ADMIN (Updated for Substitution & Availability)
 # -------------------------------------------------------------------
 @router.patch("/{identifier}/assign", response_model=AllocationResponse)
 def assign_allocation(
@@ -264,7 +392,7 @@ def assign_allocation(
             .filter(
                 func.lower(Allocation.reference_id) == clean_id.lower(),
                 func.lower(Allocation.resource_type).in_(["employee", "mentor"]),
-                Allocation.status.in_(["accepted", "proposed"])  # FIX 1: Filter only pending proposals
+                Allocation.status.in_(["accepted", "proposed"])
             )
             .order_by(Allocation.allocation_id.desc())
             .first()
@@ -283,14 +411,14 @@ def assign_allocation(
     if prev_status not in valid_statuses:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot confirm mentor assignment for allocation '{allocation.allocation_id}'. Current status is '{prev_status}', expected 'accepted' or 'proposed'."
+            detail=f"Cannot confirm assignment for allocation '{allocation.allocation_id}'. Current status is '{prev_status}', expected 'accepted' or 'proposed'."
         )
 
     ref_type = str(getattr(allocation, "reference_type", "project") or "project").lower().strip()
     ref_id = getattr(allocation, "reference_id", None) or getattr(allocation, "project_id", None)
     resource_type = str(getattr(allocation, "resource_type", "employee")).lower().strip()
 
-    # 4. FIX 2: Deactivate any previous active allocations for this project (Substitution Handling)
+    # 4. Substitution Handling: Deactivate any previous active allocations for this project
     if ref_id:
         previous_active_allocations = (
             db.query(Allocation)
@@ -302,25 +430,39 @@ def assign_allocation(
             .all()
         )
         for old_alloc in previous_active_allocations:
-            old_alloc.status = "replaced"  # Or "revoked" / "cancelled"
+            old_alloc.status = "replaced"
 
-        # 5. Transition target allocation status to assigned
+    # 5. Transition target allocation status to assigned
     allocation.status = "assigned"
     allocation.assigned_at = datetime.now(timezone.utc)
     allocation.assigned_by = admin_user.name
 
-    # 6. Update linked target entity (Project / Batch / Training)
+    # 6. Update linked target entity & Employee Availability
     if ref_type == "project" and ref_id:
         project = db.query(Project).filter(Project.project_id == ref_id).first()
         if project:
             project.status = "in_progress"
-            # Send assignment notification email
+            
             person = None
             if resource_type in ["employee", "mentor"]:
                 person = db.query(CompanyEmployee).filter(
                     CompanyEmployee.employee_id == allocation.resource_id
                 ).first()
-                    
+
+            # --- AVAILABILITY UPDATE LOGIC ---
+            if person:
+                dept_name = getattr(person, "department", "") or ""
+                alloc_session = getattr(allocation, "session", None) or getattr(allocation, "session_type", "morning")
+                
+                update_employee_availability_on_assignment(
+                    db=db,
+                    employee_id=str(person.employee_id),
+                    project=project,
+                    session_name=alloc_session,
+                    department_name=dept_name
+                )
+
+            # Send assignment notification email
             if person and person.email:
                 try:
                     send_assignment_notification(
@@ -331,12 +473,12 @@ def assign_allocation(
                         start_date=str(project.start_date),
                         end_date=str(project.end_date) if project.end_date else "TBD",
                         priority=project.priority_level or "Medium",
-                        )
+                    )
                 except Exception as e:
                     logger.warning(f"Failed to send assignment notification email: {e}")
 
             if hasattr(project, "mentor_id"):
-                project.mentor_id = str(allocation.resource_id)  # Updates project mentor link if column exists
+                project.mentor_id = str(allocation.resource_id)
 
     elif ref_type in ["batch", "student_batch", "studentbatch"] and ref_id:
         batch_obj = db.query(StudentBatch).filter(StudentBatch.batch_id == ref_id).first()
@@ -381,7 +523,6 @@ def assign_allocation(
     db.refresh(allocation)
 
     return allocation
-
 # -------------------------------------------------------------------
 # 2. STATUS TRANSITION (ACCEPT / REJECT / ASSIGN)
 # -------------------------------------------------------------------

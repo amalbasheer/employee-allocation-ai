@@ -97,7 +97,7 @@ export const WeeklySchedule: React.FC = () => {
           <h1 className="text-2xl font-extrabold bg-gradient-to-r from-cyan-400 via-fuchsia-400 to-amber-300 bg-clip-text text-transparent tracking-tight drop-shadow-[0_0_12px_rgba(34,211,238,0.3)]">
             Weekly Calendar Schedule
           </h1>
-          <p className="text-sm text-indigo-300/80">Multi-table schedule view (Monday – Friday)</p>
+          <p className="text-sm text-indigo-300/80">Employee schedule view (Monday – Friday)</p>
         </div>
         <button
           onClick={fetchCalendarSchedule}
