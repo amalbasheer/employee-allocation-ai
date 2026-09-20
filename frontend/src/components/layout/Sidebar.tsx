@@ -10,7 +10,8 @@ import {
   Clock,
   WrapText,
   Book,
-  Calendar
+  Calendar,
+  Timer
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -32,6 +33,7 @@ export const Sidebar: React.FC = () => {
     { label: 'Training & Engagements', path: '/employee/engagement', icon: WrapText },
     { label: 'Availability Check', path: '/employee/availability', icon: Clock },
     { label: 'My Profile', path: '/employee/profile', icon: Users },
+    { label: 'My Schedule', path: '/employee/schedule', icon: Timer },
   ];
 
   const studentNav = [

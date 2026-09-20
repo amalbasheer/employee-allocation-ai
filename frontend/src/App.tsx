@@ -15,6 +15,7 @@ import { WeeklySchedule } from './pages/admin/WeeklySchedule';
 import { EmployeeAvailabilityPage } from './pages/employee/EmployeeAvailability';
 import { EmployeeSkillsManager } from './pages/employee/profile';
 import { TrainingAllocationsDashboard } from './pages/employee/TrainingEngagement';
+import { MySchedule } from './pages/employee/MySchedule';
 import { StudentBatches } from './pages/admin/StudentBatches';
 
 interface ProtectedRouteProps {
@@ -135,6 +136,14 @@ export default function App() {
                 element={
                   <ProtectedRoute allowedRoles={['EMPLOYEE']}>
                     <EmployeeSkillsManager />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/employee/schedule"
+                element={
+                  <ProtectedRoute allowedRoles={['EMPLOYEE']}>
+                    <MySchedule />
                   </ProtectedRoute>
                 }
               />
