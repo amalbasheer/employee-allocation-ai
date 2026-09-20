@@ -29,6 +29,8 @@ class Project(Base):
     completed_milestones = Column(JSON, default=list, nullable=True)
     github_url = Column(String(500), nullable=True)
     deployed_url = Column(String(500), nullable=True)
+    session = Column(String(20), nullable=True)
+    day_of_week = Column(String(50), nullable=True)
 
     # Relationships
     allocations = relationship("Allocation", primaryjoin="and_("

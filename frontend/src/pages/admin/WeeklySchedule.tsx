@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import api from '../../services/api'
 
 interface ScheduleItem {
   item_id: string;
   entity_type: 'project' | 'training_engagement' | 'student_batch';
   title: string;
   session: 'morning' | 'evening';
+  is_override?: boolean;
 }
 
 interface DayShiftData {
@@ -19,6 +21,28 @@ interface EmployeeSchedule {
   days: Record<string, DayShiftData>;
 }
 
+const getFormattedDateForDay = (dayName: string): string => {
+  const dayIndexMap: Record<string, number> = {
+    Monday: 1,
+    Tuesday: 2,
+    Wednesday: 3,
+    Thursday: 4,
+    Friday: 5,
+  };
+  const targetIndex = dayIndexMap[dayName] || 1;
+
+  const now = new Date();
+  const currentDayOfWeek = now.getDay(); // 0 is Sunday, 1 is Monday...
+  const distanceToMonday = currentDayOfWeek === 0 ? -6 : 1 - currentDayOfWeek;
+
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + distanceToMonday);
+
+  const targetDate = new Date(monday);
+  targetDate.setDate(monday.getDate() + (targetIndex - 1));
+
+  return targetDate.toISOString().split('T')[0];
+};
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
@@ -45,23 +69,35 @@ export const WeeklySchedule: React.FC = () => {
     }
   };
 
+  /**
+   * Post schedule override for a single day or full week
+   */
   const handleShiftChange = async (
-    itemId: string, 
-    entityType: string, 
-    newSession: 'morning' | 'evening'
+    itemId: string,
+    entityType: 'project' | 'training_engagement' | 'student_batch',
+    newSession: 'morning' | 'evening',
+    scope: 'single_day' | 'full_week' = 'single_day',
+    overrideDate?: string,
+    weekStartDate?: string,
+    reason?: string
   ) => {
     setUpdatingId(itemId);
     try {
-      await axios.patch(`${API_BASE}/api/schedule/shift`, {
+      const payload = {
         item_id: itemId,
         entity_type: entityType,
-        session: newSession,
-      });
+        new_session: newSession,
+        scope: scope,
+        override_date: scope === 'single_day' ? overrideDate : null,
+        week_start_date: scope === 'full_week' ? weekStartDate : null,
+        reason: reason || 'Shift changed via schedule portal',
+      };
 
+      await api.post(`${API_BASE}/api/schedule/override`, payload);
       await fetchCalendarSchedule();
     } catch (err) {
-      console.error('Failed to update shift:', err);
-      alert('Failed to update shift in the database.');
+      console.error('Failed to update shift override:', err);
+      alert('Failed to update temporary shift schedule.');
     } finally {
       setUpdatingId(null);
     }
@@ -133,6 +169,7 @@ export const WeeklySchedule: React.FC = () => {
                 {/* Days Columns (Monday to Friday) */}
                 {DAYS.map((day) => {
                   const dayData = emp.days[day] || { morning: [], evening: [] };
+                  const dayDate = getFormattedDateForDay(day);
                   return (
                     <td key={day} className="p-3 align-top border-r border-indigo-900/40">
                       <div className="space-y-3">
@@ -151,7 +188,15 @@ export const WeeklySchedule: React.FC = () => {
                                 item={item}
                                 updatingId={updatingId}
                                 getBadgeStyle={getBadgeStyle}
-                                onShiftChange={handleShiftChange}
+                                onShiftChange={(id, entityType, newSession) =>
+                                  handleShiftChange(
+                                    id,
+                                    entityType as any,
+                                    newSession,
+                                    'single_day',
+                                    dayDate
+                                  )
+                                }
                               />
                             ))
                           )}
@@ -172,7 +217,15 @@ export const WeeklySchedule: React.FC = () => {
                                 item={item}
                                 updatingId={updatingId}
                                 getBadgeStyle={getBadgeStyle}
-                                onShiftChange={handleShiftChange}
+                                onShiftChange={(id, entityType, newSession) =>
+                                  handleShiftChange(
+                                    id,
+                                    entityType as any,
+                                    newSession,
+                                    'single_day',
+                                    dayDate
+                                  )
+                                }
                               />
                             ))
                           )}
@@ -207,7 +260,12 @@ const CalendarCard: React.FC<CardProps> = ({ item, updatingId, getBadgeStyle, on
         <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider ${badge.color}`}>
           {badge.label}
         </span>
-        
+        {item.is_override && (
+          <span className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1 py-0.5 rounded font-mono">
+            Shifted
+          </span>
+        )}
+      
       </div>
 
       <div className="text-xs font-semibold text-white leading-tight">

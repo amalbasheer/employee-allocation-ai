@@ -131,7 +131,6 @@ def propose_allocation(
         status="proposed",
         assigned_by=admin_user.name,
         assigned_at=datetime.now(timezone.utc),
-        session=payload.session,
     )
 
     # --- CATCH EXACT DATABASE ERROR HERE ---
@@ -186,12 +185,12 @@ def propose_allocation(
 
                 base_desc = getattr(target_obj, "description", "") or ""
                 role_str = f"Role: {payload.role_on_project}" if payload.role_on_project else ""
-                session_str = f"Session: {payload.session}" if payload.session else ""
-                extra_details = " | ".join(filter(None, [role_str, session_str]))
+                
+                
 
                 full_description = (
                     f"A new {target_type_label} allocation proposal has been submitted for your review.\n"
-                    f"{extra_details}\n\n"
+                    
                     f"Details: {base_desc}"
                 ).strip()
 
@@ -286,7 +285,10 @@ def assign_student(
 
     return new_allocation
 
-# Helper to calculate week start date
+# -------------------------------------------------------------------
+# HELPER FUNCTIONS
+# -------------------------------------------------------------------
+
 def get_week_start(d: date) -> date:
     """Returns the Monday of the week for a given date."""
     return d - timedelta(days=d.weekday())
@@ -305,22 +307,25 @@ def get_week_starts_in_range(start_date: date, end_date: date) -> list[date]:
     return weeks
 
 
-def generate_next_availability_id(db: Session) -> str:
+def generate_next_availability_id(db: Session, offset: int = 0) -> str:
     """
-    Generates sequential availability IDs based on the highest existing ID.
+    Generates sequential availability IDs based on the highest existing ID + offset.
     """
     max_id = db.query(func.max(Availability.availability_id)).scalar()
 
     if not max_id:
-        next_num = 1
+        next_num = 1 + offset
     else:
         try:
-            next_num = int(max_id.split("-")[-1]) + 1
+            next_num = int(max_id.split("-")[-1]) + 1 + offset
         except (ValueError, IndexError):
-            next_num = 1
+            next_num = 1 + offset
 
     return f"rp2-avail-{next_num:04d}"
 
+def normalize_day(day_str: str) -> str:
+    """Normalizes day names to a lowercase 3-letter code (e.g., 'Monday' -> 'mon')."""
+    return day_str.strip().lower()[:3]
 
 def assign_project_schedule_for_mentor(
     db: Session,
@@ -364,7 +369,7 @@ def assign_project_schedule_for_mentor(
 
         for proj in active_projects:
             if proj.day_of_week and proj.session:
-                days = [d.strip().lower() for d in proj.day_of_week.split(",") if d.strip()]
+                days = [normalize_day(d) for d in proj.day_of_week.split(",") if d.strip()]
                 sess = proj.session.strip().lower()
                 for d in days:
                     busy_slots.add((d, sess))
@@ -380,13 +385,13 @@ def assign_project_schedule_for_mentor(
             batch_days_str = getattr(batch, "day_of_week", None)
             batch_sess_str = getattr(batch, "session", None)
             if batch_days_str and batch_sess_str:
-                days = [d.strip().lower() for d in str(batch_days_str).split(",") if d.strip()]
+                days = [normalize_day(d) for d in str(batch_days_str).split(",") if d.strip()]
                 sess = str(batch_sess_str).strip().lower()
                 for d in days:
                     busy_slots.add((d, sess))
 
         # 3. Available session candidate priorities
-        candidate_sessions = ["evening", "morning", "afternoon"]
+        candidate_sessions = ["evening", "morning"]
         if preferred_session and preferred_session.strip().lower() in candidate_sessions:
             pref = preferred_session.strip().lower()
             candidate_sessions.remove(pref)
@@ -396,17 +401,17 @@ def assign_project_schedule_for_mentor(
         day_pair_candidates = [
             ("Tue", "Thu"),
             ("Mon", "Wed"),
-            ("Wed", "Fri"),
-            ("Mon", "Thu"),
-            ("Tue", "Fri")
+        
         ]
 
+        # 5. FIND THE FIRST COMPLETELY FREE COMBINATION
         assigned = False
         for sess in candidate_sessions:
             for day1, day2 in day_pair_candidates:
-                slot1_busy = (day1.lower(), sess) in busy_slots
-                slot2_busy = (day2.lower(), sess) in busy_slots
+                slot1_busy = (normalize_day(day1), sess) in busy_slots
+                slot2_busy = (normalize_day(day2), sess) in busy_slots
 
+                # Allocate only if BOTH days are free in this session
                 if not slot1_busy and not slot2_busy:
                     project.day_of_week = f"{day1}, {day2}"
                     project.session = sess
@@ -457,6 +462,8 @@ def update_employee_availability_on_assignment(
         )
         other_active_project_ids = [a[0] for a in active_allocations if a[0]]
 
+    new_records_count = 0
+
     for week_start in week_starts:
         week_end = week_start + timedelta(days=6)
 
@@ -480,7 +487,7 @@ def update_employee_availability_on_assignment(
         availability_record = (
             db.query(Availability)
             .filter(
-                Availability.employee_id == employee_id,
+                Availability.resource_id == employee_id,
                 Availability.week_start_date == week_start,
                 func.lower(Availability.session) == target_session
             )
@@ -491,12 +498,14 @@ def update_employee_availability_on_assignment(
             current_hours = float(availability_record.available_hours or 0.0)
             availability_record.available_hours = max(0.0, current_hours - 3.0)
         else:
-            new_avail_id = generate_next_availability_id(db)
+            new_avail_id = generate_next_availability_id(db, offset=new_records_count)
+            new_records_count += 1
             new_hours = max(0.0, default_session_capacity - 3.0)
 
             new_availability = Availability(
                 availability_id=new_avail_id,
-                employee_id=employee_id,
+                resource_id=employee_id,
+                resource_type="employee",
                 week_start_date=week_start,
                 session=target_session,
                 available_hours=new_hours,
@@ -506,7 +515,7 @@ def update_employee_availability_on_assignment(
 
 
 # -------------------------------------------------------------------
-# CONFIRMATION BY ADMIN (Updated for Substitution, Availability & Schedule)
+# CONFIRMATION BY ADMIN ROUTE
 # -------------------------------------------------------------------
 @router.patch("/{identifier}/assign", response_model=AllocationResponse)
 def assign_allocation(
@@ -591,14 +600,15 @@ def assign_allocation(
                 project.mentor_id = str(allocation.resource_id)
 
             if person:
-                alloc_session = getattr(allocation, "session", None) or getattr(allocation, "session_type", None)
-
                 # --- SCHEDULE (DAY OF WEEK & SESSION) LOGIC ---
+                # Read preferred session directly from project entity if pre-configured
+                initial_project_session = getattr(project, "session", None)
+
                 assign_project_schedule_for_mentor(
                     db=db,
                     project=project,
                     person=person,
-                    preferred_session=alloc_session
+                    preferred_session=initial_project_session
                 )
 
                 # --- AVAILABILITY UPDATE LOGIC ---
@@ -607,7 +617,7 @@ def assign_allocation(
                     db=db,
                     employee_id=str(person.employee_id),
                     project=project,
-                    session_name=project.session or alloc_session or "morning",
+                    session_name=project.session or "morning",  # Uses updated project.session
                     department_name=dept_name
                 )
 

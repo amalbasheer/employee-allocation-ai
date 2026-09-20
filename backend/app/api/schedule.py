@@ -1,13 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 from typing import Optional
 from pydantic import BaseModel, validator
 
 from app.database import get_db
-from app.models import Allocation, TrainingEngagement, StudentBatch, AllocationLog
-from app.api.deps import require_admin
+from app.models import Allocation, TrainingEngagement, StudentBatch, AllocationLog, Project
+from app.models.taxonomy import ScheduleOverride
+from app.api.deps import require_admin, get_current_user
 from app.schemas.project import UserProfile
 
 router = APIRouter()
@@ -33,42 +34,144 @@ class ShiftUpdateRequest(BaseModel):
             raise ValueError("Entity type must be 'project', 'training_engagement', or 'student_batch'")
         return v
 
+def to_date_obj(val: any) -> Optional[date]:
+    """Helper to safely convert string, datetime, or date into a date object."""
+    if not val:
+        return None
+    if isinstance(val, datetime):
+        return val.date()
+    if isinstance(val, date):
+        return val
+    if isinstance(val, str):
+        try:
+            return datetime.strptime(val[:10], "%Y-%m-%d").date()
+        except ValueError:
+            return None
+    return None
+
+
+def get_active_days(day_of_week_str: Optional[str], item_start_date: Optional[date], days_of_week_list: list) -> list:
+    """
+    Resolves matching days in days_of_week_list based on:
+    1. Comma-separated day strings (e.g., 'Mon, Wed, Fri')
+    2. Start date calculation (for Training Engagements)
+    """
+    # Build lookup map for flexible matching (e.g. 'mon' -> 'Mon'/'Monday')
+    day_lookup = {}
+    for d in days_of_week_list:
+        d_clean = str(d).strip().lower()
+        day_lookup[d_clean] = d
+        day_lookup[d_clean[:3]] = d  # handle 3-letter abbreviation
+
+    matched_days = []
+
+    # Case 1: Stored string day of week (Projects & Batches)
+    if day_of_week_str:
+        tokens = [t.strip().lower() for t in day_of_week_str.replace(";", ",").split(",") if t.strip()]
+        for token in tokens:
+            if token in day_lookup:
+                matched_days.append(day_lookup[token])
+            elif token[:3] in day_lookup:
+                matched_days.append(day_lookup[token[:3]])
+
+    # Case 2: Calculated from start_date (Training Engagements)
+    elif item_start_date:
+        full_day = item_start_date.strftime("%A").lower()  # e.g., 'monday'
+        short_day = item_start_date.strftime("%a").lower()  # e.g., 'mon'
+        if full_day in day_lookup:
+            matched_days.append(day_lookup[full_day])
+        elif short_day in day_lookup:
+            matched_days.append(day_lookup[short_day])
+
+    return list(set(matched_days))
+
+# Flexible lookup supporting both short ('Wed') and full ('Wednesday') day names
+DAY_OFFSET_MAP = {
+    "monday": 0, "mon": 0,
+    "tuesday": 1, "tue": 1,
+    "wednesday": 2, "wed": 2,
+    "thursday": 3, "thu": 3,
+    "friday": 4, "fri": 4,
+    "saturday": 5, "sat": 5,
+    "sunday": 6, "sun": 6,
+}
+
+def get_day_offset(day_name: str) -> int:
+    """Safely converts any day name string to its Monday-relative index (0-6)."""
+    clean_name = str(day_name).strip().lower()
+    return DAY_OFFSET_MAP.get(clean_name, 0)
+
 
 @router.get("/calendar")
 def get_weekly_calendar_schedule(
     week_start: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """
-    Retrieves weekly schedules across:
-    1. Projects (allocations + projects + company_employees)
-    2. Training Engagements (training_engagements + company_employees)
-    3. Student Batches (student_batches + company_employees)
-    """
     if not week_start:
         today = datetime.now(timezone.utc).date()
         monday = today - timedelta(days=today.weekday())
-        week_start = monday.strftime("%Y-%m-%d")
+        target_week_start = monday
+    else:
+        target_week_start = datetime.strptime(week_start, "%Y-%m-%d").date()
 
-    # UNION ALL combining all three sources
+    target_week_end = target_week_start + timedelta(days=6)
+
+    # -------------------------------------------------------------------
+    # 1. FETCH ALL SCHEDULE OVERRIDES FOR THE WEEK
+    # -------------------------------------------------------------------
+    overrides_query = text("""
+        SELECT 
+            LOWER(TRIM(entity_type)) AS entity_type,
+            LOWER(TRIM(entity_id)) AS entity_id,
+            override_date,
+            LOWER(TRIM(original_session)) AS original_session,
+            LOWER(TRIM(new_session)) AS new_session,
+            scope
+        FROM schedule_overrides
+        WHERE override_date BETWEEN :w_start AND :w_end
+           OR week_start_date = :w_start
+    """)
+    override_rows = db.execute(
+        overrides_query, 
+        {"w_start": target_week_start, "w_end": target_week_end}
+    ).fetchall()
+
+    # Map overrides: (entity_type, entity_id, date_str) -> override detail
+    overrides_map = {}
+    for row in override_rows:
+        e_type, e_id, o_date, orig_sess, new_sess, scope = row
+        o_date_str = o_date.strftime("%Y-%m-%d") if isinstance(o_date, (date, datetime)) else str(o_date)
+        
+        lookup_key = (e_type, e_id, o_date_str)
+        overrides_map[lookup_key] = {
+            "new_session": new_sess,
+            "original_session": orig_sess,
+            "scope": scope
+        }
+
+    # -------------------------------------------------------------------
+    # 2. FETCH BASE SCHEDULES
+    # -------------------------------------------------------------------
     query = text("""
-        -- 1. PROJECTS SCHEDULE (allocations + projects + company_employees)
+        -- 1. PROJECTS SCHEDULE
         SELECT 
             a.reference_id AS item_id,
             'project' AS entity_type,
             a.resource_id,
             COALESCE(ce.name, 'Unknown Employee') AS employee_name,
             COALESCE(p.title, a.reference_id) AS title,
-            LOWER(COALESCE(a.session, 'morning')) AS session,
+            LOWER(COALESCE(p.session, 'morning')) AS session,
             p.start_date,
-            p.end_date
+            p.end_date,
+            p.day_of_week AS day_of_week
         FROM allocations a
         JOIN company_employees ce ON a.resource_id = ce.employee_id
         JOIN projects p ON a.reference_id = p.project_id
-        WHERE LOWER(p.status) IN ('in_progress') and LOWER(a.status) IN ('assigned')
+        WHERE LOWER(p.status) IN ('in_progress') AND LOWER(a.status) IN ('assigned')
+
         UNION ALL
 
-        -- 2. TRAINING ENGAGEMENT SCHEDULE (training_engagements + company_employees)
+        -- 2. TRAINING ENGAGEMENT SCHEDULE
         SELECT 
             te.engagement_id AS item_id,
             'training_engagement' AS entity_type,
@@ -77,14 +180,15 @@ def get_weekly_calendar_schedule(
             COALESCE(te.title, te.engagement_id) AS title,
             LOWER(COALESCE(te.session, 'morning')) AS session,
             te.start_date,
-            te.end_date 
+            te.end_date,
+            NULL AS day_of_week
         FROM training_engagements te
         JOIN company_employees ce ON te.mentor_id = ce.employee_id
         WHERE LOWER(COALESCE(te.status, 'active')) IN ('allocated', 'in_progress', 'assigned')
 
         UNION ALL
 
-        -- 3. STUDENT BATCH SCHEDULE (student_batches + company_employees)
+        -- 3. STUDENT BATCH SCHEDULE
         SELECT 
             sb.batch_id AS item_id,
             'student_batch' AS entity_type,
@@ -93,7 +197,8 @@ def get_weekly_calendar_schedule(
             COALESCE(sb.batch_name, sb.batch_id) AS title,
             LOWER(COALESCE(sb.session, 'morning')) AS session,
             sb.start_date,
-            sb.end_date
+            sb.end_date,
+            sb.day_of_week AS day_of_week
         FROM student_batches sb
         JOIN company_employees ce ON sb.mentor_id = ce.employee_id
         WHERE LOWER(COALESCE(sb.status, 'active')) IN ('in_progress')
@@ -105,7 +210,16 @@ def get_weekly_calendar_schedule(
     employee_map = {}
 
     for row in rows:
-        item_id, entity_type, res_id, emp_name, title, session_val, start_date, end_date = row
+        item_id, entity_type, res_id, emp_name, title, base_session, start_date_val, end_date_val, raw_day_of_week = row
+
+        item_start = to_date_obj(start_date_val)
+        item_end = to_date_obj(end_date_val)
+
+        # Date range filtering
+        if item_start and item_start > target_week_end:
+            continue
+        if item_end and item_end < target_week_start:
+            continue
 
         if res_id not in employee_map:
             employee_map[res_id] = {
@@ -116,65 +230,158 @@ def get_weekly_calendar_schedule(
                 }
             }
 
-        schedule_item = {
-            "item_id": item_id,
-            "entity_type": entity_type,
-            "title": title,
-            "session": session_val if session_val in ["morning", "evening"] else "morning"
-        }
+        # Resolve matching days for this schedule item
+        active_days = get_active_days(raw_day_of_week, item_start, DAYS_OF_WEEK)
 
-        # Populate allocation across Monday - Friday
-        sess_key = schedule_item["session"]
-        for day in DAYS_OF_WEEK:
-            employee_map[res_id]["days"][day][sess_key].append(schedule_item)
+        for day in active_days:
+            # Standardize day key to match employee_map keys
+            matched_day_key = next((d for d in DAYS_OF_WEEK if d.lower().startswith(day.lower()[:3])), None)
+            
+            if matched_day_key and matched_day_key in employee_map[res_id]["days"]:
+                # 1. Calculate actual YYYY-MM-DD date for this day
+                day_offset = get_day_offset(matched_day_key)
+                actual_date = target_week_start + timedelta(days=day_offset)
+                date_str = actual_date.strftime("%Y-%m-%d")
+
+                # 2. Check for single-day or weekly override
+                clean_entity_type = str(entity_type).strip().lower()
+                clean_item_id = str(item_id).strip().lower()
+                override_key = (clean_entity_type, clean_item_id, date_str)
+
+                clean_base_session = str(base_session).lower() if base_session else "morning"
+                final_session = clean_base_session if clean_base_session in ["morning", "evening"] else "morning"
+                is_overridden = False
+
+                if override_key in overrides_map:
+                    final_session = overrides_map[override_key]["new_session"]
+                    is_overridden = True
+
+                schedule_item = {
+                    "item_id": item_id,
+                    "entity_type": entity_type,
+                    "title": title,
+                    "session": final_session,
+                    "date": date_str,
+                    "is_overridden": is_overridden
+                }
+
+                # 3. Assign item to the correct session slot (morning / evening)
+                target_slot = final_session if final_session in ["morning", "evening"] else "morning"
+                employee_map[res_id]["days"][matched_day_key][target_slot].append(schedule_item)
 
     return {
-        "week_start_date": week_start,
+        "week_start_date": target_week_start.strftime("%Y-%m-%d"),
         "days": DAYS_OF_WEEK,
         "schedules": list(employee_map.values())
     }
 
 
-@router.patch("/shift")
-def update_schedule_shift(
-    payload: ShiftUpdateRequest,
+
+class ShiftOverrideRequest(BaseModel):
+    entity_type: str                  # 'project', 'student_batch', 'training_engagement'
+    item_id: str                      # project_id, batch_id, etc.
+    new_session: str                  # 'morning', 'afternoon', 'evening'
+    scope: str = "single_day"         # 'single_day' or 'full_week'
+    override_date: Optional[date] = None      # Required if scope == 'single_day'
+    week_start_date: Optional[date] = None    # Required if scope == 'full_week'
+    reason: Optional[str] = None
+
+def generate_next_log_id(db: Session) -> str:
+    """Safely extracts the maximum numeric suffix from allocation_logs to generate rp2-log-XXXX."""
+    records = db.query(AllocationLog.log_id).filter(
+        AllocationLog.log_id.like("rp2-log-%")
+    ).all()
+
+    max_num = 0
+    for (log_id,) in records:
+        if log_id:
+            parts = str(log_id).split("-")
+            if parts[-1].isdigit():
+                max_num = max(max_num, int(parts[-1]))
+
+    return f"rp2-log-{max_num + 1:04d}"
+
+@router.post("/override")
+def create_schedule_override(
+    payload: ShiftOverrideRequest,
     db: Session = Depends(get_db),
-    current_user: UserProfile = Depends(require_admin)
+    current_user: UserProfile = Depends(get_current_user)  # Allows both Admin & Employee
 ):
-    """
-    Updates the session ('morning' or 'evening') in the respective table 
-    (allocations, training_engagements, or student_batches).
-    """
-    entity_type = payload.entity_type.lower()
-    item_id = payload.item_id
-    new_session = payload.session
-
+    entity_type = payload.entity_type.lower().strip()
+    
+    # 1. Fetch current default session from base entity (for logging)
+    original_session = None
     if entity_type == "project":
-        record = db.query(Allocation).filter(Allocation.reference_id == item_id and Allocation.status == 'assigned')
-        if not record:
-            raise HTTPException(status_code=404, detail=f"Allocation '{item_id}' not found.")
-        old_session = record.session
-        record.session = new_session
+        item = db.query(Project).filter(Project.project_id == payload.item_id).first()
+        if not item:
+            raise HTTPException(status_code=404, detail="Project not found")
+        original_session = item.session
+    elif entity_type in ["student_batch", "batch"]:
+        item = db.query(StudentBatch).filter(StudentBatch.batch_id == payload.item_id).first()
+        if not item:
+            raise HTTPException(status_code=404, detail="Student Batch not found")
+        original_session = item.session
+    elif entity_type in ["training_engagement", "training"]:
+        item = db.query(TrainingEngagement).filter(TrainingEngagement.engagement_id == payload.item_id).first()
+        if not item:
+            raise HTTPException(status_code=404, detail="Training Engagement not found")
+        original_session = item.session
 
-    elif entity_type == "training_engagement":
-        record = db.query(TrainingEngagement).filter(TrainingEngagement.engagement_id == item_id).first()
-        if not record:
-            raise HTTPException(status_code=404, detail=f"Training Engagement '{item_id}' not found.")
-        old_session = record.session
-        record.session = new_session
+    # 2. Check if an override already exists for this entity on this date/week
+    existing_query = db.query(ScheduleOverride).filter(
+        ScheduleOverride.entity_type == entity_type,
+        ScheduleOverride.entity_id == payload.item_id,
+        ScheduleOverride.scope == payload.scope
+    )
+    
+    if payload.scope == "single_day":
+        if not payload.override_date:
+            raise HTTPException(status_code=400, detail="override_date is required for single_day scope")
+        existing_override = existing_query.filter(ScheduleOverride.override_date == payload.override_date).first()
+    else:
+        if not payload.week_start_date:
+            raise HTTPException(status_code=400, detail="week_start_date is required for full_week scope")
+        existing_override = existing_query.filter(ScheduleOverride.week_start_date == payload.week_start_date).first()
 
-    elif entity_type == "student_batch":
-        record = db.query(StudentBatch).filter(StudentBatch.batch_id == item_id).first()
-        if not record:
-            raise HTTPException(status_code=404, detail=f"Student Batch '{item_id}' not found.")
-        old_session = record.session
-        record.session = new_session
+    # 3. Upsert override
+    if existing_override:
+        existing_override.new_session = payload.new_session
+        existing_override.created_by_user_id = str(current_user.id)
+        existing_override.created_by_role = getattr(current_user, "role", "employee")
+        existing_override.reason = payload.reason
+        target_override = existing_override
+    else:
+        next_id = f"ovr-{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+        target_override = ScheduleOverride(
+            override_id=next_id,
+            entity_type=entity_type,
+            entity_id=payload.item_id,
+            scope=payload.scope,
+            override_date=payload.override_date,
+            week_start_date=payload.week_start_date,
+            original_session=original_session,
+            new_session=payload.new_session,
+            reason=payload.reason,
+            created_by_user_id=str(current_user.id),
+            created_by_role=getattr(current_user, "role", "employee")
+        )
+        db.add(target_override)
 
-    # Record Audit Log Entry
+    # 1. Try to find a matching allocation record if available
+    allocation_id = None
+    if entity_type in ("project", "training"):
+        alloc = db.query(Allocation).filter(
+            Allocation.reference_id == payload.item_id
+        ).first()
+        if alloc:
+            allocation_id = alloc.allocation_id
+
+    log_id = generate_next_log_id(db)
+    # 4. Audit Log Entry
     audit_log = AllocationLog(
-        log_id=f"log-{int(datetime.now(timezone.utc).timestamp() * 1000)}",
-        allocation_id=item_id,
-        action=f"SHIFT_CHANGE [{entity_type.upper()}]: {old_session} -> {new_session}",
+        log_id=log_id,
+        allocation_id=allocation_id,
+        action=f"TEMPORARY_SHIFT [{payload.scope.upper()}]: {original_session or 'N/A'} -> {payload.new_session}",
         changed_by=current_user.name,
         timestamp=datetime.now(timezone.utc)
     )
@@ -183,8 +390,8 @@ def update_schedule_shift(
     db.commit()
 
     return {
-        "message": f"Shift updated successfully in {entity_type} table.",
-        "item_id": item_id,
-        "entity_type": entity_type,
-        "session": new_session
+        "message": "Temporary shift schedule saved successfully.",
+        "override_id": target_override.override_id,
+        "scope": target_override.scope,
+        "new_session": target_override.new_session
     }

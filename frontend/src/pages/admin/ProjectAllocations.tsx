@@ -7,7 +7,8 @@ import {
   User,
   Edit2,
   Sun,
-  Type
+  Type,
+  CalendarDays
 } from 'lucide-react';
 import { Card } from '../../components/common/Card';
 import AIProjectModal from "../../components/AIProjectModal";
@@ -78,6 +79,7 @@ export interface Project {
   github_url?: string;
   deployed_url?: string;
   session?: string;
+  day_of_week?: string;
 }
 
 // --- Optimization API Interfaces ---
@@ -390,6 +392,7 @@ export const ProjectAllocation: React.FC = () => {
           github_url: p.github_url || 'Not Provided',
           deployed_url: p.deployed_url || 'Not provided',
           session: p.session,
+          day_of_week: p.day_of_week,
         };
       });
 
@@ -1283,14 +1286,15 @@ const renderProjectLinks = (project: Project) => {
                     <span className="flex items-center gap-1 text-slate-300">
                       <Tag className="w-3.5 h-3.5 text-indigo-400" /> {project.category}
                     </span>
-                    <span className="flex items-center gap-1 text-slate-300">
-                      <Type className="w-3.5 h-3.5 text-indigo-400" /> {project.project_type}
-                    </span>
+                    
                     <span className="flex items-center gap-1">
                       <Calendar className="w-3.5 h-3.5" /> Start: {project.startDate}
                     </span>
                     <span className="flex items-center gap-1">
                       <Sun className="w-3.5 h-3.5" /> Session: {project.session}
+                    </span>
+                    <span className="flex items-center gap-1 text-slate-300">
+                      <CalendarDays className="w-3.5 h-3.5 text-indigo-400" /> Days: {project.day_of_week}
                     </span>
                   </div>
 

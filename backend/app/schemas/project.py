@@ -105,5 +105,6 @@ class ProjectResponse(ProjectBase):
     completed_milestones: Optional[List[str]] = []
     github_url: Optional[str] = None
     deployed_url: Optional[str] = None
+    session: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
