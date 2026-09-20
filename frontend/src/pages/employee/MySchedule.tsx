@@ -455,7 +455,7 @@ const MyScheduleCard: React.FC<MyScheduleCardProps> = ({
           className="text-[10px] text-fuchsia-300 hover:text-fuchsia-100 bg-fuchsia-950/60 hover:bg-fuchsia-900 border border-fuchsia-700/50 px-1.5 py-0.5 rounded transition"
           title="Advanced override settings"
         >
-          Options ⚙
+          Options 
         </button>
       </div>
     </div>

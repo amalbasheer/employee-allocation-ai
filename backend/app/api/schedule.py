@@ -126,7 +126,7 @@ def get_weekly_calendar_schedule(
             override_date,
             LOWER(TRIM(original_session)) AS original_session,
             LOWER(TRIM(new_session)) AS new_session,
-            scope
+            scope, reason
         FROM schedule_overrides
         WHERE override_date BETWEEN :w_start AND :w_end
            OR week_start_date = :w_start
@@ -139,14 +139,15 @@ def get_weekly_calendar_schedule(
     # Map overrides: (entity_type, entity_id, date_str) -> override detail
     overrides_map = {}
     for row in override_rows:
-        e_type, e_id, o_date, orig_sess, new_sess, scope = row
+        e_type, e_id, o_date, orig_sess, new_sess, scope, reason = row
         o_date_str = o_date.strftime("%Y-%m-%d") if isinstance(o_date, (date, datetime)) else str(o_date)
         
         lookup_key = (e_type, e_id, o_date_str)
         overrides_map[lookup_key] = {
             "new_session": new_sess,
             "original_session": orig_sess,
-            "scope": scope
+            "scope": scope,
+            "reason": reason,
         }
 
     # -------------------------------------------------------------------
@@ -262,7 +263,8 @@ def get_weekly_calendar_schedule(
                     "title": title,
                     "session": final_session,
                     "date": date_str,
-                    "is_overridden": is_overridden
+                    "is_overridden": is_overridden,
+                    "reason": overrides_map[override_key]["reason"] if is_overridden else None,
                 }
 
                 # 3. Assign item to the correct session slot (morning / evening)
@@ -274,6 +276,7 @@ def get_weekly_calendar_schedule(
         "days": DAYS_OF_WEEK,
         "schedules": list(employee_map.values())
     }
+
 @router.get("/my-schedule")
 def get_my_weekly_schedule(
     week_start: Optional[str] = None,
@@ -333,7 +336,7 @@ def get_my_weekly_schedule(
             override_date,
             LOWER(TRIM(original_session)) AS original_session,
             LOWER(TRIM(new_session)) AS new_session,
-            scope
+            scope, reason
         FROM schedule_overrides
         WHERE override_date BETWEEN :w_start AND :w_end
            OR week_start_date = :w_start

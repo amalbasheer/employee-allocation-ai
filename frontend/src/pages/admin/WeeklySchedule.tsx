@@ -7,7 +7,8 @@ interface ScheduleItem {
   entity_type: 'project' | 'training_engagement' | 'student_batch';
   title: string;
   session: 'morning' | 'evening';
-  is_override?: boolean;
+  is_overridden?: boolean;
+  reason?: string;
 }
 
 interface DayShiftData {
@@ -253,6 +254,7 @@ interface CardProps {
 const CalendarCard: React.FC<CardProps> = ({ item, updatingId, getBadgeStyle, onShiftChange }) => {
   const isUpdating = updatingId === item.item_id;
   const badge = getBadgeStyle(item.entity_type);
+  const shiftReason = item.reason;
 
   return (
     <div className={`p-2.5 bg-[#041d24] hover:bg-[#18243e] border border-indigo-800/60 hover:border-cyan-400 rounded-md shadow-md hover:shadow-[0_0_15px_rgba(34,211,238,0.25)] space-y-1.5 mb-2 transition-all ${isUpdating ? 'opacity-50' : ''}`}>
@@ -260,9 +262,13 @@ const CalendarCard: React.FC<CardProps> = ({ item, updatingId, getBadgeStyle, on
         <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider ${badge.color}`}>
           {badge.label}
         </span>
-        {item.is_override && (
-          <span className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1 py-0.5 rounded font-mono">
-            Shifted
+        {item.is_overridden && (
+          <span title={shiftReason ? `Reason: ${shiftReason}` : 'Shifted from default session'}
+            className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded font-mono flex items-center gap-1 cursor-help shrink-0"
+          >
+            <span>Shifted</span>
+            {shiftReason && <span className="text-[10px]"></span>} 
+          
           </span>
         )}
       
@@ -271,6 +277,17 @@ const CalendarCard: React.FC<CardProps> = ({ item, updatingId, getBadgeStyle, on
       <div className="text-xs font-semibold text-white leading-tight">
         {item.title}
       </div>
+
+     {/* Shift Reason Box (temporarily disabled) 
+      {item.is_overridden && shiftReason && (
+        <div 
+          title={shiftReason}
+          className="text-[10px] bg-amber-950/40 text-amber-200/90 border border-amber-500/30 rounded px-1.5 py-1 leading-snug flex items-start gap-1 backdrop-blur-sm"
+        >
+          <span className="text-amber-400 font-bold shrink-0">Note:</span>
+          <span className="line-clamp-2 italic">{shiftReason}</span>
+        </div>
+      )}*/}
 
       
 
