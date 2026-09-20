@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime, timezone, date, timedelta
 from typing import List, Optional
 
@@ -869,11 +870,135 @@ def create_student_batch(payload: CreateStudentBatchSchema, db: Session = Depend
     db.refresh(new_batch)
     return new_batch
 
+
+def parse_days_count(day_of_week_input) -> int:
+    """
+    Parses day_of_week whether provided as a string or list/iterable.
+    Example:
+      - "Tuesday, Thursday" -> 2
+      - "Mon, Wed, Fri" -> 3
+      - ["Tuesday", "Thursday"] -> 2
+    """
+    if not day_of_week_input:
+        return 0
+
+    if isinstance(day_of_week_input, list):
+        return len([d for d in day_of_week_input if str(d).strip()])
+
+    if isinstance(day_of_week_input, str):
+        # Split by commas, slashes, or pipes
+        days = [d.strip() for d in re.split(r'[,/|]+', day_of_week_input) if d.strip()]
+        return len(days)
+
+    return 0
+
+def get_week_start(d: date) -> date:
+    """Returns the Monday of the week for a given date."""
+    return d - timedelta(days=d.weekday())
+
+def get_week_starts_in_range(start_date: date | datetime, end_date: date | datetime) -> list[date]:
+    """
+    Generates a list of all week start dates (Mondays) falling between 
+    start_date and end_date (inclusive of start and end weeks).
+    Accepts both `datetime.date` and `datetime.datetime` objects.
+    """
+    # Normalize inputs to date objects
+    s_date = start_date.date() if isinstance(start_date, datetime) else start_date
+    e_date = end_date.date() if isinstance(end_date, datetime) else end_date
+
+    weeks = []
+    current_week = get_week_start(s_date)
+    last_week = get_week_start(e_date)
+
+    while current_week <= last_week:
+        weeks.append(current_week)
+        current_week += timedelta(days=7)
+
+    return weeks
+
+def generate_next_availability_id(db: Session) -> str:
+    """
+    Generates sequential availability IDs based on the highest existing ID.
+    """
+    # Fetch the lexicographically highest availability_id
+    max_id = db.query(func.max(Availability.availability_id)).scalar()
+    
+    if not max_id:
+        next_num = 1
+    else:
+        # Extract trailing numbers (e.g., 'rp2-avail-0005' -> 5)
+        try:
+            next_num = int(max_id.split("-")[-1]) + 1
+        except (ValueError, IndexError):
+            next_num = 1
+
+    return f"rp2-avail-{next_num:04d}" 
+
+def update_mentor_availability_for_batch(
+    db: Session,
+    mentor_id: str,
+    batch: StudentBatch,
+    session_name: str,
+    day_of_week_input,
+    hours_per_day: float = 2.0,
+    default_session_capacity: float = 15.0
+):
+    """
+    Calculates weekly hours based on session frequency (2 hrs/day * days in week)
+    and updates/creates availability entries for each week between start_date and end_date.
+    """
+    if not batch.start_date or not batch.end_date:
+        return
+
+    proj_start = batch.start_date.date() if isinstance(batch.start_date, datetime) else batch.start_date
+    proj_end = batch.end_date.date() if isinstance(batch.end_date, datetime) else batch.end_date
+
+    week_starts = get_week_starts_in_range(proj_start, proj_end)
+    target_session = (session_name or "morning").strip().lower()
+
+    # Calculate weekly hours to reduce (2 hours * number of days)
+    num_days = parse_days_count(day_of_week_input)
+    weekly_hours_to_reduce = num_days * hours_per_day
+
+    if weekly_hours_to_reduce <= 0:
+        return
+
+    for week_start in week_starts:
+        # Check if record exists for this mentor, week start date, and session
+        availability_record = (
+            db.query(Availability)
+            .filter(
+                Availability.employee_id == mentor_id,
+                Availability.week_start_date == week_start,
+                func.lower(Availability.session) == target_session
+            )
+            .first()
+        )
+
+        if availability_record:
+            # UPDATE: Reduce available hours
+            current_hours = float(availability_record.available_hours or 0.0)
+            availability_record.available_hours = max(0.0, current_hours - weekly_hours_to_reduce)
+        else:
+            # CREATE: Generate new record with custom primary key ID
+            new_avail_id = generate_next_availability_id(db)
+            new_hours = max(0.0, default_session_capacity - weekly_hours_to_reduce)
+
+            new_availability = Availability(
+                availability_id=new_avail_id,
+                employee_id=mentor_id,
+                week_start_date=week_start,
+                session=target_session,
+                available_hours=new_hours
+            )
+            db.add(new_availability)
+
 @router.post("/student-batches/auto-generate-next")
 def auto_generate_next_batch(db: Session = Depends(get_db)):
     """
     Generates the next batch pair (Offline + Online) for BOTH
-    Data Analytics and Data Science in a single call.
+    Data Analytics, Data Science, and Agentic AI in a single call.
+    Updates mentor availability and sends assignment email notifications.
     """
     all_created_batches = []
 
@@ -910,9 +1035,15 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
             year=start_dt.year
         )
         mentor_id = assigned_mentor.get("employee_id") if assigned_mentor else None
-        session = assigned_mentor.get("session")
-        day_of_week = assigned_mentor.get("day_of_week")
-        short_domain = "DA" if department == "Data Analytics" else "DS"
+        session = assigned_mentor.get("session") if assigned_mentor else None
+        day_of_week = assigned_mentor.get("day_of_week") if assigned_mentor else None
+
+        if department == "Data Analytics":
+            short_domain = "DA"
+        elif department == "Data Science":
+            short_domain = "DS"
+        else:
+            short_domain = "AI"
 
         for mode in ["offline", "online"]:
             batch_name = f"{start_dt.strftime('%b')} {short_domain} {mode.capitalize()}"
@@ -923,22 +1054,72 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
                 end_date=end_dt,
                 delivery_mode=mode,
                 mentor_id=mentor_id,
-                sesion=session,
+                session=session,
+                day_of_week=day_of_week,
                 status="open"
             )
             db.add(new_batch)
             all_created_batches.append(new_batch)
 
+    # 1. Commit new batches so primary keys (batch_id) are generated
     db.commit()
     for b in all_created_batches:
         db.refresh(b)
 
+    # 2. Fetch mentor details for responses and email notifications
     mentor_ids = list({b.mentor_id for b in all_created_batches if b.mentor_id})
     mentor_map = {}
+    employee_objects = {}
     if mentor_ids:
         employees = db.query(CompanyEmployee).filter(CompanyEmployee.employee_id.in_(mentor_ids)).all()
         mentor_map = {e.employee_id: e.name for e in employees}
+        employee_objects = {e.employee_id: e for e in employees}
 
+    # 3. Update Mentor Availability & Send Email Notifications
+    for batch in all_created_batches:
+        if batch.mentor_id:
+            # Update Mentor Availability
+            update_mentor_availability_for_batch(
+                db=db,
+                mentor_id=str(batch.mentor_id),
+                batch=batch,
+                session_name=batch.session,
+                day_of_week_input=batch.day_of_week,
+                hours_per_day=2.0
+            )
+
+            # Send Email Notification
+            mentor = employee_objects.get(batch.mentor_id)
+            if mentor and mentor.email:
+                try:
+                    days_str = (
+                        ", ".join(batch.day_of_week) 
+                        if isinstance(batch.day_of_week, list) 
+                        else str(batch.day_of_week or "N/A")
+                    )
+                    batch_title = batch.batch_name or f"Batch {batch.batch_id}"
+                    description = (
+                        f"You have been automatically assigned as the mentor for Student Batch '{batch_title}'. "
+                        f"Delivery Mode: {batch.delivery_mode.capitalize()} | "
+                        f"Schedule: {str(batch.session).capitalize() if batch.session else 'N/A'} Session on {days_str}."
+                    )
+
+                    send_assignment_notification(
+                        recipient_email=mentor.email,
+                        recipient_name=mentor.name,
+                        project_title=batch_title,
+                        description=description,
+                        start_date=str(batch.start_date) if batch.start_date else "TBD",
+                        end_date=str(batch.end_date) if batch.end_date else "TBD",
+                        priority="High",
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to send batch mentor assignment notification email: {e}")
+
+    # Commit availability updates
+    db.commit()
+
+    # 4. Construct Response Payload
     response = []
     for b in all_created_batches:
         response.append({
@@ -952,6 +1133,7 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
             "trainer_name": mentor_map.get(b.mentor_id, "Unassigned"),
             "status": b.status,
             "session": b.session,
+            "day_of_week": getattr(b, "day_of_week", None)
         })
 
     return response
