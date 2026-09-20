@@ -286,6 +286,7 @@ def assign_student(
 
     return new_allocation
 
+# Helper to calculate week start date
 def get_week_start(d: date) -> date:
     """Returns the Monday of the week for a given date."""
     return d - timedelta(days=d.weekday())
@@ -303,23 +304,122 @@ def get_week_starts_in_range(start_date: date, end_date: date) -> list[date]:
 
     return weeks
 
+
 def generate_next_availability_id(db: Session) -> str:
     """
     Generates sequential availability IDs based on the highest existing ID.
     """
-    # Fetch the lexicographically highest availability_id
     max_id = db.query(func.max(Availability.availability_id)).scalar()
-    
+
     if not max_id:
         next_num = 1
     else:
-        # Extract trailing numbers (e.g., 'rp2-avail-0005' -> 5)
         try:
             next_num = int(max_id.split("-")[-1]) + 1
         except (ValueError, IndexError):
             next_num = 1
 
-    return f"rp2-avail-{next_num:04d}"  
+    return f"rp2-avail-{next_num:04d}"
+
+
+def assign_project_schedule_for_mentor(
+    db: Session,
+    project: Project,
+    person: CompanyEmployee,
+    preferred_session: str = None
+):
+    """
+    Assigns day_of_week and session on the Project model according to mentor department rules:
+    - Data Science: Mon, Wed, Fri & evening always.
+    - Data Analytics: Finds 2 free days in the same session by checking overlap against
+      active projects and student batches assigned to the mentor.
+    """
+    dept_name = (person.department or "").strip().lower()
+
+    # ---------------------------------------------------------------
+    # DATA SCIENCE RULE: Fixed Mon, Wed, Fri + Evening
+    # ---------------------------------------------------------------
+    if "data science" in dept_name:
+        project.day_of_week = "Mon, Wed, Fri"
+        project.session = "evening"
+        return
+
+    # ---------------------------------------------------------------
+    # DATA ANALYTICS RULE: Dynamic allocation based on availability
+    # ---------------------------------------------------------------
+    if "data analytics" in dept_name:
+        mentor_id_str = str(person.employee_id)
+        busy_slots = set()  # Set of (day_name_lowercase, session_name_lowercase)
+
+        # 1. Fetch busy slots from active in-progress projects (excluding current project)
+        active_projects = (
+            db.query(Project)
+            .filter(
+                Project.mentor_id == mentor_id_str,
+                Project.status == "in_progress",
+                Project.project_id != project.project_id
+            )
+            .all()
+        )
+
+        for proj in active_projects:
+            if proj.day_of_week and proj.session:
+                days = [d.strip().lower() for d in proj.day_of_week.split(",") if d.strip()]
+                sess = proj.session.strip().lower()
+                for d in days:
+                    busy_slots.add((d, sess))
+
+        # 2. Fetch busy slots from assigned student batches
+        active_batches = (
+            db.query(StudentBatch)
+            .filter(StudentBatch.mentor_id == mentor_id_str)
+            .all()
+        )
+
+        for batch in active_batches:
+            batch_days_str = getattr(batch, "day_of_week", None)
+            batch_sess_str = getattr(batch, "session", None)
+            if batch_days_str and batch_sess_str:
+                days = [d.strip().lower() for d in str(batch_days_str).split(",") if d.strip()]
+                sess = str(batch_sess_str).strip().lower()
+                for d in days:
+                    busy_slots.add((d, sess))
+
+        # 3. Available session candidate priorities
+        candidate_sessions = ["evening", "morning", "afternoon"]
+        if preferred_session and preferred_session.strip().lower() in candidate_sessions:
+            pref = preferred_session.strip().lower()
+            candidate_sessions.remove(pref)
+            candidate_sessions.insert(0, pref)
+
+        # 2-day combination options to pick from
+        day_pair_candidates = [
+            ("Tue", "Thu"),
+            ("Mon", "Wed"),
+            ("Wed", "Fri"),
+            ("Mon", "Thu"),
+            ("Tue", "Fri")
+        ]
+
+        assigned = False
+        for sess in candidate_sessions:
+            for day1, day2 in day_pair_candidates:
+                slot1_busy = (day1.lower(), sess) in busy_slots
+                slot2_busy = (day2.lower(), sess) in busy_slots
+
+                if not slot1_busy and not slot2_busy:
+                    project.day_of_week = f"{day1}, {day2}"
+                    project.session = sess
+                    assigned = True
+                    break
+            if assigned:
+                break
+
+        # Fallback default if no pair was completely free
+        if not assigned:
+            project.day_of_week = "Tue, Thu"
+            project.session = candidate_sessions[0]
+
 
 def update_employee_availability_on_assignment(
     db: Session,
@@ -331,9 +431,6 @@ def update_employee_availability_on_assignment(
 ):
     """
     Deducts 3 hours/week from employee availability for the project duration.
-    - If week_start_date exists -> Updates available_hours (-3 hrs).
-    - If week_start_date missing -> Creates new Availability record with new availability_id.
-    - Department Data Science -> Skips week if another active project overlaps that week.
     """
     if not project.start_date or not project.end_date:
         return
@@ -363,9 +460,7 @@ def update_employee_availability_on_assignment(
     for week_start in week_starts:
         week_end = week_start + timedelta(days=6)
 
-        # ---------------------------------------------------------------
         # DATA SCIENCE RULE: Skip reduction if another active project overlaps
-        # ---------------------------------------------------------------
         if is_data_science and other_active_project_ids:
             has_overlapping_project = (
                 db.query(Project)
@@ -379,12 +474,9 @@ def update_employee_availability_on_assignment(
             ) is not None
 
             if has_overlapping_project:
-                # Employee already committed to an active project this week; skip reduction
                 continue
 
-        # ---------------------------------------------------------------
         # CHECK IF WEEK START DATE RECORD EXISTS IN AVAILABILITY TABLE
-        # ---------------------------------------------------------------
         availability_record = (
             db.query(Availability)
             .filter(
@@ -396,16 +488,14 @@ def update_employee_availability_on_assignment(
         )
 
         if availability_record:
-            # CASE A: Record exists -> Deduct 3 hours from existing record
             current_hours = float(availability_record.available_hours or 0.0)
             availability_record.available_hours = max(0.0, current_hours - 3.0)
         else:
-            # CASE B: Record missing -> Create new record with new availability_id
             new_avail_id = generate_next_availability_id(db)
             new_hours = max(0.0, default_session_capacity - 3.0)
 
             new_availability = Availability(
-                availability_id=new_avail_id, # Set custom primary key ID
+                availability_id=new_avail_id,
                 employee_id=employee_id,
                 week_start_date=week_start,
                 session=target_session,
@@ -414,8 +504,9 @@ def update_employee_availability_on_assignment(
             )
             db.add(new_availability)
 
+
 # -------------------------------------------------------------------
-# CONFIRMATION BY ADMIN (Updated for Substitution & Availability)
+# CONFIRMATION BY ADMIN (Updated for Substitution, Availability & Schedule)
 # -------------------------------------------------------------------
 @router.patch("/{identifier}/assign", response_model=AllocationResponse)
 def assign_allocation(
@@ -425,14 +516,14 @@ def assign_allocation(
 ):
     clean_id = identifier.strip()
 
-    # 1. First attempt direct lookup by unique allocation_id
+    # 1. Direct lookup by unique allocation_id
     allocation = (
         db.query(Allocation)
         .filter(func.lower(Allocation.allocation_id) == clean_id.lower())
         .first()
     )
 
-    # 2. If identifier is a reference_id (Project ID), look specifically for pending proposals ('accepted' or 'proposed')
+    # 2. Lookup by reference_id (Project ID) for pending proposals ('accepted' or 'proposed')
     if not allocation:
         allocation = (
             db.query(Allocation)
@@ -465,7 +556,7 @@ def assign_allocation(
     ref_id = getattr(allocation, "reference_id", None) or getattr(allocation, "project_id", None)
     resource_type = str(getattr(allocation, "resource_type", "employee")).lower().strip()
 
-    # 4. Substitution Handling: Deactivate any previous active allocations for this project
+    # 4. Substitution Handling
     if ref_id:
         previous_active_allocations = (
             db.query(Allocation)
@@ -484,28 +575,39 @@ def assign_allocation(
     allocation.assigned_at = datetime.now(timezone.utc)
     allocation.assigned_by = admin_user.name
 
-    # 6. Update linked target entity & Employee Availability
+    # 6. Update linked target entity, Project Schedule & Employee Availability
     if ref_type == "project" and ref_id:
         project = db.query(Project).filter(Project.project_id == ref_id).first()
         if project:
             project.status = "in_progress"
-            
+
             person = None
             if resource_type in ["employee", "mentor"]:
                 person = db.query(CompanyEmployee).filter(
                     CompanyEmployee.employee_id == allocation.resource_id
                 ).first()
 
-            # --- AVAILABILITY UPDATE LOGIC ---
+            if hasattr(project, "mentor_id") and resource_type in ["employee", "mentor"]:
+                project.mentor_id = str(allocation.resource_id)
+
             if person:
+                alloc_session = getattr(allocation, "session", None) or getattr(allocation, "session_type", None)
+
+                # --- SCHEDULE (DAY OF WEEK & SESSION) LOGIC ---
+                assign_project_schedule_for_mentor(
+                    db=db,
+                    project=project,
+                    person=person,
+                    preferred_session=alloc_session
+                )
+
+                # --- AVAILABILITY UPDATE LOGIC ---
                 dept_name = getattr(person, "department", "") or ""
-                alloc_session = getattr(allocation, "session", None) or getattr(allocation, "session_type", "morning")
-                
                 update_employee_availability_on_assignment(
                     db=db,
                     employee_id=str(person.employee_id),
                     project=project,
-                    session_name=alloc_session,
+                    session_name=project.session or alloc_session or "morning",
                     department_name=dept_name
                 )
 
@@ -523,9 +625,6 @@ def assign_allocation(
                     )
                 except Exception as e:
                     logger.warning(f"Failed to send assignment notification email: {e}")
-
-            if hasattr(project, "mentor_id"):
-                project.mentor_id = str(allocation.resource_id)
 
     elif ref_type in ["batch", "student_batch", "studentbatch"] and ref_id:
         batch_obj = db.query(StudentBatch).filter(StudentBatch.batch_id == ref_id).first()
