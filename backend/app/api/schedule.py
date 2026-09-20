@@ -274,7 +274,6 @@ def get_weekly_calendar_schedule(
         "days": DAYS_OF_WEEK,
         "schedules": list(employee_map.values())
     }
-
 @router.get("/my-schedule")
 def get_my_weekly_schedule(
     week_start: Optional[str] = None,
@@ -283,17 +282,40 @@ def get_my_weekly_schedule(
 ):
     """
     Retrieves the weekly schedule specifically for the currently logged-in employee.
+    Maps authenticated user email -> company_employees.employee_id.
     Includes active Projects, Training Engagements, Student Batches, and Schedule Overrides.
     """
-    # Extract employee_id from authenticated user session/token
-    employee_id = current_user.get("employee_id") or current_user.get("id")
-    if not employee_id:
+    # 1. Safely extract email from authenticated user session (works for both Dict and Pydantic object)
+    user_email = (
+        current_user.get("email") 
+        if isinstance(current_user, dict) 
+        else getattr(current_user, "email", None)
+    )
+
+    if not user_email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, 
-            detail="User does not have an associated employee ID."
+            detail="User session does not contain an email address."
         )
 
-    # 1. Resolve Target Week Range
+    # 2. Look up employee_id and employee_name in company_employees table using email
+    emp_query = text("""
+        SELECT employee_id, name 
+        FROM company_employees 
+        WHERE LOWER(TRIM(email)) = LOWER(TRIM(:email))
+        LIMIT 1
+    """)
+    emp_row = db.execute(emp_query, {"email": user_email}).fetchone()
+
+    if not emp_row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail=f"No matching employee record found for email: {user_email}"
+        )
+
+    employee_id, employee_name = emp_row
+
+    # 3. Resolve Target Week Range
     if not week_start:
         today = datetime.now(timezone.utc).date()
         monday = today - timedelta(days=today.weekday())
@@ -303,7 +325,7 @@ def get_my_weekly_schedule(
 
     target_week_end = target_week_start + timedelta(days=6)
 
-    # 2. Fetch Overrides for this Week Range
+    # 4. Fetch Overrides for this Week Range
     overrides_query = text("""
         SELECT 
             LOWER(TRIM(entity_type)) AS entity_type,
@@ -331,7 +353,7 @@ def get_my_weekly_schedule(
             "scope": scope
         }
 
-    # 3. Fetch Base Schedule FILTERED BY logged-in employee_id
+    # 5. Fetch Base Schedule FILTERED BY mapped employee_id
     query = text("""
         -- 1. PROJECTS SCHEDULE
         SELECT 
@@ -399,11 +421,10 @@ def get_my_weekly_schedule(
         "Friday": {"morning": [], "evening": []},
     }
 
-    employee_name = "Employee"
+    DAYS_LIST = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 
     for row in rows:
         item_id, entity_type, res_id, emp_name, title, base_session, start_date_val, end_date_val, raw_day_of_week = row
-        employee_name = emp_name
 
         item_start = to_date_obj(start_date_val)
         item_end = to_date_obj(end_date_val)
@@ -414,10 +435,10 @@ def get_my_weekly_schedule(
         if item_end and item_end < target_week_start:
             continue
 
-        active_days = get_active_days(raw_day_of_week, item_start, DAYS_OF_WEEK)
+        active_days = get_active_days(raw_day_of_week, item_start, DAYS_LIST)
 
         for day in active_days:
-            matched_day_key = next((d for d in DAYS_OF_WEEK if d.lower().startswith(day.lower()[:3])), None)
+            matched_day_key = next((d for d in DAYS_LIST if d.lower().startswith(day.lower()[:3])), None)
 
             if matched_day_key and matched_day_key in employee_schedule:
                 day_offset = get_day_offset(matched_day_key)
