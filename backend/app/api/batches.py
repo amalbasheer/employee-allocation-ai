@@ -2,11 +2,11 @@
 from fastapi import APIRouter, HTTPException, Depends, status
 import re
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Union
 from sqlalchemy import text, func
 from sqlalchemy.orm import Session
 
-from sqlalchemy import func
+from sqlalchemy import func, Integer
 from datetime import timedelta, datetime, date
 from app.models.webinar import StudentBatch  # adjust path if different
 from app.models.employee import CompanyEmployee, Availability  # adjust path if different
@@ -25,8 +25,8 @@ router = APIRouter()
 # --- Pydantic Schemas ---
 class AssignMentorRequest(BaseModel):
     mentor_id: str
-    session: str
-    day_of_week: str
+    session: Optional[str] = None
+    day_of_week: Optional[Union [str, List[str]]] = None
 
 
 class MentorResponse(BaseModel):
@@ -74,52 +74,6 @@ def get_student_batches(db: Session = Depends(get_db)):
     return [dict(r) for r in results]
 
 
-# -------------------------------------------------------------------------
-# 2. GET RECOMMENDED MENTORS FOR A BATCH
-# -------------------------------------------------------------------------
-@router.get("/{batch_id}/recommended-mentors", response_model=List[MentorResponse])
-def get_recommended_mentors(batch_id: str):
-    """
-    Fetches recommended replacement mentors for a batch directly from the AI Engine.
-    Leverages round-robin ranking (fewest active batch commitments first).
-    """
-    try:
-        # Call AI Engine function (returns dict with keys: id, name, is_team_lead, batch_count)
-        ai_recommendations = recommend_batch_replacement(batch_id)
-
-        formatted_mentors = []
-        for rec in ai_recommendations:
-            # Map batch count to a friendly match score for the frontend (0 batches = 100%, 1 = 90%, etc.)
-            batch_count = rec.get("batch_count", 0)
-            calculated_score = max(50.0, 100.0 - (batch_count * 10))
-
-            designation = "Team Lead" if rec.get("is_team_lead") else "Mentor"
-            session = rec.get("session")
-            day_of_week = rec.get("day_of_week")
-
-            formatted_mentors.append({
-                "id": rec["id"],
-                "name": rec["name"],
-                "designation": designation,
-                "match_score": calculated_score,
-                "is_team_lead": bool(rec.get("is_team_lead")),
-                "batch_count": batch_count,
-                "session": session,
-                "day_of_week": day_of_week,
-            })
-
-        return formatted_mentors
-
-    except ValueError as ve:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(ve)
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch recommended mentors: {str(e)}"
-        )
 
 
 # -------------------------------------------------------------------------
@@ -172,21 +126,21 @@ def get_week_starts_in_range(start_date: date | datetime, end_date: date | datet
 
 def generate_next_availability_id(db: Session) -> str:
     """
-    Generates sequential availability IDs based on the highest existing ID.
+    Generates sequential availability IDs by extracting and incrementing
+    the integer trailing digits using SQL casting.
     """
-    # Fetch the lexicographically highest availability_id
-    max_id = db.query(func.max(Availability.availability_id)).scalar()
-    
-    if not max_id:
-        next_num = 1
-    else:
-        # Extract trailing numbers (e.g., 'rp2-avail-0005' -> 5)
-        try:
-            next_num = int(max_id.split("-")[-1]) + 1
-        except (ValueError, IndexError):
-            next_num = 1
+    # Extract trailing numbers and find numeric MAX directly in SQL
+    max_num = db.query(
+        func.max(
+            func.cast(
+                func.substring(Availability.availability_id, r'(\d+)$'),
+                Integer
+            )
+        )
+    ).scalar() or 0
 
-    return f"rp2-avail-{next_num:04d}" 
+    next_num = max_num + 1
+    return f"rp2-avail-{next_num:04d}"
 
 def update_mentor_availability_for_batch(
     db: Session,
@@ -222,7 +176,7 @@ def update_mentor_availability_for_batch(
         availability_record = (
             db.query(Availability)
             .filter(
-                Availability.employee_id == mentor_id,
+                Availability.resource_id == mentor_id,
                 Availability.week_start_date == week_start,
                 func.lower(Availability.session) == target_session
             )
@@ -240,12 +194,14 @@ def update_mentor_availability_for_batch(
 
             new_availability = Availability(
                 availability_id=new_avail_id,
-                employee_id=mentor_id,
+                resource_id=mentor_id,
+                resource_type="employee",
                 week_start_date=week_start,
                 session=target_session,
                 available_hours=new_hours
             )
             db.add(new_availability)
+            db.flush()
 
 @router.put("/{batch_id}/assign-mentor")
 def assign_mentor_to_batch(
@@ -257,9 +213,14 @@ def assign_mentor_to_batch(
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
 
+    # Fall back to existing batch schedule if payload fields are None/omitted
+    session_val = payload.session or batch.session
+    day_of_week_val = payload.day_of_week or batch.day_of_week
+
+    # Update batch record
     batch.mentor_id = payload.mentor_id
-    batch.session = payload.session
-    batch.day_of_week = payload.day_of_week
+    batch.session = session_val
+    batch.day_of_week = day_of_week_val
 
     if payload.mentor_id:
         # 1. UPDATE / CREATE MENTOR AVAILABILITY
@@ -267,8 +228,8 @@ def assign_mentor_to_batch(
             db=db,
             mentor_id=str(payload.mentor_id),
             batch=batch,
-            session_name=payload.session,
-            day_of_week_input=payload.day_of_week,
+            session_name=session_val,
+            day_of_week_input=day_of_week_val,
             hours_per_day=2.0  # 2 hours per session day
         )
 
@@ -281,17 +242,26 @@ def assign_mentor_to_batch(
 
         if mentor and mentor.email:
             try:
-                # Format days string for description/title
-                days_str = (
-                    ", ".join(payload.day_of_week) 
-                    if isinstance(payload.day_of_week, list) 
-                    else str(payload.day_of_week)
-                )
+                # Format days string safely
+                if isinstance(day_of_week_val, list):
+                    days_str = ", ".join(day_of_week_val)
+                elif day_of_week_val:
+                    days_str = str(day_of_week_val)
+                else:
+                    days_str = "TBD"
 
-                batch_title = getattr(batch, "batch_name", None) or getattr(batch, "title", None) or f"Batch {batch.batch_id}"
+                # Format session string safely
+                session_str = session_val.capitalize() if session_val else "Scheduled"
+
+                batch_title = (
+                    getattr(batch, "batch_name", None) 
+                    or getattr(batch, "title", None) 
+                    or f"Batch {batch.batch_id}"
+                )
+                
                 description = (
                     f"You have been assigned as the mentor for Student Batch '{batch_title}'. "
-                    f"Schedule: {payload.session.capitalize()} Session on {days_str}."
+                    f"Schedule: {session_str} Session on {days_str}."
                 )
 
                 send_assignment_notification(
@@ -299,8 +269,8 @@ def assign_mentor_to_batch(
                     recipient_name=mentor.name,
                     project_title=batch_title,
                     description=description,
-                    start_date=str(batch.start_date) if hasattr(batch, "start_date") and batch.start_date else "TBD",
-                    end_date=str(batch.end_date) if hasattr(batch, "end_date") and batch.end_date else "TBD",
+                    start_date=str(batch.start_date) if getattr(batch, "start_date", None) else "TBD",
+                    end_date=str(batch.end_date) if getattr(batch, "end_date", None) else "TBD",
                     priority="High",
                 )
             except Exception as e:
@@ -328,7 +298,9 @@ def get_recommended_mentors(batch_id: str, db: Session = Depends(get_db)):
         top_pick = get_next_mentor_for_batch(
             domain=batch.domain,
             month_num=batch.start_date.month,
-            year=batch.start_date.year
+            year=batch.start_date.year,
+            sub_domain=batch.domain,
+            engine=db.get_bind()
         )
         top_pick_id = top_pick.get("employee_id") if top_pick else None
 
