@@ -6,7 +6,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc, or_, text, select
+from sqlalchemy import func, desc, or_, text, select, Integer
 
 from app.api.deps import get_db
 from app.models.webinar import TrainingEngagement, TrainingRequirement, StudentBatch
@@ -918,21 +918,21 @@ def get_week_starts_in_range(start_date: date | datetime, end_date: date | datet
 
 def generate_next_availability_id(db: Session) -> str:
     """
-    Generates sequential availability IDs based on the highest existing ID.
+    Generates sequential availability IDs by extracting and incrementing
+    the integer trailing digits using SQL casting.
     """
-    # Fetch the lexicographically highest availability_id
-    max_id = db.query(func.max(Availability.availability_id)).scalar()
-    
-    if not max_id:
-        next_num = 1
-    else:
-        # Extract trailing numbers (e.g., 'rp2-avail-0005' -> 5)
-        try:
-            next_num = int(max_id.split("-")[-1]) + 1
-        except (ValueError, IndexError):
-            next_num = 1
+    # Extract trailing numbers and find numeric MAX directly in SQL
+    max_num = db.query(
+        func.max(
+            func.cast(
+                func.substring(Availability.availability_id, r'(\d+)$'),
+                Integer
+            )
+        )
+    ).scalar() or 0
 
-    return f"rp2-avail-{next_num:04d}" 
+    next_num = max_num + 1
+    return f"rp2-avail-{next_num:04d}"
 
 def update_mentor_availability_for_batch(
     db: Session,
@@ -968,7 +968,7 @@ def update_mentor_availability_for_batch(
         availability_record = (
             db.query(Availability)
             .filter(
-                Availability.employee_id == mentor_id,
+                Availability.resource_id == mentor_id,
                 Availability.week_start_date == week_start,
                 func.lower(Availability.session) == target_session
             )
@@ -986,29 +986,47 @@ def update_mentor_availability_for_batch(
 
             new_availability = Availability(
                 availability_id=new_avail_id,
-                employee_id=mentor_id,
+                resource_id=mentor_id,
+                resource_type="employee",
                 week_start_date=week_start,
                 session=target_session,
                 available_hours=new_hours
             )
             db.add(new_availability)
+            db.flush()
 
 @router.post("/student-batches/auto-generate-next")
 def auto_generate_next_batch(db: Session = Depends(get_db)):
     """
-    Generates the next batch pair (Offline + Online) for BOTH
-    Data Analytics, Data Science, and Agentic AI in a single call.
-    Updates mentor availability and sends assignment email notifications.
+    Generates the next batch pairs (Offline + Online) for:
+    - Data Analytics (e.g., Jun DA Offline)
+    - Data Science (e.g., Jun DS Offline)
+    - Agentic AI (e.g., Jun AI Offline)
+    - Bridge (e.g., Jun Bridge Offline)
+    - Softskill DS & DA (e.g., Jun DS Softskill Offline, Jun DA Softskill Offline)
+    
+    Automatically assigns mentors, sessions, and day schedules.
     """
     all_created_batches = []
 
-    for department in ["Data Analytics", "Data Science", "Agentic AI"]:
-        last_batch = (
-            db.query(StudentBatch)
-            .filter(func.lower(StudentBatch.domain) == department.lower())
-            .order_by(desc(StudentBatch.start_date))
-            .first()
-        )
+    # Domain configuration: (domain_name, sub_domain_for_softskill, label_code)
+    domain_configs = [
+        ("Data Analytics", None, "DA"),
+        ("Data Science", None, "DS"),
+        ("Agentic AI", None, "AI"),
+        ("Bridge", None, "Bridge"),
+        ("Softskill", "Data Science", "DS Softskill"),
+        ("Softskill", "Data Analytics", "DA Softskill"),
+    ]
+
+    for department, sub_domain, short_label in domain_configs:
+        query = db.query(StudentBatch).filter(func.lower(StudentBatch.domain) == department.lower())
+        
+        # Filter Softskill by specific sub-domain in batch_name to track start dates independently
+        if department == "Softskill" and sub_domain:
+            query = query.filter(StudentBatch.batch_name.ilike(f"%{short_label}%"))
+
+        last_batch = query.order_by(desc(StudentBatch.start_date)).first()
 
         if last_batch:
             prev_start = last_batch.start_date
@@ -1029,24 +1047,21 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
             end_year += 1
         end_dt = date(end_year, end_month, 14)
 
+        # Gets next mentor + free session + free day_of_week list
         assigned_mentor = get_next_mentor_for_batch(
             domain=department,
             month_num=start_dt.month,
-            year=start_dt.year
+            year=start_dt.year,
+            sub_domain=sub_domain or "Data Science",
+            engine=db.get_bind()
         )
+        
         mentor_id = assigned_mentor.get("employee_id") if assigned_mentor else None
         session = assigned_mentor.get("session") if assigned_mentor else None
         day_of_week = assigned_mentor.get("day_of_week") if assigned_mentor else None
 
-        if department == "Data Analytics":
-            short_domain = "DA"
-        elif department == "Data Science":
-            short_domain = "DS"
-        else:
-            short_domain = "AI"
-
         for mode in ["offline", "online"]:
-            batch_name = f"{start_dt.strftime('%b')} {short_domain} {mode.capitalize()}"
+            batch_name = f"{start_dt.strftime('%b')} {short_label} {mode.capitalize()}"
             new_batch = StudentBatch(
                 batch_name=batch_name,
                 domain=department,
@@ -1061,12 +1076,12 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
             db.add(new_batch)
             all_created_batches.append(new_batch)
 
-    # 1. Commit new batches so primary keys (batch_id) are generated
+    # 1. Commit new batches
     db.commit()
     for b in all_created_batches:
         db.refresh(b)
 
-    # 2. Fetch mentor details for responses and email notifications
+    # 2. Fetch mentor details for response and notifications
     mentor_ids = list({b.mentor_id for b in all_created_batches if b.mentor_id})
     mentor_map = {}
     employee_objects = {}
@@ -1078,7 +1093,6 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
     # 3. Update Mentor Availability & Send Email Notifications
     for batch in all_created_batches:
         if batch.mentor_id:
-            # Update Mentor Availability
             update_mentor_availability_for_batch(
                 db=db,
                 mentor_id=str(batch.mentor_id),
@@ -1088,7 +1102,6 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
                 hours_per_day=2.0
             )
 
-            # Send Email Notification
             mentor = employee_objects.get(batch.mentor_id)
             if mentor and mentor.email:
                 try:
@@ -1116,10 +1129,9 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
                 except Exception as e:
                     logger.warning(f"Failed to send batch mentor assignment notification email: {e}")
 
-    # Commit availability updates
     db.commit()
 
-    # 4. Construct Response Payload
+    # 4. Response Payload
     response = []
     for b in all_created_batches:
         response.append({
@@ -1137,6 +1149,7 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
         })
 
     return response
+
 
 class UpdateEngagementSchema(BaseModel):
     title: Optional[str] = None

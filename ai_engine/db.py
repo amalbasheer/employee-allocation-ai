@@ -7,7 +7,9 @@ column later, you only fix it in this file.
 import os
 import json
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
+from datetime import date
+from typing import Optional, Dict, List, Tuple, Set
+from sqlalchemy import create_engine, text, Engine
 from ai_engine.project_taxonomy import get_required_roles
 
 load_dotenv()
@@ -166,26 +168,188 @@ def get_person_skills(person_id: str, person_type: str) -> list[dict]:
         for r in rows
     ]
 
+# Candidate slot patterns for 2-day and 3-day technical domains
+SLOTS_2_DAY = [
+    ("morning", ["Tuesday", "Thursday"]),
+    ("evening", ["Tuesday", "Thursday"]),
+    ("morning", ["Monday", "Wednesday"]),
+    ("evening", ["Monday", "Wednesday"]),
+]
 
-def get_next_mentor_for_batch(domain: str, month_num: int, year: int = 2026) -> dict:
-    """
-    Mentors are assigned in 2-month blocks (Jun-Jul, Aug-Sep, Oct-Nov...),
-    covering both online and offline sessions for that block. Fairness is
-    tracked purely from student_batches.mentor_id — NOT the allocations
-    table, per confirmed design.
+SLOTS_3_DAY = [
+    ("morning", ["Monday", "Wednesday", "Friday"]),
+    ("evening", ["Monday", "Wednesday", "Friday"]),
+]
 
-    Given a specific month, finds which 2-month block it belongs to.
-    If a mentor is already assigned to another batch within that same
-    block, reuse them (so both months share one mentor). Otherwise,
-    round-robin picks whoever has covered the fewest blocks so far.
+
+def _parse_days(day_data) -> List[str]:
+    """Helper to parse day_of_week regardless of whether it's stored as JSON, list, or CSV string."""
+    if not day_data:
+        return []
+    if isinstance(day_data, list):
+        return [d.strip().capitalize() for d in day_data]
+    if isinstance(day_data, str):
+        try:
+            parsed = json.loads(day_data)
+            if isinstance(parsed, list):
+                return [d.strip().capitalize() for d in parsed]
+        except Exception:
+            pass
+        return [d.strip().capitalize() for d in day_data.split(",")]
+    return []
+
+
+def get_softskill_rotated_slot(sub_domain: str, month_num: int) -> Tuple[str, List[str]]:
     """
+    Calculates rotated Softskill slot based on month and target sub-domain (DA/DS):
+    - June (6): DS -> Mon Morning, DA -> Mon Evening
+    - July (7): DA -> Tue Morning, DS -> Tue Evening
+    - Aug  (8): DS -> Wed Morning, DA -> Wed Evening
+    All Softskill batches also include 'Friday' for the Friday Morning Common Session.
+    """
+    rotated_days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Saturday"]
+    
+    # Select day based on month rotation (June = index 0)
+    day_name = rotated_days[(month_num - 6) % len(rotated_days)]
+
+    # Flips morning/evening assignment between DA and DS every month
+    is_even_month = (month_num % 2 == 0)
+    if "DS" in sub_domain or "Data Science" in sub_domain:
+        session = "morning" if is_even_month else "evening"
+    else:  # DA / Data Analytics
+        session = "evening" if is_even_month else "morning"
+
+    # Always includes Friday Morning for the shared Common Session
+    return session, [day_name, "Friday"]
+
+
+def get_mentor_busy_slots(conn, mentor_id: int, start_dt: date, end_dt: date) -> Set[Tuple[str, str]]:
+    """
+    Fetches all (session, day_name) pairs where the mentor is occupied 
+    in overlapping date ranges across BOTH student_batches and projects.
+    """
+    busy_slots: Set[Tuple[str, str]] = set()
+
+    # 1. Check overlapping student_batches
+    batch_rows = conn.execute(
+        text("""
+            SELECT session, day_of_week
+            FROM student_batches
+            WHERE mentor_id = :mentor_id
+              AND start_date <= :end_dt
+              AND end_date >= :start_dt
+              AND status != 'cancelled'
+        """),
+        {"mentor_id": mentor_id, "start_dt": start_dt, "end_dt": end_dt}
+    ).mappings().fetchall()
+
+    for row in batch_rows:
+        sess = (row["session"] or "").lower()
+        days = _parse_days(row["day_of_week"])
+        if sess:
+            for day in days:
+                # Exclude Friday Morning as it is the shared Common Session
+                if not (sess == "morning" and day == "Friday"):
+                    busy_slots.add((sess, day))
+
+    # 2. Check overlapping projects
+    project_rows = conn.execute(
+        text("""
+            SELECT p.session, p.day_of_week
+            FROM projects p
+            JOIN allocations a ON p.project_id = a.reference_id
+            WHERE a.resource_id = :mentor_id
+              AND p.start_date <= :end_dt
+              AND p.end_date >= :start_dt
+        """),
+        {"mentor_id": mentor_id, "start_dt": start_dt, "end_dt": end_dt}
+    ).mappings().fetchall()
+
+    for row in project_rows:
+        sess = (row["session"] or "").lower()
+        days = _parse_days(row["day_of_week"])
+        if sess:
+            for day in days:
+                if not (sess == "morning" and day == "Friday"):
+                    busy_slots.add((sess, day))
+
+    return busy_slots
+
+
+def find_free_slot_for_mentor(
+    conn, mentor_id: int, domain: str, start_dt: date, end_dt: date, sub_domain: str = "Data Science"
+) -> Optional[Tuple[str, List[str]]]:
+    """
+    Finds the first available (session, day_list) slot for a mentor based on domain requirements.
+    """
+    busy_slots = get_mentor_busy_slots(conn, mentor_id, start_dt, end_dt)
+
+    # Softskill logic: Rotated month day + Common Friday
+    if domain == "Softskill":
+        session, days = get_softskill_rotated_slot(sub_domain, start_dt.month)
+        rotated_day = days[0]  # Check conflict only for the individual rotated day
+        if (session.lower(), rotated_day) not in busy_slots:
+            return session, days
+        return None
+
+    # Candidate slots for standard domains (Bridge, DA, DS, Agentic AI)
+    candidate_slots = SLOTS_3_DAY if domain == "Agentic AI" else SLOTS_2_DAY
+
+    for session, days in candidate_slots:
+        has_conflict = any((session.lower(), day) in busy_slots for day in days)
+        if not has_conflict:
+            return session, days
+
+    return None
+
+
+def get_next_mentor_for_batch(
+    domain: str, 
+    month_num: int, 
+    year: int = 2026, 
+    sub_domain: str = "Data Science", 
+    engine: Engine = None
+) -> Optional[dict]:
+    """
+    Finds or assigns the next mentor for a batch, including session and day_of_week.
+    
+    1. Agentic AI maps to 'Data Science' department.
+    2. Softskill maps strictly to 'Softskill' department.
+    3. Bridge allows mentors from ANY department.
+    4. Data Analytics / Data Science map to their respective departments.
+    """
+    # 1. Department Filter Rule
+    if domain == "Agentic AI":
+        dept_clause = "ce.department = 'Data Science'"
+        params = {}
+    elif domain == "Softskill":
+        dept_clause = "ce.department = 'Soft Skill'"
+        params = {}
+    elif domain == "Bridge":
+        dept_clause = "1=1"  # Mentors can come from ANY department
+        params = {}
+    else:
+        dept_clause = "ce.department = :dept"
+        params = {"dept": domain}
+
+    # 2. Calculate 2-Month Block Range
     block_start_month = month_num if month_num % 2 == 0 else month_num - 1
     block_end_month = block_start_month + 1
 
+    # 3. Calculate Batch Start & End Dates for Overlap Checks (4-month duration)
+    start_dt = date(year, month_num, 15)
+    end_month = month_num + 4
+    end_year = year
+    if end_month > 12:
+        end_month -= 12
+        end_year += 1
+    end_dt = date(end_year, end_month, 14)
+
     with engine.connect() as conn:
+        # --- RULE A: Reuse Mentor in Same 2-Month Block ---
         existing = conn.execute(
-            text("""
-                SELECT sb.mentor_id, ce.name
+            text(f"""
+                SELECT sb.mentor_id, ce.name, sb.session, sb.day_of_week
                 FROM student_batches sb
                 JOIN company_employees ce ON ce.employee_id = sb.mentor_id
                 WHERE sb.domain = :domain
@@ -194,26 +358,63 @@ def get_next_mentor_for_batch(domain: str, month_num: int, year: int = 2026) -> 
                   AND EXTRACT(YEAR FROM sb.start_date) = :year
                 LIMIT 1
             """),
-            {"domain": domain, "block_start": block_start_month, "block_end": block_end_month, "year": year},
+            {
+                "domain": domain, 
+                "block_start": block_start_month, 
+                "block_end": block_end_month, 
+                "year": year
+            },
         ).mappings().fetchone()
 
         if existing:
-            return {"employee_id": existing["mentor_id"], "name": existing["name"]}
+            mentor_id = existing["mentor_id"]
+            existing_days = _parse_days(existing["day_of_week"])
+            existing_session = existing["session"]
 
-        row = conn.execute(
-            text("""
+            if existing_session and existing_days:
+                return {
+                    "employee_id": mentor_id,
+                    "name": existing["name"],
+                    "session": existing_session,
+                    "day_of_week": existing_days
+                }
+            
+            slot = find_free_slot_for_mentor(conn, mentor_id, domain, start_dt, end_dt, sub_domain)
+            if slot:
+                return {
+                    "employee_id": mentor_id,
+                    "name": existing["name"],
+                    "session": slot[0],
+                    "day_of_week": slot[1]
+                }
+
+        # --- RULE B: Round-Robin Selection (Fairness + Availability) ---
+        candidates = conn.execute(
+            text(f"""
                 SELECT ce.employee_id, ce.name, COUNT(sb.batch_id) AS batch_count
                 FROM company_employees ce
                 LEFT JOIN student_batches sb ON sb.mentor_id = ce.employee_id
-                WHERE ce.department = :domain
+                WHERE {dept_clause}
                 GROUP BY ce.employee_id, ce.name
                 ORDER BY batch_count ASC, ce.employee_id ASC
-                LIMIT 1
             """),
-            {"domain": domain},
-        ).mappings().fetchone()
+            params,
+        ).mappings().fetchall()
 
-    return dict(row) if row else None
+        for candidate in candidates:
+            m_id = candidate["employee_id"]
+            slot = find_free_slot_for_mentor(conn, m_id, domain, start_dt, end_dt, sub_domain)
+            if slot:
+                return {
+                    "employee_id": m_id,
+                    "name": candidate["name"],
+                    "session": slot[0],
+                    "day_of_week": slot[1],
+                    "batch_count": candidate["batch_count"]
+                }
+
+    return None
+
 
 def recommend_batch_replacement(batch_id: str) -> list[dict]:
     """
