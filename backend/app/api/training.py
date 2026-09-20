@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -10,7 +10,7 @@ from sqlalchemy import func, desc, or_, text, select
 from app.api.deps import get_db
 from app.models.webinar import TrainingEngagement, TrainingRequirement, StudentBatch
 from app.models.allocation import Allocation, AllocationLog, Substitution
-from app.models.employee import CompanyEmployee
+from app.models.employee import CompanyEmployee, Availability
 from ai_engine.extraction import extract_skills_from_text
 from ai_engine.embedding import generate_embedding
 from ai_engine.recommend import recommend_mentor_for_training
@@ -467,28 +467,142 @@ def propose_mentor(engagement_id: str, payload: ProposeMentorSchema, db: Session
 
     return {"message": "Proposal sent successfully", "status": engagement.status}
 
+def get_week_start(d: date) -> date:
+    """Returns the Monday of the week for a given date."""
+    return d - timedelta(days=d.weekday())
+
+def generate_next_availability_id(db: Session) -> str:
+    """
+    Generates sequential availability IDs based on the highest existing ID.
+    """
+    # Fetch the lexicographically highest availability_id
+    max_id = db.query(func.max(Availability.availability_id)).scalar()
+    
+    if not max_id:
+        next_num = 1
+    else:
+        # Extract trailing numbers (e.g., 'rp2-avail-0005' -> 5)
+        try:
+            next_num = int(max_id.split("-")[-1]) + 1
+        except (ValueError, IndexError):
+            next_num = 1
+
+    return f"rp2-avail-{next_num:04d}"  
+
+def update_mentor_availability_for_training(
+    db: Session,
+    mentor_id: str,
+    training_start_date: date | datetime,
+    session_name: str,
+    required_hours: float,
+    default_session_capacity: float = 15.0
+):
+    """
+    Deducts the required training hours from the mentor's availability 
+    for the week containing the training start date.
+    Creates a new availability record if one does not exist for that week.
+    """
+    if not training_start_date:
+        return
+
+    # Convert datetime to date if necessary
+    t_date = training_start_date.date() if isinstance(training_start_date, datetime) else training_start_date
+    week_start = get_week_start(t_date)
+    
+    target_session = (session_name or "morning").strip().lower()
+    deduct_hours = float(required_hours or 0.0)
+
+    # 1. Search for existing availability record for this week and session
+    availability_record = (
+        db.query(Availability)
+        .filter(
+            Availability.employee_id == mentor_id,
+            Availability.week_start_date == week_start,
+            func.lower(Availability.session) == target_session
+        )
+        .first()
+    )
+
+    if availability_record:
+        # UPDATE: Deduct required hours from existing availability
+        current_hours = float(availability_record.available_hours or 0.0)
+        availability_record.available_hours = max(0.0, current_hours - deduct_hours)
+    else:
+        # CREATE: Generate new record with new primary key ID
+        new_avail_id = generate_next_availability_id(db)
+        new_hours = max(0.0, default_session_capacity - deduct_hours)
+
+        new_availability = Availability(
+            availability_id=new_avail_id,
+            employee_id=mentor_id,
+            week_start_date=week_start,
+            session=target_session,
+            available_hours=new_hours
+        )
+        db.add(new_availability)
 
 @router.post("/engagements/{engagement_id}/confirm")
 def confirm_allocation(engagement_id: str, db: Session = Depends(get_db)):
-    engagement = db.query(TrainingEngagement).filter(TrainingEngagement.engagement_id == engagement_id).first()
+    # 1. Fetch Training Engagement
+    engagement = (
+        db.query(TrainingEngagement)
+        .filter(TrainingEngagement.engagement_id == engagement_id)
+        .first()
+    )
     if not engagement:
         raise HTTPException(status_code=404, detail="Engagement not found")
 
     if engagement.status != "accepted":
-        raise HTTPException(status_code=400, detail="Engagement status must be accepted to confirm")
+        raise HTTPException(
+            status_code=400, 
+            detail="Engagement status must be accepted to confirm"
+        )
 
+    # Update engagement status
     engagement.status = "allocated"
 
-    alloc = db.query(Allocation).filter(
-        Allocation.reference_id == engagement_id,
-        Allocation.reference_type.in_(["webinar", "training", "engagement"])
-    ).first()
+    # 2. Fetch associated Allocation
+    alloc = (
+        db.query(Allocation)
+        .filter(
+            Allocation.reference_id == engagement_id,
+            Allocation.reference_type.in_(["webinar", "training", "engagement"])
+        )
+        .first()
+    )
+
     if alloc:
         alloc.status = "assigned"
 
+        # 3. UPDATE / CREATE MENTOR AVAILABILITY
+        # Extracts mentor resource ID, session, required hours, and training start date
+        mentor_id = alloc.resource_id
+        session_type = (
+            getattr(alloc, "session", None) 
+            or getattr(engagement, "session", None) 
+            or "morning"
+        )
+        req_hours = (
+            getattr(engagement, "required_hours", None) 
+            or getattr(engagement, "duration_hours", None) 
+            or getattr(alloc, "allocated_hours", 0.0)
+            or 0.0
+        )
+        start_date = getattr(engagement, "start_date", None) or getattr(engagement, "date", None)
+
+        if mentor_id and start_date:
+            update_mentor_availability_for_training(
+                db=db,
+                mentor_id=str(mentor_id),
+                training_start_date=start_date,
+                session_name=session_type,
+                required_hours=req_hours
+            )
+
+    # 4. Create Audit Log Entry
     log_entry = AllocationLog(
         log_id=generate_next_log_id(db),
-        allocation_id=alloc.allocation_id,
+        allocation_id=alloc.allocation_id if alloc else f"ENG_{engagement_id}",
         action="TRAINER_ASSIGNED",
         changed_by="admin",
         timestamp=datetime.now(timezone.utc)
@@ -496,9 +610,10 @@ def confirm_allocation(engagement_id: str, db: Session = Depends(get_db)):
     db.add(log_entry)
     db.commit()
 
-    return {"message": "Engagement allocation confirmed", "status": engagement.status}
-
-
+    return {
+        "message": "Engagement allocation confirmed and availability updated",
+        "status": engagement.status
+    }
 # ==================== EMPLOYEE RESPONSES ====================
 
 @router.post("/engagements/{engagement_id}/employee-action")
