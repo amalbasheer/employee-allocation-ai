@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from datetime import datetime, timedelta, timezone, date
-from typing import Optional
+from typing import Optional, Literal, Any
 from pydantic import BaseModel, validator
 
 from app.database import get_db
@@ -486,6 +486,10 @@ class ShiftOverrideRequest(BaseModel):
     week_start_date: Optional[date] = None    # Required if scope == 'full_week'
     reason: Optional[str] = None
 
+class ReviewOverrideRequest(BaseModel):
+    action: Literal["approve", "reject"]
+    remarks: Optional[str] = None
+
 def generate_next_log_id(db: Session) -> str:
     """Safely extracts the maximum numeric suffix from allocation_logs to generate rp2-log-XXXX."""
     records = db.query(AllocationLog.log_id).filter(
@@ -501,15 +505,51 @@ def generate_next_log_id(db: Session) -> str:
 
     return f"rp2-log-{max_num + 1:04d}"
 
+def get_user_role(user: Any) -> str:
+    """
+    Safely extracts the user role, prioritizing 'user_metadata' 
+    (whether user is a Dict, SQLAlchemy model, or Pydantic model).
+    """
+    if not user:
+        return "employee"
+
+    # Case 1: user is a dictionary
+    if isinstance(user, dict):
+        metadata = user.get("user_metadata") or user.get("usermetadata") or {}
+        if isinstance(metadata, dict) and metadata.get("role"):
+            return str(metadata["role"]).lower().strip()
+        if user.get("role"):
+            return str(user["role"]).lower().strip()
+
+    # Case 2: user is an object/model instance
+    metadata = getattr(user, "user_metadata", None) or getattr(user, "usermetadata", None)
+    
+    if isinstance(metadata, dict) and metadata.get("role"):
+        return str(metadata["role"]).lower().strip()
+    elif metadata and hasattr(metadata, "role"):
+        return str(getattr(metadata, "role")).lower().strip()
+
+    # Fallback: Top-level role attribute on user object
+    direct_role = getattr(user, "role", "employee")
+    return str(direct_role).lower().strip() if direct_role else "employee"
+
+
+def is_admin_user(user: Any) -> bool:
+    """Determines whether the current user has administrative permissions."""
+    role = get_user_role(user)
+    return role in ["ADMIN", "admin", "superadmin", "manager"]
+
 @router.post("/override")
-def create_schedule_override(
+def create_or_request_schedule_override(
     payload: ShiftOverrideRequest,
     db: Session = Depends(get_db),
-    current_user: UserProfile = Depends(get_current_user)  # Allows both Admin & Employee
+    current_user: Any = Depends(get_current_user)
 ):
     entity_type = payload.entity_type.lower().strip()
+    user_role = get_user_role(current_user)
+    user_is_admin = is_admin_user(current_user)
     
-    # 1. Fetch current default session from base entity (for logging)
+    # 1. Fetch current default session from base entity
     original_session = None
     if entity_type == "project":
         item = db.query(Project).filter(Project.project_id == payload.item_id).first()
@@ -527,7 +567,7 @@ def create_schedule_override(
             raise HTTPException(status_code=404, detail="Training Engagement not found")
         original_session = item.session
 
-    # 2. Check if an override already exists for this entity on this date/week
+    # 2. Query for existing override
     existing_query = db.query(ScheduleOverride).filter(
         ScheduleOverride.entity_type == entity_type,
         ScheduleOverride.entity_id == payload.item_id,
@@ -543,12 +583,17 @@ def create_schedule_override(
             raise HTTPException(status_code=400, detail="week_start_date is required for full_week scope")
         existing_override = existing_query.filter(ScheduleOverride.week_start_date == payload.week_start_date).first()
 
-    # 3. Upsert override
+    # Determine status based on extracted role
+    override_status = "APPROVED" if user_is_admin else "PENDING"
+    user_id_str = str(getattr(current_user, "id", None) or current_user.get("id") if isinstance(current_user, dict) else "")
+
+    # 3. Upsert Override
     if existing_override:
         existing_override.new_session = payload.new_session
-        existing_override.created_by_user_id = str(current_user.id)
-        existing_override.created_by_role = getattr(current_user, "role", "employee")
         existing_override.reason = payload.reason
+        existing_override.status = override_status
+        existing_override.created_by_user_id = user_id_str
+        existing_override.created_by_role = user_role
         target_override = existing_override
     else:
         next_id = f"ovr-{int(datetime.now(timezone.utc).timestamp() * 1000)}"
@@ -562,36 +607,129 @@ def create_schedule_override(
             original_session=original_session,
             new_session=payload.new_session,
             reason=payload.reason,
-            created_by_user_id=str(current_user.id),
-            created_by_role=getattr(current_user, "role", "employee")
+            status=override_status,
+            created_by_user_id=user_id_str,
+            created_by_role=user_role
         )
         db.add(target_override)
 
-    # 1. Try to find a matching allocation record if available
-    allocation_id = None
-    if entity_type in ("project", "training"):
-        alloc = db.query(Allocation).filter(
-            Allocation.reference_id == payload.item_id
-        ).first()
-        if alloc:
-            allocation_id = alloc.allocation_id
+    # 4. Immediate Audit Logging for Admins
+    if user_is_admin:
+        allocation_id = None
+        if entity_type in ("project", "training"):
+            alloc = db.query(Allocation).filter(
+                Allocation.reference_id == payload.item_id
+            ).first()
+            if alloc:
+                allocation_id = alloc.allocation_id
 
-    log_id = generate_next_log_id(db)
-    # 4. Audit Log Entry
-    audit_log = AllocationLog(
-        log_id=log_id,
-        allocation_id=allocation_id,
-        action=f"TEMPORARY_SHIFT [{payload.scope.upper()}]: {original_session or 'N/A'} -> {payload.new_session}",
-        changed_by=current_user.name,
-        timestamp=datetime.now(timezone.utc)
-    )
-    db.add(audit_log)
+        user_name = (
+            getattr(current_user, "name", None) or 
+            getattr(current_user, "full_name", None) or 
+            (current_user.get("name") if isinstance(current_user, dict) else "Admin")
+        )
+
+        log_id = generate_next_log_id(db)
+        audit_log = AllocationLog(
+            log_id=log_id,
+            allocation_id=allocation_id,
+            action=f"DIRECT_SHIFT_OVERRIDE [{payload.scope.upper()}]: {original_session or 'N/A'} -> {payload.new_session}",
+            changed_by=user_name,
+            timestamp=datetime.now(timezone.utc)
+        )
+        db.add(audit_log)
+
+    db.commit()
+
+    if user_is_admin:
+        return {
+            "message": "Shift schedule override applied immediately by Admin.",
+            "status": "APPROVED",
+            "override_id": target_override.override_id,
+            "scope": target_override.scope,
+            "new_session": target_override.new_session
+        }
+    
+    return {
+        "message": "Shift schedule override request submitted successfully. Pending Admin approval.",
+        "status": "PENDING",
+        "override_id": target_override.override_id,
+        "scope": target_override.scope,
+        "requested_session": target_override.new_session
+    }
+
+@router.get("/pending")
+def get_pending_shift_requests(
+    db: Session = Depends(get_db),
+    current_user: UserProfile = Depends(get_current_user)
+):
+    """Admin-only: Retrieve all pending shift override requests."""
+    if not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="Access denied. Admin rights required.")
+
+    pending_requests = db.query(ScheduleOverride).filter(
+        ScheduleOverride.status == "PENDING"
+    ).order_by(ScheduleOverride.override_id.desc()).all()
+
+    return pending_requests
+
+
+@router.post("/review/{override_id}")
+def review_shift_override_request(
+    override_id: str,
+    review: ReviewOverrideRequest,
+    db: Session = Depends(get_db),
+    current_user: UserProfile = Depends(get_current_user)
+):
+    """Admin-only: Approve or Reject a pending shift override request."""
+    if not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="Access denied. Admin rights required.")
+
+    override = db.query(ScheduleOverride).filter(
+        ScheduleOverride.override_id == override_id
+    ).first()
+
+    if not override:
+        raise HTTPException(status_code=404, detail="Shift override request not found")
+
+    if override.status != "PENDING":
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Request has already been processed with status: {override.status}"
+        )
+
+    if review.action == "approve":
+        override.status = "APPROVED"
+        
+        # Write Audit Log on Approval
+        allocation_id = None
+        if override.entity_type in ("project", "training"):
+            alloc = db.query(Allocation).filter(
+                Allocation.reference_id == override.entity_id
+            ).first()
+            if alloc:
+                allocation_id = alloc.allocation_id
+
+        log_id = generate_next_log_id(db)
+        audit_log = AllocationLog(
+            log_id=log_id,
+            allocation_id=allocation_id,
+            action=f"SHIFT_APPROVED [{override.scope.upper()}]: {override.original_session or 'N/A'} -> {override.new_session}",
+            changed_by=getattr(current_user, "name", "Admin"),
+            timestamp=datetime.now(timezone.utc)
+        )
+        db.add(audit_log)
+        msg = "Shift override request approved successfully."
+
+    else:
+        override.status = "REJECTED"
+        msg = "Shift override request rejected."
 
     db.commit()
 
     return {
-        "message": "Temporary shift schedule saved successfully.",
-        "override_id": target_override.override_id,
-        "scope": target_override.scope,
-        "new_session": target_override.new_session
+        "message": msg,
+        "override_id": override.override_id,
+        "status": override.status,
+        "reviewed_by": current_user.id
     }

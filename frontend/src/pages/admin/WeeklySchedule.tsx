@@ -22,6 +22,22 @@ interface EmployeeSchedule {
   days: Record<string, DayShiftData>;
 }
 
+// Interface for pending shift requests needing admin approval
+interface PendingShiftRequest {
+  override_id: string;
+  entity_type: string;
+  entity_id: string;
+  scope: 'single_day' | 'full_week';
+  override_date?: string;
+  week_start_date?: string;
+  original_session?: string;
+  new_session: string;
+  reason?: string;
+  created_by_user_id?: string;
+  created_by_role?: string;
+  status: string;
+}
+
 const getFormattedDateForDay = (dayName: string): string => {
   const dayIndexMap: Record<string, number> = {
     Monday: 1,
@@ -52,11 +68,20 @@ export const WeeklySchedule: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
+  const [pendingRequests, setPendingRequests] = useState<PendingShiftRequest[]>([]);
+  const [processingOverrideId, setProcessingOverrideId] = useState<string | null>(null);
+
   const API_BASE = import.meta.env.VITE_BACKEND_URL || 'https://employee-allocation-ai.onrender.com';
   
   useEffect(() => {
-    fetchCalendarSchedule();
+    loadAllData();
   }, []);
+
+  const loadAllData = async () => {
+    setLoading(true);
+    await Promise.all([fetchCalendarSchedule(), fetchPendingRequests()]);
+    setLoading(false);
+  };
 
   const fetchCalendarSchedule = async () => {
     try {
@@ -71,7 +96,38 @@ export const WeeklySchedule: React.FC = () => {
   };
 
   /**
-   * Post schedule override for a single day or full week
+   * Fetch pending shift requests for admin review
+   */
+  const fetchPendingRequests = async () => {
+    try {
+      const res = await api.get(`${API_BASE}/api/schedule/pending`);
+      setPendingRequests(res.data || []);
+    } catch (err) {
+      console.error('Failed to load pending shift requests:', err);
+    }
+  };
+
+  /**
+   * Approve or Reject a pending shift request
+   */
+  const handleReviewRequest = async (overrideId: string, action: 'approve' | 'reject') => {
+    setProcessingOverrideId(overrideId);
+    try {
+      await api.post(`${API_BASE}/api/schedule/review/${overrideId}`, {
+        action,
+      });
+      // Refresh schedule and pending queue after approval/rejection
+      await Promise.all([fetchCalendarSchedule(), fetchPendingRequests()]);
+    } catch (err) {
+      console.error(`Failed to ${action} shift request:`, err);
+      alert(`Failed to ${action} shift request.`);
+    } finally {
+      setProcessingOverrideId(null);
+    }
+  };
+
+  /**
+   * Post schedule override directly (Admin direct shift change)
    */
   const handleShiftChange = async (
     itemId: string,
@@ -104,6 +160,8 @@ export const WeeklySchedule: React.FC = () => {
     }
   };
 
+  
+
   const getBadgeStyle = (type: string) => {
     switch (type.toLowerCase()) {
       case 'project': 
@@ -117,7 +175,7 @@ export const WeeklySchedule: React.FC = () => {
     }
   };
 
-  if (loading) {
+if (loading) {
     return (
       <div className="p-12 text-center text-cyan-400 font-medium bg-[#050814] min-h-screen flex flex-col justify-center items-center">
         <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400 mb-3 shadow-[0_0_15px_rgba(34,211,238,0.8)]"></div>
@@ -137,12 +195,93 @@ export const WeeklySchedule: React.FC = () => {
           <p className="text-sm text-indigo-300/80">Employee schedule view (Monday – Friday)</p>
         </div>
         <button
-          onClick={fetchCalendarSchedule}
+          onClick={loadAllData}
           className="px-4 py-2 bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-600 hover:from-violet-500 hover:to-cyan-500 text-white font-medium rounded-md text-sm transition shadow-[0_0_20px_rgba(124,58,237,0.5)] hover:shadow-[0_0_25px_rgba(34,211,238,0.6)] flex items-center gap-2"
         >
           <span>↻</span> Refresh Schedule
         </button>
       </div>
+
+      {/* Pending Shift Requests Panel (Dark Glow Styling) */}
+      {pendingRequests.length > 0 && (
+        <div className="mb-6 rounded-xl border border-amber-500/40 bg-[#0a0f1d]/90 p-5 shadow-[0_0_25px_rgba(245,158,11,0.15)] backdrop-blur-sm">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center space-x-2.5">
+              <span className="flex h-3 w-3 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+              </span>
+              <h2 className="text-lg font-bold text-amber-300 tracking-wide">
+                Pending Shift Change Requests ({pendingRequests.length})
+              </h2>
+            </div>
+            <span className="text-xs px-2.5 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400 font-mono">
+              Requires Admin Approval
+            </span>
+          </div>
+
+          <div className="space-y-3">
+            {pendingRequests.map((req) => {
+              const badge = getBadgeStyle(req.entity_type);
+              const isProcessing = processingOverrideId === req.override_id;
+
+              return (
+                <div
+                  key={req.override_id}
+                  className="bg-[#080d1a] border border-indigo-900/60 hover:border-amber-500/50 rounded-lg p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 transition shadow-md"
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-center space-x-2">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase tracking-wider ${badge.color}`}>
+                        {badge.label}
+                      </span>
+                      <span className="font-semibold text-white text-sm">
+                        ID: {req.entity_id}
+                      </span>
+                      <span className="text-xs text-indigo-300/70 font-mono">
+                        ({req.scope === 'single_day' ? req.override_date : `Week of ${req.week_start_date}`})
+                      </span>
+                    </div>
+
+                    <div className="text-sm text-zinc-300">
+                      Requested Shift:{' '}
+                      <span className="font-semibold text-indigo-300 capitalize">
+                        {req.original_session || 'Default'}
+                      </span>{' '}
+                      <span className="text-amber-400 font-bold">➔</span>{' '}
+                      <span className="font-bold text-amber-300 capitalize">
+                        {req.new_session}
+                      </span>
+                    </div>
+
+                    {req.reason && (
+                      <p className="text-xs text-indigo-200/60 italic">"{req.reason}"</p>
+                    )}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center space-x-2.5 shrink-0">
+                    <button
+                      disabled={isProcessing}
+                      onClick={() => handleReviewRequest(req.override_id, 'approve')}
+                      className="px-4 py-1.5 text-xs font-semibold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded transition shadow-[0_0_12px_rgba(16,185,129,0.3)] disabled:opacity-50"
+                    >
+                      {isProcessing ? 'Processing...' : 'Approve'}
+                    </button>
+                    <button
+                      disabled={isProcessing}
+                      onClick={() => handleReviewRequest(req.override_id, 'reject')}
+                      className="px-4 py-1.5 text-xs font-semibold bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white rounded transition shadow-[0_0_12px_rgba(244,63,94,0.3)] disabled:opacity-50"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Main Calendar Matrix Table */}
       <div className="overflow-x-auto rounded-xl border border-indigo-900/60 bg-[#0a0f1d]/90 shadow-[0_0_35px_rgba(5,8,20,0.95)] backdrop-blur-sm">
@@ -163,7 +302,6 @@ export const WeeklySchedule: React.FC = () => {
                 {/* Employee Column */}
                 <td className="p-4 align-top border-r border-indigo-900/60 bg-[#080d1a]">
                   <div className="font-bold text-white tracking-wide">{emp.employee_name}</div>
-                  
                   <div className="text-[11px] text-fuchsia-400/80 mt-2 font-mono">ID: {emp.resource_id}</div>
                 </td>
 
@@ -263,33 +401,18 @@ const CalendarCard: React.FC<CardProps> = ({ item, updatingId, getBadgeStyle, on
           {badge.label}
         </span>
         {item.is_overridden && (
-          <span title={shiftReason ? `Reason: ${shiftReason}` : 'Shifted from default session'}
+          <span
+            title={shiftReason ? `Reason: ${shiftReason}` : 'Shifted from default session'}
             className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded font-mono flex items-center gap-1 cursor-help shrink-0"
           >
             <span>Shifted</span>
-            {shiftReason && <span className="text-[10px]"></span>} 
-          
           </span>
         )}
-      
       </div>
 
       <div className="text-xs font-semibold text-white leading-tight">
         {item.title}
       </div>
-
-     {/* Shift Reason Box (temporarily disabled) 
-      {item.is_overridden && shiftReason && (
-        <div 
-          title={shiftReason}
-          className="text-[10px] bg-amber-950/40 text-amber-200/90 border border-amber-500/30 rounded px-1.5 py-1 leading-snug flex items-start gap-1 backdrop-blur-sm"
-        >
-          <span className="text-amber-400 font-bold shrink-0">Note:</span>
-          <span className="line-clamp-2 italic">{shiftReason}</span>
-        </div>
-      )}*/}
-
-      
 
       {/* Dynamic Session Switcher */}
       <div className="pt-1.5 border-t border-indigo-900/60 flex items-center justify-between">
