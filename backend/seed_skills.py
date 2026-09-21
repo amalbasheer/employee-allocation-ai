@@ -5,8 +5,11 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).resolve().parent.parent / "ai_engine"))
-from embedding import generate_embeddings_batch, generate_embedding
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.append(ROOT_DIR)
+sys.path.append(os.path.join(ROOT_DIR, "ai_engine"))
+
+from ai_engine.embedding import generate_embeddings_batch, generate_embedding
 
 load_dotenv()
 
@@ -25,6 +28,7 @@ STARTER_SKILLS = [
     ("Computer Vision", "domain"), ("Power BI", "tech_stack"), ("Tableau", "tech_stack"),
     ("Statistics", "domain"), ("Communication", "soft_skill"),
     ("Public Speaking", "soft_skill"), ("Mentoring", "soft_skill"),
+    
 ]
 
 STARTER_DESIGNATIONS = [
@@ -32,6 +36,9 @@ STARTER_DESIGNATIONS = [
     ("Senior Data Analytics Mentor", "Data Analytics", "Team lead for data analytics projects and mentor batches"),
     ("Data Science Mentor", "Data Science", "Mentors student batches and trainees in data science"),
     ("Senior Data Science Mentor", "Data Science", "Team lead for data science projects and mentor batches"),
+    ("Senior Soft Skill Mentor", "Soft Skill", "Team lead for soft skills training for data science projects and mentor batches"),
+    ("Soft Skill Mentor", "Soft Skill", "Soft skill trainer for data science projects and mentor batches"),
+
 ]
 
 
