@@ -9,6 +9,19 @@ export interface ScheduleItem {
   title: string;
   session: 'morning' | 'evening';
   is_override?: boolean;
+  reason?: string;
+  status?: string;
+}
+
+export interface ShiftOverridePayload {
+  item_id: string;
+  entity_type: string; // 'project' | 'training_engagement' | 'student_batch'
+  scope: 'single_day' | 'full_week';
+  new_session: 'morning' | 'evening';
+  override_date?: string | null;   // Required if scope === 'single_day' (YYYY-MM-DD)
+  week_start_date?: string | null; // Required if scope === 'full_week' (YYYY-MM-DD)
+  reason?: string;
+  status?: string;
 }
 
 export interface DayShiftData {
@@ -20,6 +33,13 @@ export interface MyScheduleResponse {
   resource_id?: string;
   employee_name?: string;
   days: Record<string, DayShiftData>;
+}
+
+export interface SelectedShiftTarget {
+  item: ScheduleItem;
+  date: string;
+  dayName: string;
+  targetSession: 'morning' | 'evening';
 }
 
 // --- Date Helpers ---
@@ -38,6 +58,7 @@ const formatDateString = (dateObj: Date): string => {
   return `${yyyy}-${mm}-${dd}`;
 };
 
+const API_BASE = import.meta.env.VITE_BACKEND_URL || 'https://employee-allocation-ai.onrender.com';
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
 export const MySchedule: React.FC = () => {
@@ -46,32 +67,26 @@ export const MySchedule: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
-  // Override Modal / Configuration state
-  const [selectedOverrideItem, setSelectedOverrideItem] = useState<{
-    item: ScheduleItem;
-    date: string;
-    dayName: string;
-  } | null>(null);
+  // Modal & Form State for Shift Override Request
+  const [selectedTarget, setSelectedTarget] = useState<SelectedShiftTarget | null>(null);
   const [overrideScope, setOverrideScope] = useState<'single_day' | 'full_week'>('single_day');
   const [overrideReason, setOverrideReason] = useState<string>('');
 
-  const API_BASE = import.meta.env.VITE_BACKEND_URL || 'https://employee-allocation-ai.onrender.com';
-
-  // --- Fetch Employee Schedule ---
+  // --- Fetch Schedule Data ---
   const fetchMySchedule = useCallback(async () => {
     try {
       setLoading(true);
       const weekStartStr = formatDateString(currentWeekStart);
       const res = await api.get(`${API_BASE}/api/schedule/my-schedule`, {
-        params: { week_start: weekStartStr }
+        params: { week_start: weekStartStr },
       });
       setScheduleData(res.data);
     } catch (err) {
-      console.error('Failed to load employee schedule:', err);
-    } {
+      console.error('Failed to load schedule:', err);
+    } finally {
       setLoading(false);
     }
-  }, [currentWeekStart, API_BASE]);
+  }, [currentWeekStart]);
 
   useEffect(() => {
     fetchMySchedule();
@@ -94,40 +109,67 @@ export const MySchedule: React.FC = () => {
     setCurrentWeekStart(getMonday(new Date()));
   };
 
-  // --- Shift Override Handler ---
+  // --- Modal Open Handler ---
+  const handleOpenRequestModal = (
+    item: ScheduleItem,
+    dayName: string,
+    date: string,
+    targetSession?: 'morning' | 'evening'
+  ) => {
+    const defaultTarget = targetSession || (item.session === 'morning' ? 'evening' : 'morning');
+    setSelectedTarget({ item, dayName, date, targetSession: defaultTarget });
+    setOverrideScope('single_day');
+    setOverrideReason('');
+  };
+
+  // --- Core Shift Change API Execution ---
   const handleShiftChange = async (
     item: ScheduleItem,
-    newSession: 'morning' | 'evening',
-    overrideDate: string
+    targetSession: 'morning' | 'evening',
+    date: string,
+    scope: 'single_day' | 'full_week' = 'single_day',
+    reason: string = ''
   ) => {
     setUpdatingId(item.item_id);
     const weekStartStr = formatDateString(currentWeekStart);
 
-    try {
-      const payload = {
-        item_id: item.item_id,
-        entity_type: item.entity_type,
-        new_session: newSession,
-        scope: overrideScope,
-        override_date: overrideScope === 'single_day' ? overrideDate : null,
-        week_start_date: overrideScope === 'full_week' ? weekStartStr : null,
-        reason: overrideReason || 'Shift updated via personal schedule portal',
-      };
+    const payload: ShiftOverridePayload = {
+      item_id: item.item_id,
+      entity_type: item.entity_type,
+      new_session: targetSession,
+      scope: scope,
+      override_date: scope === 'single_day' ? date : null,
+      week_start_date: scope === 'full_week' ? weekStartStr : null,
+      reason: reason.trim() || 'Session shift requested via employee portal',
+      status: 'pending',
+    
+    };
 
+    try {
       await api.post(`${API_BASE}/api/schedule/override`, payload);
-      
-      // Close modal if open
-      setSelectedOverrideItem(null);
+      setSelectedTarget(null);
       setOverrideReason('');
-      
-      // Refresh schedule
       await fetchMySchedule();
     } catch (err) {
-      console.error('Failed to update shift override:', err);
-      alert('Failed to update shift schedule.');
+      console.error('Failed to submit shift request:', err);
+      alert('Failed to submit shift request. Please try again.');
     } finally {
       setUpdatingId(null);
     }
+  };
+
+  // --- Submit Override Handler (Modal Form) ---
+  const handleShiftChangeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTarget) return;
+
+    await handleShiftChange(
+      selectedTarget.item,
+      selectedTarget.targetSession,
+      selectedTarget.date,
+      overrideScope,
+      overrideReason
+    );
   };
 
   const getBadgeStyle = (type: string) => {
@@ -135,8 +177,10 @@ export const MySchedule: React.FC = () => {
       case 'project':
         return { label: 'Project', color: 'bg-blue-500/20 text-blue-300 border-blue-500/40' };
       case 'training_engagement':
+      case 'training':
         return { label: 'Training', color: 'bg-purple-500/20 text-purple-300 border-purple-500/40' };
       case 'student_batch':
+      case 'batch':
         return { label: 'Student Batch', color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' };
       default:
         return { label: type, color: 'bg-gray-500/20 text-gray-300 border-gray-500/40' };
@@ -144,11 +188,11 @@ export const MySchedule: React.FC = () => {
   };
 
   const formattedWeekStart = formatDateString(currentWeekStart);
-  const formattedWeekEnd = formatDateString(
-    new Date(currentWeekStart.getTime() + 4 * 24 * 60 * 60 * 1000)
-  );
+  const weekEndObj = new Date(currentWeekStart);
+  weekEndObj.setDate(weekEndObj.getDate() + 4);
+  const formattedWeekEnd = formatDateString(weekEndObj);
 
-  if (loading && !scheduleData) {
+ if (loading && !scheduleData) {
     return (
       <div className="p-12 text-center text-cyan-400 font-medium bg-[#050814] min-h-screen flex flex-col justify-center items-center">
         <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400 mb-3 shadow-[0_0_15px_rgba(34,211,238,0.8)]"></div>
@@ -274,7 +318,7 @@ export const MySchedule: React.FC = () => {
                           handleShiftChange(item, newSession, dayDateStr)
                         }
                         onOpenOverrideModal={() =>
-                          setSelectedOverrideItem({ item, date: dayDateStr, dayName: day })
+                          handleOpenRequestModal(item, day, dayDateStr)
                         }
                       />
                     ))
@@ -305,7 +349,7 @@ export const MySchedule: React.FC = () => {
                           handleShiftChange(item, newSession, dayDateStr)
                         }
                         onOpenOverrideModal={() =>
-                          setSelectedOverrideItem({ item, date: dayDateStr, dayName: day })
+                          handleOpenRequestModal(item, day, dayDateStr)
                         }
                       />
                     ))
@@ -318,13 +362,17 @@ export const MySchedule: React.FC = () => {
       </div>
 
       {/* Advanced Override Modal */}
-      {selectedOverrideItem && (
+      {selectedTarget && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#0a0f1d] border border-cyan-500/50 rounded-xl max-w-md w-full p-6 shadow-[0_0_50px_rgba(34,211,238,0.25)] space-y-4">
+          <form
+            onSubmit={handleShiftChangeSubmit}
+            className="bg-[#0a0f1d] border border-cyan-500/50 rounded-xl max-w-md w-full p-6 shadow-[0_0_50px_rgba(34,211,238,0.25)] space-y-4"
+          >
             <div className="flex justify-between items-center border-b border-indigo-900/60 pb-3">
               <h3 className="text-lg font-bold text-cyan-300">Shift Override Options</h3>
               <button
-                onClick={() => setSelectedOverrideItem(null)}
+                type="button"
+                onClick={() => setSelectedTarget(null)}
                 className="text-indigo-400 hover:text-white transition"
               >
                 ✕
@@ -333,10 +381,30 @@ export const MySchedule: React.FC = () => {
 
             <div className="p-3 bg-[#041d24] rounded-lg border border-indigo-800/60 space-y-1">
               <div className="text-xs text-indigo-300">Assignment:</div>
-              <div className="text-sm font-bold text-white">{selectedOverrideItem.item.title}</div>
+              <div className="text-sm font-bold text-white">{selectedTarget.item.title}</div>
               <div className="text-xs text-cyan-400/90 font-mono">
-                {selectedOverrideItem.dayName} ({selectedOverrideItem.date})
+                {selectedTarget.dayName} ({selectedTarget.date})
               </div>
+            </div>
+
+            {/* Target Session Selection */}
+            <div className="space-y-1.5">
+              <label className="text-xs text-indigo-300 uppercase font-semibold">
+                Target Session
+              </label>
+              <select
+                value={selectedTarget.targetSession}
+                onChange={(e) =>
+                  setSelectedTarget({
+                    ...selectedTarget,
+                    targetSession: e.target.value as 'morning' | 'evening',
+                  })
+                }
+                className="w-full text-xs bg-[#080d1a] border border-indigo-500/50 rounded-lg p-2 text-cyan-200 focus:ring-1 focus:ring-cyan-400 focus:outline-none"
+              >
+                <option value="morning">Morning Session (09:00 - 13:00)</option>
+                <option value="evening">Evening Session (14:00 - 18:00)</option>
+              </select>
             </div>
 
             {/* Scope Selection */}
@@ -349,12 +417,12 @@ export const MySchedule: React.FC = () => {
                 onChange={(e) => setOverrideScope(e.target.value as 'single_day' | 'full_week')}
                 className="w-full text-xs bg-[#080d1a] border border-indigo-500/50 rounded-lg p-2 text-cyan-200 focus:ring-1 focus:ring-cyan-400 focus:outline-none"
               >
-                <option value="single_day">Single Day ({selectedOverrideItem.date})</option>
+                <option value="single_day">Single Day ({selectedTarget.date})</option>
                 <option value="full_week">Full Week (Entire Mon-Fri)</option>
               </select>
             </div>
 
-            {/* Reason input */}
+            {/* Reason Input */}
             <div className="space-y-1.5">
               <label className="text-xs text-indigo-300 uppercase font-semibold">
                 Reason / Note <span className="text-indigo-500 font-normal">(Optional)</span>
@@ -371,25 +439,21 @@ export const MySchedule: React.FC = () => {
             {/* Action Buttons */}
             <div className="flex justify-end gap-3 pt-3 border-t border-indigo-900/60">
               <button
-                onClick={() => setSelectedOverrideItem(null)}
+                type="button"
+                onClick={() => setSelectedTarget(null)}
                 className="px-4 py-2 text-xs font-semibold text-indigo-300 hover:text-white transition"
               >
                 Cancel
               </button>
               <button
-                onClick={() =>
-                  handleShiftChange(
-                    selectedOverrideItem.item,
-                    selectedOverrideItem.item.session === 'morning' ? 'evening' : 'morning',
-                    selectedOverrideItem.date
-                  )
-                }
-                className="px-4 py-2 bg-gradient-to-r from-violet-600 to-cyan-600 hover:from-violet-500 hover:to-cyan-500 text-white font-semibold text-xs rounded-lg transition shadow-[0_0_15px_rgba(34,211,238,0.4)]"
+                type="submit"
+                disabled={updatingId === selectedTarget.item.item_id}
+                className="px-4 py-2 bg-gradient-to-r from-violet-600 to-cyan-600 hover:from-violet-500 hover:to-cyan-500 text-white font-semibold text-xs rounded-lg transition shadow-[0_0_15px_rgba(34,211,238,0.4)] disabled:opacity-50"
               >
-                Confirm Shift Switch
+                {updatingId === selectedTarget.item.item_id ? 'Submitting...' : 'Confirm Shift Switch'}
               </button>
             </div>
-          </div>
+          </form>
         </div>
       )}
     </div>
@@ -455,7 +519,7 @@ const MyScheduleCard: React.FC<MyScheduleCardProps> = ({
           className="text-[10px] text-fuchsia-300 hover:text-fuchsia-100 bg-fuchsia-950/60 hover:bg-fuchsia-900 border border-fuchsia-700/50 px-1.5 py-0.5 rounded transition"
           title="Advanced override settings"
         >
-          Options 
+          Options
         </button>
       </div>
     </div>

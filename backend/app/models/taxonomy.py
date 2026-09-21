@@ -50,3 +50,5 @@ class ScheduleOverride(Base):
     created_by_user_id = Column(String, nullable=False)        # ID of employee or admin making the change
     created_by_role = Column(String, nullable=False)           # 'employee' or 'admin'
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    status = Column(String(50), nullable=True)

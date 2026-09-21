@@ -336,7 +336,7 @@ def get_my_weekly_schedule(
             override_date,
             LOWER(TRIM(original_session)) AS original_session,
             LOWER(TRIM(new_session)) AS new_session,
-            scope, reason
+            scope
         FROM schedule_overrides
         WHERE override_date BETWEEN :w_start AND :w_end
            OR week_start_date = :w_start
@@ -485,6 +485,7 @@ class ShiftOverrideRequest(BaseModel):
     override_date: Optional[date] = None      # Required if scope == 'single_day'
     week_start_date: Optional[date] = None    # Required if scope == 'full_week'
     reason: Optional[str] = None
+    status: Optional[str] 
 
 class ReviewOverrideRequest(BaseModel):
     action: Literal["approve", "reject"]
@@ -657,6 +658,7 @@ def create_or_request_schedule_override(
         "scope": target_override.scope,
         "requested_session": target_override.new_session
     }
+
 
 @router.get("/pending")
 def get_pending_shift_requests(
