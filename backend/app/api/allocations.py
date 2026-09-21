@@ -1180,6 +1180,7 @@ def get_my_allocations(
             mentor_name = "Pending Mentor Assignment"
             assigned_students = []
             assigned_student_names = []
+            completed_milestones = []
 
             # -------------------------------------------------------
             # A. PROJECT REFERENCE
