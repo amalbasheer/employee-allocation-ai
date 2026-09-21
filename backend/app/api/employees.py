@@ -22,7 +22,7 @@ from ai_engine.embedding import generate_embedding
 from app.database import get_db
 from app.api.deps import require_admin
 from app.models.employee import CompanyEmployee, EmployeeSkill, Availability
-from app.models.taxonomy import Skill, LeaveRequest
+from app.models.taxonomy import Skill, LeaveRequest, Designation
 from app.models.allocation import Allocation
 from app.models.webinar import TrainingEngagement
 from app.models.project import Project
@@ -610,10 +610,32 @@ def get_employee_leave_requests(
     )
     return requests
 
+def resolve_reviewer_id(user) -> str:
+    """
+    Dynamically resolves the reviewer identifier:
+    1. Uses employee_id if present (Future state)
+    2. Falls back to email / username / role (Current state)
+    """
+    # 1. Future: Admin has an employee_id
+    if getattr(user, "employee_id", None):
+        return user.employee_id
+
+    # 2. Current: Fallback to email or username
+    if getattr(user, "email", None):
+        return user.email
+
+    if getattr(user, "username", None):
+        return user.username
+
+    # 3. Final Fallback: User ID or generic role string
+    user_id = getattr(user, "id", None)
+    if user_id:
+        return f"ADMIN-{user_id}"
+
+    return "ADMIN"
 
 class ReviewLeaveRequestPayload(BaseModel):
     status: Literal["APPROVED", "REJECTED"]
-    admin_id: str
 
 @router.put("/leave-requests/{request_id}/review", status_code=status.HTTP_200_OK)
 def review_leave_request(
@@ -637,7 +659,7 @@ def review_leave_request(
         )
 
     leave_req.status = payload.status
-    leave_req.reviewed_by = payload.admin_id
+    leave_req.reviewed_by = 'admin'
     leave_req.reviewed_at = datetime.utcnow()
 
     # If rejected, commit status and return early without executing updates
@@ -751,6 +773,67 @@ def review_leave_request(
         "projects_marked_on_leave": projects_updated,
         "trainings_marked_on_leave": trainings_updated,
     }
+
+class LeaveRequestResponse(BaseModel):
+    request_id: str
+    employee_id: str
+    employee_name: Optional[str] = "Unknown"
+    employee_role: Optional[str] = "N/A"
+    start_date: str
+    end_date: str
+    leave_type: str
+    session: Optional[str] = "full_day"
+    reason: Optional[str] = None
+    status: str
+    created_at: Optional[datetime] = None
+    reviewed_by: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+@router.get("/leave-requests", response_model=List[LeaveRequestResponse])
+def get_all_leave_requests(
+    status_filter: Optional[str] = Query(None, alias="status"),
+    db: Session = Depends(get_db),
+
+):
+    """
+    Fetch all leave requests for admin review with optional status filtering (PENDING, APPROVED, REJECTED).
+    """
+    query = (
+        db.query(LeaveRequest, CompanyEmployee.name, Designation.title)
+        .outerjoin(CompanyEmployee, LeaveRequest.employee_id == CompanyEmployee.employee_id)
+        .outerjoin(Designation, CompanyEmployee.designation_id == Designation.designation_id)
+    )
+
+    if status_filter and status_filter.upper() != "ALL":
+        query = query.filter(LeaveRequest.status == status_filter.upper())
+
+    results = query.order_by(LeaveRequest.created_at.desc()).all()
+
+    output = []
+    for leave_req, emp_name, emp_role in results:
+        output.append(
+            LeaveRequestResponse(
+                request_id=leave_req.request_id,
+                employee_id=leave_req.employee_id,
+                employee_name=emp_name or leave_req.employee_id,
+                employee_role=emp_role or "Employee",
+                start_date=str(leave_req.start_date),
+                end_date=str(leave_req.end_date),
+                leave_type=leave_req.leave_type,
+                session=getattr(leave_req, "session", "full_day"),
+                reason=leave_req.reason,
+                status=leave_req.status,
+                created_at=leave_req.created_at,
+                # Dynamically use stored reviewer, fallback to "admin" if None (for older records)
+                reviewed_by=leave_req.reviewed_by or "admin",
+                reviewed_at=leave_req.reviewed_at,
+            )
+        )
+
+    return output
 
 # -- daily bandwidth endpoint for employee
 

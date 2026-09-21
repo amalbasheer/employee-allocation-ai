@@ -11,7 +11,8 @@ import {
   WrapText,
   Book,
   Calendar,
-  Timer
+  Timer,
+  PenLine
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -24,6 +25,7 @@ export const Sidebar: React.FC = () => {
     { label: 'Schedule', path: '/admin/schedule', icon: Calendar },
     { label: 'Project Allocations', path: '/admin/allocations', icon: GitMerge },
     { label: 'User Management', path: '/admin/users', icon: Users },
+    { label: 'Leave Management', path: '/admin/leave', icon: PenLine },
     { label: 'Webinars & Workshops', path: '/admin/webinars', icon: Video },
     { label: 'Student Batches', path: '/admin/batches', icon: Book },
   ];

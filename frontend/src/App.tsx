@@ -6,6 +6,7 @@ import { Login } from './pages/auth/Login';
 import { ActivateAccount } from './pages/auth/ActivateAccount';
 import DashboardOverview from './pages/admin/OverviewDashboard';
 import { UserManagement } from './pages/admin/UserManagement';
+import { LeaveManagement } from './pages/admin/LeaveManagement';
 import { TrainingManagement } from './pages/admin/WebinarManagement';
 import { EmployeeDashboard } from './pages/employee/EmployeeDashboard';
 import StudentDashboard from './pages/student/StudentDashboard';
@@ -80,6 +81,14 @@ export default function App() {
                 element={
                   <ProtectedRoute allowedRoles={['ADMIN']}>
                     <UserManagement />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/leave"
+                element={
+                  <ProtectedRoute allowedRoles={['ADMIN']}>
+                    <LeaveManagement />
                   </ProtectedRoute>
                 }
               />
