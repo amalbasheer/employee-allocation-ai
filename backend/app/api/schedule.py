@@ -288,7 +288,7 @@ def get_my_weekly_schedule(
     Maps authenticated user email -> company_employees.employee_id.
     Includes active Projects, Training Engagements, Student Batches, and Schedule Overrides.
     """
-    # 1. Safely extract email from authenticated user session (works for both Dict and Pydantic object)
+    # 1. Safely extract email from authenticated user session
     user_email = (
         current_user.get("email") 
         if isinstance(current_user, dict) 
@@ -328,7 +328,7 @@ def get_my_weekly_schedule(
 
     target_week_end = target_week_start + timedelta(days=6)
 
-    # 4. Fetch Overrides for this Week Range
+    # 4. Fetch Overrides including status field
     overrides_query = text("""
         SELECT 
             LOWER(TRIM(entity_type)) AS entity_type,
@@ -336,7 +336,8 @@ def get_my_weekly_schedule(
             override_date,
             LOWER(TRIM(original_session)) AS original_session,
             LOWER(TRIM(new_session)) AS new_session,
-            scope
+            scope,
+            LOWER(TRIM(status)) AS status
         FROM schedule_overrides
         WHERE override_date BETWEEN :w_start AND :w_end
            OR week_start_date = :w_start
@@ -348,12 +349,13 @@ def get_my_weekly_schedule(
 
     overrides_map = {}
     for row in override_rows:
-        e_type, e_id, o_date, orig_sess, new_sess, scope = row
+        e_type, e_id, o_date, orig_sess, new_sess, scope, ovr_status = row
         o_date_str = o_date.strftime("%Y-%m-%d") if isinstance(o_date, (date, datetime)) else str(o_date)
         overrides_map[(e_type, e_id, o_date_str)] = {
             "new_session": new_sess,
             "original_session": orig_sess,
-            "scope": scope
+            "scope": scope,
+            "status": ovr_status
         }
 
     # 5. Fetch Base Schedule FILTERED BY mapped employee_id
@@ -415,7 +417,6 @@ def get_my_weekly_schedule(
 
     rows = db.execute(query, {"emp_id": employee_id}).fetchall()
 
-    # Structure response specifically for a single employee
     employee_schedule = {
         "Monday": {"morning": [], "evening": []},
         "Tuesday": {"morning": [], "evening": []},
@@ -432,7 +433,6 @@ def get_my_weekly_schedule(
         item_start = to_date_obj(start_date_val)
         item_end = to_date_obj(end_date_val)
 
-        # Date range filtering
         if item_start and item_start > target_week_end:
             continue
         if item_end and item_end < target_week_start:
@@ -452,11 +452,22 @@ def get_my_weekly_schedule(
 
                 clean_base_session = str(base_session).lower() if base_session else "morning"
                 final_session = clean_base_session if clean_base_session in ["morning", "evening"] else "morning"
+                
                 is_overridden = False
+                pending_request = False
 
+                # Check if an override exists for this key
                 if override_key in overrides_map:
-                    final_session = overrides_map[override_key]["new_session"]
-                    is_overridden = True
+                    ovr = overrides_map[override_key]
+                    ovr_status = ovr["status"]
+
+                    if ovr_status == "approved":
+                        # Only apply the session change if status is APPROVED
+                        final_session = ovr["new_session"]
+                        is_overridden = True
+                    elif ovr_status == "pending":
+                        # Keep original base session, but mark as pending
+                        pending_request = True
 
                 schedule_item = {
                     "item_id": item_id,
@@ -464,7 +475,8 @@ def get_my_weekly_schedule(
                     "title": title,
                     "session": final_session,
                     "date": date_str,
-                    "is_overridden": is_overridden
+                    "is_overridden": is_overridden,
+                    "pending_request": pending_request
                 }
 
                 target_slot = final_session if final_session in ["morning", "evening"] else "morning"
