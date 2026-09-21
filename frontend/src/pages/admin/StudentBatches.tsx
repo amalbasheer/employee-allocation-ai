@@ -214,6 +214,9 @@ const matchDomain = (batchDomain: string | undefined, targetKey: string): boolea
   if (targetKey === 'Agentic AI') {
     return dom.includes('agentic') || dom === 'ai' || dom.includes('agentic ai');
   }
+  if (targetKey === 'Soft Skill') {
+    return dom.includes('soft skill') || dom === 'soft skills' || dom.includes('soft_skill');
+  }
   return false;
 };
 
@@ -270,6 +273,7 @@ return (
         { id: 'DS', label: 'Data Science (DS)' },
         { id: 'DA', label: 'Data Analytics (DA)' },
         { id: 'Agentic AI', label: 'Agentic AI' },
+        { id: 'Soft Skill', label: 'Soft Skill' },
       ].map((tab) => {
         const count =
           tab.id === 'all'
