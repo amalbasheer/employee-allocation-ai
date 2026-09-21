@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timezone, timedelta, date
 from pydantic import BaseModel, Field
 import sys
+import re
 from pathlib import Path
 
 # Path to the shared root folder containing both backend and ai_engine
@@ -21,7 +22,7 @@ from ai_engine.embedding import generate_embedding
 from app.database import get_db
 from app.api.deps import require_admin
 from app.models.employee import CompanyEmployee, EmployeeSkill, Availability
-from app.models.taxonomy import Skill
+from app.models.taxonomy import Skill, LeaveRequest
 from app.models.allocation import Allocation
 from app.models.webinar import TrainingEngagement
 from app.models.project import Project
@@ -495,108 +496,154 @@ def add_or_update_availability(
 
 
 # --- NEW API 1: Date Range PTO Leave Submission ---
-@router.post("/{employee_id}/leave", status_code=status.HTTP_200_OK)
+def generate_leave_request_id(db: Session) -> str:
+    """
+    Generates sequential IDs in the format: req-0001, req-0002, etc.
+    """
+    # Fetch the latest created leave request with a 'req-' prefix
+    last_request = (
+        db.query(LeaveRequest)
+        .filter(LeaveRequest.request_id.like("req-%"))
+        .order_by(LeaveRequest.created_at.desc())
+        .first()
+    )
+
+    if not last_request:
+        return "req-0001"
+
+    # Extract the trailing numbers from req-XXXX
+    match = re.search(r"req-(\d+)", last_request.request_id)
+    if match:
+        next_num = int(match.group(1)) + 1
+    else:
+        # Fallback to row count if regex parsing fails
+        next_num = db.query(LeaveRequest).count() + 1
+
+    return f"req-{next_num:04d}"
+
+# --- 1. Regular Date Range Leave Submission (Creates Pending Request) ---
+@router.post("/{employee_id}/leave", status_code=status.HTTP_201_CREATED)
 def submit_date_range_leave(
     employee_id: str,
     payload: DateRangeLeaveRequest,
     db: Session = Depends(get_db),
 ):
-    """Submits multi-week leave, setting matching weeks to 0 available hours and on_leave = True."""
     if payload.end_date < payload.start_date:
         raise HTTPException(
             status_code=400, detail="End date cannot be before start date"
         )
 
-    current_date = payload.start_date
-    updated_weeks = []
+    new_req_id = generate_leave_request_id(db)
 
-    while current_date <= payload.end_date:
-        monday = normalize_to_monday(current_date)
-
-        existing = (
-            db.query(Availability)
-            .filter(
-                Availability.resource_id == employee_id,
-                Availability.week_start_date == monday,
-            )
-            .first()
-        )
-
-        new_avail_id = generate_availability_id(db)
-        
-        if existing:
-            existing.available_hours = 0
-            existing.is_on_leave = True
-            existing.leave_reason = payload.reason  
-        else:
-            new_avail = Availability(
-                availability_id=new_avail_id,
-                resource_id=employee_id,
-                resource_type="employee",
-                week_start_date=monday,
-                available_hours=0,
-                is_on_leave=True,
-                leave_reason=payload.reason,
-                session=payload.session,
-            )
-            db.add(new_avail)
-
-        updated_weeks.append(monday)
-        current_date = monday + timedelta(days=7)
-
+    leave_req = LeaveRequest(
+        request_id=new_req_id,
+        employee_id=employee_id,
+        leave_type="regular",
+        start_date=payload.start_date,
+        end_date=payload.end_date,
+        reason=payload.reason,
+        session=payload.session,
+        status="PENDING",
+    )
+    db.add(leave_req)
     db.commit()
+
     return {
         "status": "success",
-        "message": f"Leave applied across {len(set(updated_weeks))} week(s).",
+        "message": "Leave request submitted successfully and is pending admin approval.",
+        "request_id": leave_req.request_id,
     }
 
-# --New API: Urgent leave submission
 class UrgentLeaveRequest(BaseModel):
     duration_value: int = Field(..., gt=0, description="Number of days or weeks")
     duration_unit: Literal["days", "weeks"]
     reason: str
     session: Optional[str]
 
-
-@router.post("/{employee_id}/urgent-leave", status_code=status.HTTP_200_OK)
+# --- 2. Urgent Leave Submission (Creates Pending Request) ---
+@router.post("/{employee_id}/urgent-leave", status_code=status.HTTP_201_CREATED)
 def submit_urgent_leave(
     employee_id: str,
     payload: UrgentLeaveRequest,
     db: Session = Depends(get_db),
 ):
-    """Calculates start date (tomorrow) and end date, updates weekly availability hours,
-
-    and marks active training engagements and project allocations as 'on_leave'.
-    """
-    # 1. Calculate Start Date (Tomorrow) and End Date
     start_date = date.today() + timedelta(days=1)
-
-    if payload.duration_unit == "weeks":
-        total_days = payload.duration_value * 7
-    else:
-        total_days = payload.duration_value
-
+    total_days = payload.duration_value * 7 if payload.duration_unit == "weeks" else payload.duration_value
     end_date = start_date + timedelta(days=total_days - 1)
 
-    # 2. Process Multi-Week Availability
+    new_req_id = generate_leave_request_id(db)
+
+    leave_req = LeaveRequest(
+        request_id=new_req_id,
+        employee_id=employee_id,
+        leave_type="urgent",
+        start_date=start_date,
+        end_date=end_date,
+        reason=payload.reason,
+        session=payload.session,
+        status="PENDING",
+    )
+    db.add(leave_req)
+    db.commit()
+
+    return {
+        "status": "success",
+        "message": "Urgent leave request submitted successfully and is pending admin approval.",
+        "request_id": leave_req.request_id,
+        "start_date": start_date,
+        "end_date": end_date,
+    }
+
+class ReviewLeaveRequestPayload(BaseModel):
+    status: Literal["APPROVED", "REJECTED"]
+    admin_id: str
+
+@router.put("/leave-requests/{request_id}/review", status_code=status.HTTP_200_OK)
+def review_leave_request(
+    request_id: str,
+    payload: ReviewLeaveRequestPayload,
+    db: Session = Depends(get_db),
+):
+    """
+    Admin approval/rejection endpoint.
+    Only executes schedule updates and availability changes when approved.
+    """
+    leave_req = db.query(LeaveRequest).filter(LeaveRequest.request_id == request_id).first()
+
+    if not leave_req:
+        raise HTTPException(status_code=404, detail="Leave request not found.")
+
+    if leave_req.status != "PENDING":
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Leave request has already been processed with status: {leave_req.status}"
+        )
+
+    leave_req.status = payload.status
+    leave_req.reviewed_by = payload.admin_id
+    leave_req.reviewed_at = datetime.utcnow()
+
+    # If rejected, commit status and return early without executing updates
+    if payload.status == "REJECTED":
+        db.commit()
+        return {
+            "status": "success",
+            "message": f"Leave request {request_id} has been rejected."
+        }
+
+    # =========================================================================
+    # EXECUTE OPERATIONS ONLY ON APPROVAL
+    # =========================================================================
+    employee_id = leave_req.employee_id
+    start_date = leave_req.start_date
+    end_date = leave_req.end_date
+
+    # 1. PROCESS AVAILABILITY UPDATES
     start_monday = normalize_to_monday(start_date)
     end_monday = normalize_to_monday(end_date)
     current_monday = start_monday
 
-    updated_weeks_summary = []
-
     while current_monday <= end_monday:
-        # Generate the 5 working days (Mon-Fri) for the week
-        work_days = [current_monday + timedelta(days=i) for i in range(5)]
-
-        # Count how many workdays fall within the leave period
-        leave_days_count = sum(
-            1 for d in work_days if start_date <= d <= end_date
-        )
-
-        available_days = 5 - leave_days_count
-        calculated_available_hours = available_days * 8
-
         existing = (
             db.query(Availability)
             .filter(
@@ -606,111 +653,87 @@ def submit_urgent_leave(
             .first()
         )
 
+        if leave_req.leave_type == "regular":
+            calculated_available_hours = 0
+            leave_days_count = 5
+        else:
+            # Urgent Leave: Compute non-leave working days
+            work_days = [current_monday + timedelta(days=i) for i in range(5)]
+            leave_days_count = sum(1 for d in work_days if start_date <= d <= end_date)
+            calculated_available_hours = (5 - leave_days_count) * 8
+
         if existing:
             existing.available_hours = calculated_available_hours
-            existing.is_on_leave = True if leave_days_count > 0 else existing.is_on_leave
-            existing.leave_reason = payload.reason
+            existing.is_on_leave = True
+            existing.leave_reason = leave_req.reason
         else:
-            new_avail_id = generate_availability_id(db)
             new_avail = Availability(
-                availability_id=new_avail_id,
+                availability_id=generate_availability_id(db),
                 resource_id=employee_id,
                 resource_type="employee",
                 week_start_date=current_monday,
                 available_hours=calculated_available_hours,
                 is_on_leave=True,
-                leave_reason=payload.reason,
-                session=payload.session,
+                leave_reason=leave_req.reason,
+                session=leave_req.session,
             )
             db.add(new_avail)
-            db.flush()  # Ensure the new record is written before proceeding
-
-        updated_weeks_summary.append(
-            {
-                "week_start": current_monday,
-                "leave_days": leave_days_count,
-                "available_hours": calculated_available_hours,
-            }
-        )
 
         current_monday += timedelta(days=7)
 
-    # 3. Direct Status Update for Projects (Allocation & Project)
-    assigned_project_allocations = (
-        db.query(Allocation)
-        .filter(
+    # 2. URGENT LEAVE SPECIFIC OPERATIONS (Mark Projects/Trainings On Leave)
+    projects_updated = 0
+    trainings_updated = 0
+
+    if leave_req.leave_type == "urgent":
+        # Mark Projects On Leave
+        assigned_project_allocations = db.query(Allocation).filter(
             Allocation.resource_id == employee_id,
             Allocation.status == "assigned",
             Allocation.reference_type == "project",
-        )
-        .all()
-    )
+        ).all()
 
-    projects_updated = 0
-    for alloc in assigned_project_allocations:
-        project = (
-            db.query(Project)
-            .filter(
+        for alloc in assigned_project_allocations:
+            project = db.query(Project).filter(
                 Project.project_id == alloc.reference_id,
                 Project.status == "in_progress",
-            )
-            .first()
-        )
+            ).first()
+            if project:
+                project.status = "on_leave"
+                alloc.status = "on_leave"
+                projects_updated += 1
 
-        if project:
-            project.status = "on_leave"
-            alloc.status = "on_leave"
-            projects_updated += 1
-
-    # 4. Direct Status Update for Trainings (Allocation & TrainingEngagement)
-    assigned_training_allocations = (
-        db.query(Allocation)
-        .filter(
+        # Mark Training Engagements On Leave
+        assigned_training_allocations = db.query(Allocation).filter(
             Allocation.resource_id == employee_id,
             Allocation.status == "assigned",
             Allocation.reference_type == "training",
-        )
-        .all()
-    )
+        ).all()
 
-    trainings_updated = 0
-    for alloc in assigned_training_allocations:
-        training = (
-            db.query(TrainingEngagement)
-            .filter(
+        for alloc in assigned_training_allocations:
+            training = db.query(TrainingEngagement).filter(
                 TrainingEngagement.engagement_id == alloc.reference_id,
                 TrainingEngagement.status == "in_progress",
-            )
-            .first()
-        )
+            ).first()
+            if training:
+                training.status = "on_leave"
+                alloc.status = "on_leave"
+                trainings_updated += 1
 
-        if training:
-            training.status = "on_leave"
-            alloc.status = "on_leave"
-            trainings_updated += 1
-
-    # 5. Commit Transaction
     try:
         db.commit()
     except Exception as e:
         db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to process urgent leave: {str(e)}",
+            status_code=500, detail=f"Failed to process approval: {str(e)}"
         )
 
     return {
         "status": "success",
-        "message": f"Urgent leave applied from {start_date} to {end_date}.",
-        "start_date": start_date,
-        "end_date": end_date,
-        "availability_updated_weeks": len(updated_weeks_summary),
-        "trainings_marked_on_leave": trainings_updated,
+        "message": f"Leave request {request_id} approved and schedule updated.",
         "projects_marked_on_leave": projects_updated,
-        "schedule_breakdown": updated_weeks_summary,
-        "leave_reason": payload.reason
+        "trainings_marked_on_leave": trainings_updated,
     }
-
 
 # -- daily bandwidth endpoint for employee
 

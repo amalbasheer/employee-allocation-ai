@@ -52,3 +52,18 @@ class ScheduleOverride(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     status = Column(String(50), nullable=True)
+
+class LeaveRequest(Base):
+    __tablename__ = "leave_requests"
+
+    request_id = Column(String, primary_key=True)
+    employee_id = Column(String, nullable=False)
+    leave_type = Column(String, nullable=False)  # "regular" or "urgent"
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    reason = Column(String, nullable=True)
+    session = Column(String, nullable=True)
+    status = Column(String, default="PENDING")  # "PENDING", "APPROVED", "REJECTED"
+    created_at = Column(DateTime, default=datetime.utcnow)
+    reviewed_by = Column(String, nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
