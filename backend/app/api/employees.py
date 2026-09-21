@@ -594,6 +594,23 @@ def submit_urgent_leave(
         "end_date": end_date,
     }
 
+@router.get("/{employee_id}/leave-requests", status_code=status.HTTP_200_OK)
+def get_employee_leave_requests(
+    employee_id: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Fetches all leave requests submitted by a specific employee.
+    """
+    requests = (
+        db.query(LeaveRequest)
+        .filter(LeaveRequest.employee_id == employee_id)
+        .order_by(LeaveRequest.created_at.desc())
+        .all()
+    )
+    return requests
+
+
 class ReviewLeaveRequestPayload(BaseModel):
     status: Literal["APPROVED", "REJECTED"]
     admin_id: str
@@ -756,7 +773,7 @@ def get_employee_daily_bandwidth(
     avail = db.query(Availability).filter(
         Availability.resource_id == employee_id,
         Availability.week_start_date == current_monday
-    ).first()
+    ).all()
 
     gross_weekly_hours = sum(getattr(a, "available_hours", 0) or 0 for a in avail)
     is_on_leave = any(getattr(a, "is_on_leave", False) for a in avail)
@@ -850,7 +867,8 @@ def get_employee_weekly_bandwidth(
                 gross_available_hours=gross,
                 allocated_hours=allocated,
                 is_on_leave=is_leave,
-                net_free_hours=net_free
+                net_free_hours=net_free,
+                session=None
             )
         )
 

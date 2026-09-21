@@ -66,7 +66,7 @@ class DateRangeLeaveRequest(BaseModel):
     start_date: date
     end_date: date
     reason: Optional[str] = None
-    session: Optional[str]
+    session: Optional[str] = None
 
 
 class BatchAvailabilityUpdate(BaseModel):
@@ -79,7 +79,7 @@ class WeeklyBandwidthSummary(BaseModel):
     allocated_hours: int
     net_free_hours: int
     is_on_leave: bool
-    session: str
+    session: Optional[str]
 
 
 class WeeklyBandwidthProjection(BaseModel):
@@ -89,7 +89,7 @@ class WeeklyBandwidthProjection(BaseModel):
     available_hours: float
     total_capacity: float
     utilization_percentage: float
-    session: str
+    session: Optional[str]
 
 
 class BandwidthForecastItem(BaseModel):
@@ -98,7 +98,7 @@ class BandwidthForecastItem(BaseModel):
     allocated_hours: float        # e.g. 32.0
     is_on_leave: bool             # True / False
     net_free_hours: float         # e.g. 8.0
-    session: str
+    session: Optional[str]
 
 
 # ==========================================

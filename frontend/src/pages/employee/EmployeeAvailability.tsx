@@ -10,7 +10,7 @@ import {
   CheckCircle2, 
   AlertCircle,
   TrendingDown,
-  ChevronRight,
+  FileText,
   AlertTriangle
 } from 'lucide-react';
 
@@ -129,69 +129,99 @@ export const EmployeeAvailabilityPage: React.FC<{ employeeId?: string }> = ({
     }
   };
 
-  // Handler: Submit Multi-Week PTO Leave
-  const handleLeaveSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!leaveStartDate || !leaveEndDate) return;
+ // Handler: Submit Multi-Week / Regular PTO Leave
+const handleLeaveSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (!leaveStartDate || !leaveEndDate) return;
 
-    try {
-      const res = await fetch(`${API_BASE}/api/employees/${employeeId}/leave`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          start_date: leaveStartDate,
-          end_date: leaveEndDate,
-          reason: leaveReason,
-        }),
+  try {
+    const res = await fetch(`${API_BASE}/api/employees/${employeeId}/leave`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        start_date: leaveStartDate,
+        end_date: leaveEndDate,
+        reason: leaveReason,
+      }),
+    });
+
+    const responseData = await res.json();
+
+    if (res.ok) {
+      setStatusMessage({
+        type: 'success',
+        text: responseData.message || `Leave request ${responseData.request_id} submitted for admin approval!`,
       });
-
-      if (res.ok) {
-        setStatusMessage({ type: 'success', text: 'Leave request submitted across selected dates!' });
-        setLeaveStartDate('');
-        setLeaveEndDate('');
-        setLeaveReason('');
-        fetchDashboardData();
-      } else {
-        throw new Error('Failed to submit leave');
-      }
-    } catch (err) {
-      setStatusMessage({ type: 'error', text: 'Error submitting leave request.' });
+      setLeaveStartDate('');
+      setLeaveEndDate('');
+      setLeaveReason('');
+      fetchDashboardData();
+      fetchLeaveRequests(); // Refresh request status list
+    } else {
+      throw new Error(responseData.detail || 'Failed to submit leave');
     }
-  };
+  } catch (err: any) {
+    setStatusMessage({
+      type: 'error',
+      text: err.message || 'Error submitting leave request.',
+    });
+  }
+};
 
-  // Handler: Submit Urgent Leave
-  const handleUrgentLeaveSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!urgentReason || urgentDurationValue <= 0) return;
+// Handler: Submit Urgent Leave
+const handleUrgentLeaveSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (!urgentReason || urgentDurationValue <= 0) return;
 
-    try {
-      const res = await fetch(`${API_BASE}/api/employees/${employeeId}/urgent-leave`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          duration_value: Number(urgentDurationValue),
-          duration_unit: urgentDurationUnit,
-          reason: urgentReason,
-        }),
+  try {
+    const res = await fetch(`${API_BASE}/api/employees/${employeeId}/urgent-leave`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        duration_value: Number(urgentDurationValue),
+        duration_unit: urgentDurationUnit,
+        reason: urgentReason,
+      }),
+    });
+
+    const responseData = await res.json();
+
+    if (res.ok) {
+      setStatusMessage({
+        type: 'success',
+        text: responseData.message || `Urgent leave request ${responseData.request_id} submitted for admin approval!`,
       });
-
-      if (res.ok) {
-        const responseData = await res.json();
-        setStatusMessage({
-          type: 'success',
-          text: responseData.message || 'Urgent leave submitted and statuses updated to on leave!',
-        });
-        setUrgentDurationValue(1);
-        setUrgentDurationUnit('days');
-        setUrgentReason('');
-        fetchDashboardData();
-      } else {
-        throw new Error('Failed to submit urgent leave');
-      }
-    } catch (err) {
-      setStatusMessage({ type: 'error', text: 'Error processing urgent leave request.' });
+      setUrgentDurationValue(1);
+      setUrgentDurationUnit('days');
+      setUrgentReason('');
+      fetchDashboardData();
+      fetchLeaveRequests(); // Refresh request status list
+    } else {
+      throw new Error(responseData.detail || 'Failed to submit urgent leave');
     }
-  };
+  } catch (err: any) {
+    setStatusMessage({
+      type: 'error',
+      text: err.message || 'Error processing urgent leave request.',
+    });
+  }
+};
+
+// State to hold employee's submitted leave requests
+const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
+
+// Handler: Fetch Employee's Leave Request History
+const fetchLeaveRequests = async () => {
+  try {
+    const res = await fetch(`${API_BASE}/api/employees/${employeeId}/leave-requests`);
+    if (res.ok) {
+      const data = await res.json();
+      setLeaveRequests(data);
+    }
+  } catch (err) {
+    console.error('Failed to fetch leave request history:', err);
+  }
+};
 
   const metrics = [
     {
@@ -224,234 +254,232 @@ export const EmployeeAvailabilityPage: React.FC<{ employeeId?: string }> = ({
     },
   ];
 
-  return (
-    <div className="space-y-6">
-      {/* Page Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-white">My Availability & Bandwidth</h1>
-        <p className="text-slate-400 text-sm">
-          Track remaining unallocated hours, update weekly capacity, and schedule leave.
-        </p>
-      </div>
+return (
+  <div className="space-y-6">
+    {/* Page Header */}
+    <div>
+      <h1 className="text-2xl font-bold text-white">My Availability & Bandwidth</h1>
+      <p className="text-slate-400 text-sm">
+        Track remaining unallocated hours, update weekly capacity, and schedule leave.
+      </p>
+    </div>
 
-      {/* Notification Banner */}
-      {statusMessage && (
-        <div
-          className={`p-4 rounded-xl border flex items-center justify-between ${
-            statusMessage.type === 'success'
-              ? 'bg-emerald-950/40 border-emerald-800 text-emerald-300'
-              : 'bg-rose-950/40 border-rose-800 text-rose-300'
-          }`}
-        >
-          <div className="flex items-center gap-2 text-sm font-medium">
-            {statusMessage.type === 'success' ? (
-              <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-            ) : (
-              <AlertCircle className="w-5 h-5 text-rose-400" />
-            )}
-            {statusMessage.text}
-          </div>
-          <button
-            onClick={() => setStatusMessage(null)}
-            className="text-xs opacity-70 hover:opacity-100"
-          >
-            Dismiss
-          </button>
+    {/* Notification Banner */}
+    {statusMessage && (
+      <div
+        className={`p-4 rounded-xl border flex items-center justify-between ${
+          statusMessage.type === 'success'
+            ? 'bg-emerald-950/40 border-emerald-800 text-emerald-300'
+            : 'bg-rose-950/40 border-rose-800 text-rose-300'
+        }`}
+      >
+        <div className="flex items-center gap-2 text-sm font-medium">
+          {statusMessage.type === 'success' ? (
+            <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+          ) : (
+            <AlertCircle className="w-5 h-5 text-rose-400" />
+          )}
+          {statusMessage.text}
         </div>
-      )}
-
-      {/* Top Key Metrics Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {metrics.map((m, i) => {
-          const Icon = m.icon;
-          return (
-            <Card key={i}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-xs text-slate-400">{m.label}</span>
-                  <h3 className="text-2xl font-black text-white mt-1">{m.value}</h3>
-                  <span className="text-[11px] text-slate-500">{m.subtext}</span>
-                </div>
-                <div className={`p-3 bg-slate-950 rounded-xl border border-slate-800 ${m.color}`}>
-                  <Icon className="w-6 h-6" />
-                </div>
-              </div>
-            </Card>
-          );
-        })}
+        <button
+          onClick={() => setStatusMessage(null)}
+          className="text-xs opacity-70 hover:opacity-100"
+        >
+          Dismiss
+        </button>
       </div>
+    )}
 
-      {/* Current Week Breakdown Progress Bar */}
-      {dailyData && (
-        <Card>
-          <div className="space-y-3">
-            <div className="flex justify-between items-center text-sm">
-              <span className="font-semibold text-white">This Week's Capacity Utilization</span>
-              <span className="text-slate-400 text-xs">
-                {dailyData.remaining_unallocated_hours} hrs available of {dailyData.gross_weekly_hours} hrs
-              </span>
+    {/* Top Key Metrics Cards */}
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {metrics.map((m, i) => {
+        const Icon = m.icon;
+        return (
+          <Card key={i}>
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-xs text-slate-400">{m.label}</span>
+                <h3 className="text-2xl font-black text-white mt-1">{m.value}</h3>
+                <span className="text-[11px] text-slate-500">{m.subtext}</span>
+              </div>
+              <div className={`p-3 bg-slate-950 rounded-xl border border-slate-800 ${m.color}`}>
+                <Icon className="w-6 h-6" />
+              </div>
             </div>
+          </Card>
+        );
+      })}
+    </div>
 
-            {/* Segmented Capacity Progress Bar */}
-            <div className="w-full bg-slate-950 border border-slate-800 h-4 rounded-lg overflow-hidden flex">
-              {/* Allocated Hours Segment */}
-              <div
-                style={{
-                  width: `${(dailyData.assigned_project_hours / dailyData.gross_weekly_hours) * 100}%`,
-                }}
-                className="bg-indigo-500 h-full transition-all"
-                title={`Assigned Project Hours: ${dailyData.assigned_project_hours} hrs`}
-              />
-              {/* Elapsed Time Segment */}
-              <div
-                style={{
-                  width: `${(dailyData.elapsed_hours_this_week / dailyData.gross_weekly_hours) * 100}%`,
-                }}
-                className="bg-amber-500/60 h-full transition-all"
-                title={`Elapsed Time: ${dailyData.elapsed_hours_this_week} hrs`}
-              />
-              {/* Remaining Free Capacity Segment */}
-              <div
-                style={{
-                  width: `${(dailyData.remaining_unallocated_hours / dailyData.gross_weekly_hours) * 100}%`,
-                }}
-                className="bg-emerald-500 h-full transition-all"
-                title={`Unallocated Hours: ${dailyData.remaining_unallocated_hours} hrs`}
-              />
+    {/* Current Week Breakdown Progress Bar */}
+    {dailyData && (
+      <Card>
+        <div className="space-y-3">
+          <div className="flex justify-between items-center text-sm">
+            <span className="font-semibold text-white">This Week's Capacity Utilization</span>
+            <span className="text-slate-400 text-xs">
+              {dailyData.remaining_unallocated_hours} hrs available of {dailyData.gross_weekly_hours} hrs
+            </span>
+          </div>
+
+          {/* Segmented Capacity Progress Bar */}
+          <div className="w-full bg-slate-950 border border-slate-800 h-4 rounded-lg overflow-hidden flex">
+            <div
+              style={{
+                width: `${(dailyData.assigned_project_hours / dailyData.gross_weekly_hours) * 100}%`,
+              }}
+              className="bg-indigo-500 h-full transition-all"
+              title={`Assigned Project Hours: ${dailyData.assigned_project_hours} hrs`}
+            />
+            <div
+              style={{
+                width: `${(dailyData.elapsed_hours_this_week / dailyData.gross_weekly_hours) * 100}%`,
+              }}
+              className="bg-amber-500/60 h-full transition-all"
+              title={`Elapsed Time: ${dailyData.elapsed_hours_this_week} hrs`}
+            />
+            <div
+              style={{
+                width: `${(dailyData.remaining_unallocated_hours / dailyData.gross_weekly_hours) * 100}%`,
+              }}
+              className="bg-emerald-500 h-full transition-all"
+              title={`Unallocated Hours: ${dailyData.remaining_unallocated_hours} hrs`}
+            />
+          </div>
+
+          {/* Legend */}
+          <div className="flex items-center gap-6 text-xs text-slate-400 pt-1">
+            <div className="flex items-center gap-2">
+              <span className="w-3 h-3 rounded-sm bg-indigo-500 inline-block" />
+              Assigned Project ({dailyData.assigned_project_hours}h)
             </div>
-
-            {/* Legend */}
-            <div className="flex items-center gap-6 text-xs text-slate-400 pt-1">
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-sm bg-indigo-500 inline-block" />
-                Assigned Project ({dailyData.assigned_project_hours}h)
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-sm bg-amber-500/60 inline-block" />
-                Elapsed ({dailyData.elapsed_hours_this_week}h)
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-sm bg-emerald-500 inline-block" />
-                Remaining Unallocated ({dailyData.remaining_unallocated_hours}h)
-              </div>
+            <div className="flex items-center gap-2">
+              <span className="w-3 h-3 rounded-sm bg-amber-500/60 inline-block" />
+              Elapsed ({dailyData.elapsed_hours_this_week}h)
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-3 h-3 rounded-sm bg-emerald-500 inline-block" />
+              Remaining Unallocated ({dailyData.remaining_unallocated_hours}h)
             </div>
           </div>
-        </Card>
-      )}
+        </div>
+      </Card>
+    )}
 
-      {/* Main Grid: Management Forms & Timeline Projection */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+    {/* Main Grid: Management Forms & Timeline Projection */}
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      
+      {/* Left Column: Action Forms (5 cols) */}
+      <div className="lg:col-span-5 space-y-6">
         
-        {/* Left Column: Action Forms (5 cols) */}
-        <div className="lg:col-span-5 space-y-6">
-          
-          {/* Form 1: Single Week Adjustment */}
-          <Card>
-            <div className="flex items-center gap-2 mb-4">
-              <Clock className="w-5 h-5 text-indigo-400" />
-              <h2 className="text-lg font-bold text-white">Update Weekly Hours</h2>
+        {/* Form 1: Single Week Adjustment */}
+        <Card>
+          <div className="flex items-center gap-2 mb-4">
+            <Clock className="w-5 h-5 text-indigo-400" />
+            <h2 className="text-lg font-bold text-white">Update Weekly Hours</h2>
+          </div>
+
+          <form onSubmit={handleSingleWeekSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Week Start Date (Monday)</label>
+              <input
+                type="date"
+                value={singleWeekDate}
+                onChange={(e) => setSingleWeekDate(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
+                required
+              />
             </div>
 
-            <form onSubmit={handleSingleWeekSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Available Hours</label>
+              <input
+                type="number"
+                min="0"
+                max="80"
+                value={singleWeekHours}
+                disabled={singleWeekIsLeave}
+                onChange={(e) => setSingleWeekHours(Number(e.target.value))}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-40"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="isLeaveToggle"
+                checked={singleWeekIsLeave}
+                onChange={(e) => setSingleWeekIsLeave(e.target.checked)}
+                className="w-4 h-4 rounded bg-slate-950 border-slate-800 text-indigo-500 focus:ring-0"
+              />
+              <label htmlFor="isLeaveToggle" className="text-xs text-slate-300">
+                Mark as On Leave / PTO for this week
+              </label>
+            </div>
+
+            <button
+              type="submit"
+              className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm rounded-xl py-2.5 flex items-center justify-center gap-2 transition-colors"
+            >
+              <Save className="w-4 h-4" />
+              Save Availability
+            </button>
+          </form>
+        </Card>
+
+        {/* Form 2: Date Range PTO Leave */}
+        <Card>
+          <div className="flex items-center gap-2 mb-4">
+            <Palmtree className="w-5 h-5 text-rose-400" />
+            <h2 className="text-lg font-bold text-white">Book Vacation / PTO</h2>
+          </div>
+
+          <form onSubmit={handleLeaveSubmit} className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-slate-400 mb-1">Week Start Date (Monday)</label>
+                <label className="block text-xs text-slate-400 mb-1">Start Date</label>
                 <input
                   type="date"
-                  value={singleWeekDate}
-                  onChange={(e) => setSingleWeekDate(e.target.value)}
+                  value={leaveStartDate}
+                  onChange={(e) => setLeaveStartDate(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
                   required
                 />
               </div>
-
               <div>
-                <label className="block text-xs text-slate-400 mb-1">Available Hours</label>
+                <label className="block text-xs text-slate-400 mb-1">End Date</label>
                 <input
-                  type="number"
-                  min="0"
-                  max="80"
-                  value={singleWeekHours}
-                  disabled={singleWeekIsLeave}
-                  onChange={(e) => setSingleWeekHours(Number(e.target.value))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-40"
+                  type="date"
+                  value={leaveEndDate}
+                  onChange={(e) => setLeaveEndDate(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
+                  required
                 />
               </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="isLeaveToggle"
-                  checked={singleWeekIsLeave}
-                  onChange={(e) => setSingleWeekIsLeave(e.target.checked)}
-                  className="w-4 h-4 rounded bg-slate-950 border-slate-800 text-indigo-500 focus:ring-0"
-                />
-                <label htmlFor="isLeaveToggle" className="text-xs text-slate-300">
-                  Mark as On Leave / PTO for this week
-                </label>
-              </div>
-
-              <button
-                type="submit"
-                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm rounded-xl py-2.5 flex items-center justify-center gap-2 transition-colors"
-              >
-                <Save className="w-4 h-4" />
-                Save Availability
-              </button>
-            </form>
-          </Card>
-
-          {/* Form 2: Date Range PTO Leave */}
-          <Card>
-            <div className="flex items-center gap-2 mb-4">
-              <Palmtree className="w-5 h-5 text-rose-400" />
-              <h2 className="text-lg font-bold text-white">Book Vacation / PTO</h2>
             </div>
 
-            <form onSubmit={handleLeaveSubmit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1">Start Date</label>
-                  <input
-                    type="date"
-                    value={leaveStartDate}
-                    onChange={(e) => setLeaveStartDate(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1">End Date</label>
-                  <input
-                    type="date"
-                    value={leaveEndDate}
-                    onChange={(e) => setLeaveEndDate(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
-                    required
-                  />
-                </div>
-              </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Reason / Notes (Optional)</label>
+              <input
+                type="text"
+                placeholder="e.g., Annual Vacation"
+                value={leaveReason}
+                onChange={(e) => setLeaveReason(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
+              />
+            </div>
 
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">Reason / Notes (Optional)</label>
-                <input
-                  type="text"
-                  placeholder="e.g., Annual Vacation"
-                  value={leaveReason}
-                  onChange={(e) => setLeaveReason(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
-                />
-              </div>
+            <button
+              type="submit"
+              className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-medium text-sm rounded-xl py-2.5 flex items-center justify-center gap-2 transition-colors"
+            >
+              <Plus className="w-4 h-4 text-rose-400" />
+              Submit Multi-Week Leave
+            </button>
+          </form>
+        </Card>
 
-              <button
-                type="submit"
-                className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-medium text-sm rounded-xl py-2.5 flex items-center justify-center gap-2 transition-colors"
-              >
-                <Plus className="w-4 h-4 text-rose-400" />
-                Submit Multi-Week Leave
-              </button>
-            </form>
-          </Card>
-          {/* Form 3: Urgent Leave Application */}
+        {/* Form 3: Urgent Leave Application */}
         <Card>
           <div className="flex items-center gap-2 mb-4">
             <AlertTriangle className="w-5 h-5 text-amber-400" />
@@ -508,72 +536,138 @@ export const EmployeeAvailabilityPage: React.FC<{ employeeId?: string }> = ({
 
       </div>
 
-        {/* Right Column: 8-Week Bandwidth Forecast (7 cols) */}
-        <div className="lg:col-span-7">
-          <Card>
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-lg font-bold text-white">8-Week Bandwidth Forecast</h2>
-                <p className="text-xs text-slate-400">Projected net free hours across upcoming weeks</p>
-              </div>
-              <span className="text-xs text-indigo-400 bg-indigo-950/60 border border-indigo-800/50 px-2.5 py-1 rounded-lg">
-                Upcoming Schedule
-              </span>
+      {/* Right Column: 8-Week Bandwidth Forecast & Request History (7 cols) */}
+      <div className="lg:col-span-7 space-y-6">
+        
+        {/* 8-Week Bandwidth Forecast Card */}
+        <Card>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-bold text-white">8-Week Bandwidth Forecast</h2>
+              <p className="text-xs text-slate-400">Projected net free hours across upcoming weeks</p>
             </div>
+            <span className="text-xs text-indigo-400 bg-indigo-950/60 border border-indigo-800/50 px-2.5 py-1 rounded-lg">
+              Upcoming Schedule
+            </span>
+          </div>
 
-            {loading ? (
-              <div className="py-12 text-center text-slate-500 text-sm">
-                Loading capacity forecast...
-              </div>
-            ) : weeklyProjections.length === 0 ? (
-              <div className="py-12 text-center text-slate-500 text-sm">
-                No future capacity records found.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {weeklyProjections.map((item, index) => (
-                  <div
-                    key={index}
-                    className="p-3 bg-slate-950 rounded-xl border border-slate-800/80 flex items-center justify-between hover:border-slate-700 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-slate-900 rounded-lg text-slate-400">
-                        <Calendar className="w-4 h-4 text-indigo-400" />
-                      </div>
-                      <div>
-                        <div className="text-sm font-semibold text-white">
-                          Week of {item.week_start_date}
-                        </div>
-                        <div className="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
-                          <span>Gross: {item.gross_available_hours}h</span>
-                          <span>•</span>
-                          <span>Allocated: {item.allocated_hours}h</span>
-                        </div>
-                      </div>
+          {loading ? (
+            <div className="py-12 text-center text-slate-500 text-sm">
+              Loading capacity forecast...
+            </div>
+          ) : weeklyProjections.length === 0 ? (
+            <div className="py-12 text-center text-slate-500 text-sm">
+              No future capacity records found.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {weeklyProjections.map((item, index) => (
+                <div
+                  key={index}
+                  className="p-3 bg-slate-950 rounded-xl border border-slate-800/80 flex items-center justify-between hover:border-slate-700 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-slate-900 rounded-lg text-slate-400">
+                      <Calendar className="w-4 h-4 text-indigo-400" />
                     </div>
-
-                    <div className="text-right">
-                      {item.is_on_leave ? (
-                        <span className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-rose-950/60 border border-rose-800 text-rose-400">
-                          On Leave
-                        </span>
-                      ) : (
-                        <div>
-                          <div className="text-sm font-bold text-emerald-400">
-                            {item.net_free_hours} hrs free
-                          </div>
-                          <div className="text-[10px] text-slate-500">Net Bandwidth</div>
-                        </div>
-                      )}
+                    <div>
+                      <div className="text-sm font-semibold text-white">
+                        Week of {item.week_start_date}
+                      </div>
+                      <div className="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
+                        <span>Gross: {item.gross_available_hours}h</span>
+                        <span>•</span>
+                        <span>Allocated: {item.allocated_hours}h</span>
+                      </div>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </Card>
-        </div>
+
+                  <div className="text-right">
+                    {item.is_on_leave ? (
+                      <span className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-rose-950/60 border border-rose-800 text-rose-400">
+                        On Leave
+                      </span>
+                    ) : (
+                      <div>
+                        <div className="text-sm font-bold text-emerald-400">
+                          {item.net_free_hours} hrs free
+                        </div>
+                        <div className="text-[10px] text-slate-500">Net Bandwidth</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        {/* --- NEW SECTION: Submitted Leave Requests & Approval Tracker --- */}
+        <Card>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-indigo-400" />
+              <h2 className="text-lg font-bold text-white">My Leave Requests</h2>
+            </div>
+            <span className="text-xs text-slate-400">
+              Track ID & Admin Approval
+            </span>
+          </div>
+
+          {!leaveRequests || leaveRequests.length === 0 ? (
+            <div className="text-center py-8 text-slate-500 text-xs">
+              No leave requests submitted yet.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="text-slate-400 border-b border-slate-800 bg-slate-950/50">
+                  <tr>
+                    <th className="py-2.5 px-3 font-medium">Request ID</th>
+                    <th className="py-2.5 px-3 font-medium">Type</th>
+                    <th className="py-2.5 px-3 font-medium">Dates</th>
+                    <th className="py-2.5 px-3 font-medium">Reason</th>
+                    <th className="py-2.5 px-3 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {leaveRequests.map((req) => (
+                    <tr key={req.request_id || req.id} className="hover:bg-slate-900/40">
+                      <td className="py-3 px-3 font-mono text-indigo-300 font-semibold">
+                        {req.request_id}
+                      </td>
+                      <td className="py-3 px-3 capitalize text-slate-300">
+                        {req.leave_type || 'regular'}
+                      </td>
+                      <td className="py-3 px-3 text-slate-300 whitespace-nowrap">
+                        {req.start_date} → {req.end_date}
+                      </td>
+                      <td className="py-3 px-3 text-slate-400 truncate max-w-[120px]">
+                        {req.reason || '-'}
+                      </td>
+                      <td className="py-3 px-3">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                            req.status === 'APPROVED'
+                              ? 'bg-emerald-950/80 border border-emerald-800 text-emerald-400'
+                              : req.status === 'REJECTED'
+                              ? 'bg-rose-950/80 border border-rose-800 text-rose-400'
+                              : 'bg-amber-950/80 border border-amber-800 text-amber-400'
+                          }`}
+                        >
+                          {req.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
 
       </div>
+
     </div>
-  );
-};
+  </div>
+);}
