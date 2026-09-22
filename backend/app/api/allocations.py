@@ -826,6 +826,7 @@ def update_allocation_status(
 class AllocationRespondRequest(BaseModel):
     status: str          # "accepted" or "rejected"
     employee_id: str
+    employee_name: Optional[str]
 
 
 @router.patch("/{allocation_id}/respond")
@@ -876,7 +877,7 @@ def accept_allocation(
         log_id=new_log_id,
         allocation_id=allocation_id,
         action=formatted_status.upper(),
-        changed_by=payload.employee_id,
+        changed_by=payload.employee_name,
         timestamp=datetime.now(timezone.utc)
     )
 
@@ -943,7 +944,7 @@ def reject_allocation(
         log_id=new_log_id,
         allocation_id=allocation_id,
         action='REJECTED',
-        changed_by=payload.employee_id,
+        changed_by=payload.employee_name,
         timestamp=datetime.now(timezone.utc)
     )
 
