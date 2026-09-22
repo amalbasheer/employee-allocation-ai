@@ -873,7 +873,8 @@ def get_employee_full_details(employee_id: str, db: Session = Depends(get_db)):
             COALESCE(p.category, 'Data Science') as category,
             COALESCE(a.role_on_project, 'Team Member') as role,
             COALESCE(a.allocated_hours, 10) as allocated_hours,
-            COALESCE(a.session, 'Morning') as session,
+            COALESCE(p.session, 'Morning') as session,
+            COALESCE(p.day_of_week, 'Mon,Wed, Fri') as days,
             CAST(p.start_date AS VARCHAR) as start_date,
             CAST(p.end_date AS VARCHAR) as end_date,
             LOWER(COALESCE(p.status, 'open')) as status,
@@ -903,6 +904,7 @@ def get_employee_full_details(employee_id: str, db: Session = Depends(get_db)):
             b.domain as program_name,
             b.delivery_mode as mode,
             b.session as session,
+            b.day_of_week as days,
             CAST(b.start_date AS VARCHAR) as start_date,
             CAST(b.end_date AS VARCHAR) as end_date,
             LOWER(COALESCE(b.status, 'ongoing')) as batch_status

@@ -646,7 +646,7 @@ def create_or_request_schedule_override(
         audit_log = AllocationLog(
             log_id=log_id,
             allocation_id=allocation_id,
-            action=f"DIRECT_SHIFT_OVERRIDE [{payload.scope.upper()}]: {original_session or 'N/A'} -> {payload.new_session}",
+            action=f"SHIFTED_BY_ADMIN [{payload.scope.upper()}]: {original_session or 'N/A'} -> {payload.new_session}",
             changed_by=user_name,
             timestamp=datetime.now(timezone.utc)
         )

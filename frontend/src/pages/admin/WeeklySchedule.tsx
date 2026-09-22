@@ -9,6 +9,7 @@ interface ScheduleItem {
   session: 'morning' | 'evening';
   is_overridden?: boolean;
   reason?: string;
+  status?: string;
 }
 
 interface DayShiftData {
@@ -136,7 +137,8 @@ export const WeeklySchedule: React.FC = () => {
     scope: 'single_day' | 'full_week' = 'single_day',
     overrideDate?: string,
     weekStartDate?: string,
-    reason?: string
+    reason?: string,
+    status?: string
   ) => {
     setUpdatingId(itemId);
     try {
@@ -148,6 +150,7 @@ export const WeeklySchedule: React.FC = () => {
         override_date: scope === 'single_day' ? overrideDate : null,
         week_start_date: scope === 'full_week' ? weekStartDate : null,
         reason: reason || 'Shift changed via schedule portal',
+        status: 'shifted'
       };
 
       await api.post(`${API_BASE}/api/schedule/override`, payload);
