@@ -13,6 +13,7 @@ import {
   RefreshCw,
   FileText
 } from 'lucide-react';
+import axios from 'axios';
 
 interface LeaveRequestItem {
   request_id: string;
@@ -43,16 +44,16 @@ export const LeaveManagement: React.FC = () => {
 
   // Current logged in admin ID
   const currentAdminId = 'admin-001';
+  const API_BASE = import.meta.env.VITE_BACKEND_URL || 'https://employee-allocation-ai.onrender.com';
+  
 
   // Fetch Leave Requests from Backend
   const fetchLeaveRequests = async () => {
     setLoading(true);
     try {
       const queryParam = filterStatus !== 'ALL' ? `?status=${filterStatus}` : '';
-      const response = await fetch(`/api/employees/leave-requests${queryParam}`);
-      if (!response.ok) throw new Error('Failed to fetch leave requests.');
-      const data = await response.json();
-      setLeaveRequests(data);
+      const response = await axios.get(`${API_BASE}/api/leave/leave-requests`);
+      setLeaveRequests(response.data);
     } catch (err: any) {
       console.error(err);
       // Fallback Mock Data for preview if API is down
@@ -111,7 +112,7 @@ export const LeaveManagement: React.FC = () => {
   setActionFeedback(null);
 
   try {
-    const response = await fetch(`/api/employees/leave-requests/${requestId}/review`, {
+    const response = await fetch(`${API_BASE}/api/leave/leave-requests/${requestId}/review`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
