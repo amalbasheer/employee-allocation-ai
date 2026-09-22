@@ -28,7 +28,7 @@ interface WeeklyAvailableEmployee {
   week_start_date: string;
   available_hour: number;
   is_on_leave: boolean;
-  session: string;
+  session?: string;
 }
 
 interface DashboardData {
@@ -109,8 +109,34 @@ export default function DashboardOverview() {
   // Define standard weekly full-time hours
   const STANDARD_WEEKLY_CAPACITY = 40;
 
-  const processedEmployees = (data?.weekly_available_employees || []).map((emp) => {
-  // If employee is on leave, capacity & allocation are 0
+  // 1. Group and aggregate session records by unique employee
+const aggregatedEmployeesMap = (data?.weekly_available_employees || []).reduce<
+  Record<string, WeeklyAvailableEmployee>
+>((acc, emp) => {
+  // Key by resource_id (or fallback to employee_name)
+  const key = String(emp.resource_id || emp.employee_name);
+
+  if (!acc[key]) {
+    acc[key] = {
+      ...emp,
+      available_hour: Number(emp.available_hour || 0),
+      is_on_leave: Boolean(emp.is_on_leave),
+    };
+  } else {
+    // Sum available hours across sessions (morning + evening/afternoon)
+    acc[key].available_hour += Number(emp.available_hour || 0);
+    // Employee is marked fully on leave only if all session records indicate leave
+    acc[key].is_on_leave = acc[key].is_on_leave && Boolean(emp.is_on_leave);
+  }
+
+  return acc;
+}, {});
+
+const aggregatedEmployees = Object.values(aggregatedEmployeesMap);
+
+// 2. Process metrics for each unique aggregated employee
+const processedEmployees = aggregatedEmployees.map((emp) => {
+  // If employee is on leave across all sessions
   if (emp.is_on_leave) {
     return {
       ...emp,

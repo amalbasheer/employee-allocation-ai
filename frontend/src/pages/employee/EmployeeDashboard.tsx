@@ -190,6 +190,48 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
     return '';
   }, [propEmployeeId]);
 
+  /**
+ * Helper to get the current logged-in employee's name.
+ * Checks localStorage cached profile, Supabase session metadata, or falls back to email username.
+ */
+ const getActiveEmployeeName = (): string => {
+  try {
+    // 1. Check direct user profile stored in localStorage
+    const storedUser = 
+      localStorage.getItem('user') || 
+      localStorage.getItem('userProfile') || 
+      localStorage.getItem('user_profile');
+
+    if (storedUser) {
+      const user = JSON.parse(storedUser);
+      const name = user.name || user.full_name || user.user_metadata?.name || user.user_metadata?.full_name;
+      if (name) return name;
+      if (user.email) return user.email.split('@')[0];
+    }
+
+    // 2. Check Supabase auth session in localStorage if applicable
+    const supabaseSessionKey = Object.keys(localStorage).find((key) =>
+      key.startsWith('sb-') && key.endsWith('-auth-token')
+    );
+
+    if (supabaseSessionKey) {
+      const sessionData = localStorage.getItem(supabaseSessionKey);
+      if (sessionData) {
+        const parsed = JSON.parse(sessionData);
+        const metadata = parsed?.user?.user_metadata;
+        const name = metadata?.name || metadata?.full_name;
+        if (name) return name;
+        if (parsed?.user?.email) return parsed.user.email.split('@')[0];
+      }
+    }
+  } catch (error) {
+    console.error('Error reading active employee name:', error);
+  }
+
+  // 3. Default fallback if no name or user found
+  return 'Employee';
+};
+
   // Fetch Dashboard Data from API for Project Allocations ONLY
 const fetchDashboardData = useCallback(async () => {
   setLoading(true);
@@ -521,6 +563,7 @@ const handleProposalAction = async (id: string, action: 'accept') => {
   if (!proposal) return;
 
   const targetEmployeeId = getActiveEmployeeId();
+  const targetEmployeeName = getActiveEmployeeName();
   const allocationStatus = action === 'accept' ? 'accepted' : 'accepted_by_employee';
 
   try {
@@ -530,6 +573,7 @@ const handleProposalAction = async (id: string, action: 'accept') => {
       body: JSON.stringify({
         status: allocationStatus,
         employee_id: targetEmployeeId,
+        employee_name: targetEmployeeName,
       }),
     });
 
@@ -565,6 +609,7 @@ const handleRejectionAction = async (id: string, action: 'reject') => {
   if (!proposal) return;
 
   const targetEmployeeId = getActiveEmployeeId();
+  const targetEmployeeName = getActiveEmployeeName();
   const allocationStatus = action === 'reject' ? 'rejected' : 'rejected_by_employee';
 
   try {
@@ -574,6 +619,7 @@ const handleRejectionAction = async (id: string, action: 'reject') => {
       body: JSON.stringify({
         status: allocationStatus,
         employee_id: targetEmployeeId,
+        employee_name: targetEmployeeName,
       }),
     });
 

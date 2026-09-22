@@ -79,6 +79,7 @@ class StudentBatchBase(BaseModel):
     status: str = "open"
     delivery_mode: Optional[str] = None
     session: Optional[str]
+    day_of_week: Optional[str]
 
 
 class StudentBatchCreate(StudentBatchBase):
@@ -93,6 +94,7 @@ class StudentBatchUpdate(BaseModel):
     mentor_id: Optional[str] = None
     status: Optional[str] = None
     session: Optional[str]
+    day_of_week: Optional[str] = None
 
 
 class StudentBatchResponse(StudentBatchBase):

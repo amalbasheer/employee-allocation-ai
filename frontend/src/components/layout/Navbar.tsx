@@ -46,7 +46,7 @@ export const Navbar: React.FC = () => {
     if (normalizedRole.includes('ADMIN') || currentPath.startsWith('/admin')) {
       navigate('/admin/overview');
     } else if (normalizedRole.includes('EMPLOYEE') || currentPath.startsWith('/employee')) {
-      navigate('/employee/dashboard');
+      navigate('/employee/profile');
     } else if (
       normalizedRole.includes('STUDENT') ||
       normalizedRole.includes('INTERN') ||

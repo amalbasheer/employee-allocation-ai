@@ -1,16 +1,18 @@
 import logging
-from datetime import datetime, timezone, date
+import re
+from datetime import datetime, timezone, date, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc, or_, text, select
+from sqlalchemy import func, desc, or_, text, select, Integer
 
 from app.api.deps import get_db
 from app.models.webinar import TrainingEngagement, TrainingRequirement, StudentBatch
 from app.models.allocation import Allocation, AllocationLog, Substitution
-from app.models.employee import CompanyEmployee
+from app.models.employee import CompanyEmployee, Availability
+from services.notifications import send_assignment_notification, send_proposed_notification
 from ai_engine.extraction import extract_skills_from_text
 from ai_engine.embedding import generate_embedding
 from ai_engine.recommend import recommend_mentor_for_training
@@ -417,25 +419,37 @@ def generate_next_log_id(db: Session) -> str:
                 max_num = max(max_num, int(parts[-1]))
 
     return f"rp2-log-{max_num + 1:04d}"
-
 @router.post("/engagements/{engagement_id}/propose")
-def propose_mentor(engagement_id: str, payload: ProposeMentorSchema, db: Session = Depends(get_db)):
-    engagement = db.query(TrainingEngagement).filter(TrainingEngagement.engagement_id == engagement_id).first()
+def propose_mentor(
+    engagement_id: str, 
+    payload: ProposeMentorSchema, 
+    db: Session = Depends(get_db)
+):
+    # 1. Fetch Training Engagement
+    engagement = (
+        db.query(TrainingEngagement)
+        .filter(TrainingEngagement.engagement_id == engagement_id)
+        .first()
+    )
     if not engagement:
         raise HTTPException(status_code=404, detail="Engagement not found")
 
     engagement.status = "proposed"
     engagement.mentor_id = payload.mentor_id
 
-    alloc = db.query(Allocation).filter(
-        Allocation.reference_id == engagement_id,
-        Allocation.reference_type.in_(["webinar", "training", "engagement"])
-    ).first()
+    # 2. Find or Create Allocation record
+    alloc = (
+        db.query(Allocation)
+        .filter(
+            Allocation.reference_id == engagement_id,
+            Allocation.reference_type.in_(["webinar", "training", "engagement"])
+        )
+        .first()
+    )
 
     if not alloc:
         alloc = Allocation(
             allocation_id=generate_next_allocation_id(db),
-            # FIX: Use engagement.engagement_type (instance value) instead of TrainingEngagement.engagement_type
             reference_type="training",
             reference_id=engagement_id,
             resource_id=payload.mentor_id,
@@ -447,14 +461,13 @@ def propose_mentor(engagement_id: str, payload: ProposeMentorSchema, db: Session
             assigned_by="admin",
             allocated_hours=2,
             session=engagement.session,
-
-
         )
         db.add(alloc)
     else:
         alloc.resource_id = payload.mentor_id
         alloc.status = "proposed"
 
+    # 3. Create Audit Log Entry
     log_entry = AllocationLog(
         log_id=generate_next_log_id(db),
         allocation_id=alloc.allocation_id,
@@ -463,32 +476,200 @@ def propose_mentor(engagement_id: str, payload: ProposeMentorSchema, db: Session
         timestamp=datetime.now(timezone.utc)
     )
     db.add(log_entry)
+
+    # 4. Commit Database Transaction
     db.commit()
+
+    # -------------------------------------------------------------------
+    # 5. SEND EMAIL NOTIFICATION TO PROPOSED MENTOR
+    # -------------------------------------------------------------------
+    if payload.mentor_id:
+        mentor = (
+            db.query(CompanyEmployee)
+            .filter(CompanyEmployee.employee_id == payload.mentor_id)
+            .first()
+        )
+
+        if mentor and mentor.email:
+            try:
+                training_title = (
+                    getattr(engagement, "title", None) 
+                    or getattr(engagement, "name", None) 
+                    or f"Training Engagement {engagement_id}"
+                )
+
+                base_desc = getattr(engagement, "description", "") or ""
+                session_str = f"Session: {engagement.session}" if getattr(engagement, "session", None) else ""
+                req_hours = (
+                    getattr(engagement, "required_hours", None) 
+                    or getattr(engagement, "duration_hours", None)
+                )
+                hours_str = f"Required Hours: {req_hours}" if req_hours else ""
+                extra_details = " | ".join(filter(None, [session_str, hours_str]))
+
+                full_description = (
+                    f"A new training engagement mentor proposal has been submitted for your review.\n"
+                    f"{extra_details}\n\n"
+                    f"Details: {base_desc}"
+                ).strip()
+
+                start_date_str = str(
+                    getattr(engagement, "start_date", None) 
+                    or getattr(engagement, "date", "TBD")
+                )
+                end_date_str = str(getattr(engagement, "end_date", "TBD"))
+                priority_str = getattr(engagement, "priority_level", "Medium") or "Medium"
+
+                send_proposed_notification(
+                    recipient_email=mentor.email,
+                    recipient_name=mentor.name,
+                    project_title=f"[Proposal] {training_title}",
+                    description=full_description,
+                    start_date=start_date_str,
+                    end_date=end_date_str,
+                    priority=priority_str,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send mentor proposal notification email: {e}")
 
     return {"message": "Proposal sent successfully", "status": engagement.status}
 
+def get_week_start(d: date) -> date:
+    """Returns the Monday of the week for a given date."""
+    return d - timedelta(days=d.weekday())
 
+def generate_next_availability_id(db: Session) -> str:
+    """
+    Generates sequential availability IDs based on the highest existing ID.
+    """
+    # Fetch the lexicographically highest availability_id
+    max_id = db.query(func.max(Availability.availability_id)).scalar()
+    
+    if not max_id:
+        next_num = 1
+    else:
+        # Extract trailing numbers (e.g., 'rp2-avail-0005' -> 5)
+        try:
+            next_num = int(max_id.split("-")[-1]) + 1
+        except (ValueError, IndexError):
+            next_num = 1
+
+    return f"rp2-avail-{next_num:04d}"  
+
+def update_mentor_availability_for_training(
+    db: Session,
+    mentor_id: str,
+    training_start_date: date | datetime,
+    session_name: str,
+    required_hours: float,
+    default_session_capacity: float = 15.0
+):
+    """
+    Deducts the required training hours from the mentor's availability 
+    for the week containing the training start date.
+    Creates a new availability record if one does not exist for that week.
+    """
+    if not training_start_date:
+        return
+
+    # Convert datetime to date if necessary
+    t_date = training_start_date.date() if isinstance(training_start_date, datetime) else training_start_date
+    week_start = get_week_start(t_date)
+    
+    target_session = (session_name or "morning").strip().lower()
+    deduct_hours = float(required_hours or 0.0)
+
+    # 1. Search for existing availability record for this week and session
+    availability_record = (
+        db.query(Availability)
+        .filter(
+            Availability.employee_id == mentor_id,
+            Availability.week_start_date == week_start,
+            func.lower(Availability.session) == target_session
+        )
+        .first()
+    )
+
+    if availability_record:
+        # UPDATE: Deduct required hours from existing availability
+        current_hours = float(availability_record.available_hours or 0.0)
+        availability_record.available_hours = max(0.0, current_hours - deduct_hours)
+    else:
+        # CREATE: Generate new record with new primary key ID
+        new_avail_id = generate_next_availability_id(db)
+        new_hours = max(0.0, default_session_capacity - deduct_hours)
+
+        new_availability = Availability(
+            availability_id=new_avail_id,
+            employee_id=mentor_id,
+            week_start_date=week_start,
+            session=target_session,
+            available_hours=new_hours
+        )
+        db.add(new_availability)
 @router.post("/engagements/{engagement_id}/confirm")
 def confirm_allocation(engagement_id: str, db: Session = Depends(get_db)):
-    engagement = db.query(TrainingEngagement).filter(TrainingEngagement.engagement_id == engagement_id).first()
+    # 1. Fetch Training Engagement
+    engagement = (
+        db.query(TrainingEngagement)
+        .filter(TrainingEngagement.engagement_id == engagement_id)
+        .first()
+    )
     if not engagement:
         raise HTTPException(status_code=404, detail="Engagement not found")
 
     if engagement.status != "accepted":
-        raise HTTPException(status_code=400, detail="Engagement status must be accepted to confirm")
+        raise HTTPException(
+            status_code=400, 
+            detail="Engagement status must be accepted to confirm"
+        )
 
+    # Update engagement status
     engagement.status = "allocated"
 
-    alloc = db.query(Allocation).filter(
-        Allocation.reference_id == engagement_id,
-        Allocation.reference_type.in_(["webinar", "training", "engagement"])
-    ).first()
+    # 2. Fetch associated Allocation
+    alloc = (
+        db.query(Allocation)
+        .filter(
+            Allocation.reference_id == engagement_id,
+            Allocation.reference_type.in_(["webinar", "training", "engagement"])
+        )
+        .first()
+    )
+
+    mentor_id = None
     if alloc:
         alloc.status = "assigned"
 
+        # 3. UPDATE / CREATE MENTOR AVAILABILITY
+        # Extracts mentor resource ID, session, required hours, and training start date
+        mentor_id = alloc.resource_id
+        session_type = (
+            getattr(alloc, "session", None) 
+            or getattr(engagement, "session", None) 
+            or "morning"
+        )
+        req_hours = (
+            getattr(engagement, "required_hours", None) 
+            or getattr(engagement, "duration_hours", None) 
+            or getattr(alloc, "allocated_hours", 0.0)
+            or 0.0
+        )
+        start_date = getattr(engagement, "start_date", None) or getattr(engagement, "date", None)
+
+        if mentor_id and start_date:
+            update_mentor_availability_for_training(
+                db=db,
+                mentor_id=str(mentor_id),
+                training_start_date=start_date,
+                session_name=session_type,
+                required_hours=req_hours
+            )
+
+    # 4. Create Audit Log Entry
     log_entry = AllocationLog(
         log_id=generate_next_log_id(db),
-        allocation_id=alloc.allocation_id,
+        allocation_id=alloc.allocation_id if alloc else f"ENG_{engagement_id}",
         action="TRAINER_ASSIGNED",
         changed_by="admin",
         timestamp=datetime.now(timezone.utc)
@@ -496,9 +677,63 @@ def confirm_allocation(engagement_id: str, db: Session = Depends(get_db)):
     db.add(log_entry)
     db.commit()
 
-    return {"message": "Engagement allocation confirmed", "status": engagement.status}
+    # -------------------------------------------------------------------
+    # 5. SEND EMAIL NOTIFICATION TO CONFIRMED MENTOR / TRAINER
+    # -------------------------------------------------------------------
+    target_mentor_id = mentor_id or getattr(engagement, "mentor_id", None)
+    if target_mentor_id:
+        mentor = (
+            db.query(CompanyEmployee)
+            .filter(CompanyEmployee.employee_id == target_mentor_id)
+            .first()
+        )
 
+        if mentor and mentor.email:
+            try:
+                training_title = (
+                    getattr(engagement, "title", None) 
+                    or getattr(engagement, "name", None) 
+                    or f"Training Engagement {engagement_id}"
+                )
 
+                base_desc = getattr(engagement, "description", "") or ""
+                session_str = f"Session: {engagement.session}" if getattr(engagement, "session", None) else ""
+                req_hours = (
+                    getattr(engagement, "required_hours", None) 
+                    or getattr(engagement, "duration_hours", None)
+                )
+                hours_str = f"Required Hours: {req_hours}" if req_hours else ""
+                extra_details = " | ".join(filter(None, [session_str, hours_str]))
+
+                full_description = (
+                    f"Your trainer allocation for '{training_title}' has been officially confirmed.\n"
+                    f"{extra_details}\n\n"
+                    f"Details: {base_desc}"
+                ).strip()
+
+                start_date_str = str(
+                    getattr(engagement, "start_date", None) 
+                    or getattr(engagement, "date", "TBD")
+                )
+                end_date_str = str(getattr(engagement, "end_date", "TBD"))
+                priority_str = getattr(engagement, "priority_level", "Medium") or "Medium"
+
+                send_assignment_notification(
+                    recipient_email=mentor.email,
+                    recipient_name=mentor.name,
+                    project_title=training_title,
+                    description=full_description,
+                    start_date=start_date_str,
+                    end_date=end_date_str,
+                    priority=priority_str,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send confirmation notification email: {e}")
+
+    return {
+        "message": "Engagement allocation confirmed and availability updated",
+        "status": engagement.status
+    }
 # ==================== EMPLOYEE RESPONSES ====================
 
 @router.post("/engagements/{engagement_id}/employee-action")
@@ -635,21 +870,163 @@ def create_student_batch(payload: CreateStudentBatchSchema, db: Session = Depend
     db.refresh(new_batch)
     return new_batch
 
+
+def parse_days_count(day_of_week_input) -> int:
+    """
+    Parses day_of_week whether provided as a string or list/iterable.
+    Example:
+      - "Tuesday, Thursday" -> 2
+      - "Mon, Wed, Fri" -> 3
+      - ["Tuesday", "Thursday"] -> 2
+    """
+    if not day_of_week_input:
+        return 0
+
+    if isinstance(day_of_week_input, list):
+        return len([d for d in day_of_week_input if str(d).strip()])
+
+    if isinstance(day_of_week_input, str):
+        # Split by commas, slashes, or pipes
+        days = [d.strip() for d in re.split(r'[,/|]+', day_of_week_input) if d.strip()]
+        return len(days)
+
+    return 0
+
+def get_week_start(d: date) -> date:
+    """Returns the Monday of the week for a given date."""
+    return d - timedelta(days=d.weekday())
+
+def get_week_starts_in_range(start_date: date | datetime, end_date: date | datetime) -> list[date]:
+    """
+    Generates a list of all week start dates (Mondays) falling between 
+    start_date and end_date (inclusive of start and end weeks).
+    Accepts both `datetime.date` and `datetime.datetime` objects.
+    """
+    # Normalize inputs to date objects
+    s_date = start_date.date() if isinstance(start_date, datetime) else start_date
+    e_date = end_date.date() if isinstance(end_date, datetime) else end_date
+
+    weeks = []
+    current_week = get_week_start(s_date)
+    last_week = get_week_start(e_date)
+
+    while current_week <= last_week:
+        weeks.append(current_week)
+        current_week += timedelta(days=7)
+
+    return weeks
+
+def generate_next_availability_id(db: Session) -> str:
+    """
+    Generates sequential availability IDs by extracting and incrementing
+    the integer trailing digits using SQL casting.
+    """
+    # Extract trailing numbers and find numeric MAX directly in SQL
+    max_num = db.query(
+        func.max(
+            func.cast(
+                func.substring(Availability.availability_id, r'(\d+)$'),
+                Integer
+            )
+        )
+    ).scalar() or 0
+
+    next_num = max_num + 1
+    return f"rp2-avail-{next_num:04d}"
+
+def update_mentor_availability_for_batch(
+    db: Session,
+    mentor_id: str,
+    batch: StudentBatch,
+    session_name: str,
+    day_of_week_input,
+    hours_per_day: float = 2.0,
+    default_session_capacity: float = 15.0
+):
+    """
+    Calculates weekly hours based on session frequency (2 hrs/day * days in week)
+    and updates/creates availability entries for each week between start_date and end_date.
+    """
+    if not batch.start_date or not batch.end_date:
+        return
+
+    proj_start = batch.start_date.date() if isinstance(batch.start_date, datetime) else batch.start_date
+    proj_end = batch.end_date.date() if isinstance(batch.end_date, datetime) else batch.end_date
+
+    week_starts = get_week_starts_in_range(proj_start, proj_end)
+    target_session = (session_name or "morning").strip().lower()
+
+    # Calculate weekly hours to reduce (2 hours * number of days)
+    num_days = parse_days_count(day_of_week_input)
+    weekly_hours_to_reduce = num_days * hours_per_day
+
+    if weekly_hours_to_reduce <= 0:
+        return
+
+    for week_start in week_starts:
+        # Check if record exists for this mentor, week start date, and session
+        availability_record = (
+            db.query(Availability)
+            .filter(
+                Availability.resource_id == mentor_id,
+                Availability.week_start_date == week_start,
+                func.lower(Availability.session) == target_session
+            )
+            .first()
+        )
+
+        if availability_record:
+            # UPDATE: Reduce available hours
+            current_hours = float(availability_record.available_hours or 0.0)
+            availability_record.available_hours = max(0.0, current_hours - weekly_hours_to_reduce)
+        else:
+            # CREATE: Generate new record with custom primary key ID
+            new_avail_id = generate_next_availability_id(db)
+            new_hours = max(0.0, default_session_capacity - weekly_hours_to_reduce)
+
+            new_availability = Availability(
+                availability_id=new_avail_id,
+                resource_id=mentor_id,
+                resource_type="employee",
+                week_start_date=week_start,
+                session=target_session,
+                available_hours=new_hours
+            )
+            db.add(new_availability)
+            db.flush()
+
 @router.post("/student-batches/auto-generate-next")
 def auto_generate_next_batch(db: Session = Depends(get_db)):
     """
-    Generates the next batch pair (Offline + Online) for BOTH
-    Data Analytics and Data Science in a single call.
+    Generates the next batch pairs (Offline + Online) for:
+    - Data Analytics (e.g., Jun DA Offline)
+    - Data Science (e.g., Jun DS Offline)
+    - Agentic AI (e.g., Jun AI Offline)
+    - Bridge (e.g., Jun Bridge Offline)
+    - Softskill DS & DA (e.g., Jun DS Softskill Offline, Jun DA Softskill Offline)
+    
+    Automatically assigns mentors, sessions, and day schedules.
     """
     all_created_batches = []
 
-    for department in ["Data Analytics", "Data Science", "Agentic AI"]:
-        last_batch = (
-            db.query(StudentBatch)
-            .filter(func.lower(StudentBatch.domain) == department.lower())
-            .order_by(desc(StudentBatch.start_date))
-            .first()
-        )
+    # Domain configuration: (domain_name, sub_domain_for_softskill, label_code)
+    domain_configs = [
+        ("Data Analytics", None, "DA"),
+        ("Data Science", None, "DS"),
+        ("Agentic AI", None, "AI"),
+        ("Bridge", None, "Bridge"),
+        ("Softskill", "Data Science", "DS Softskill"),
+        ("Softskill", "Data Analytics", "DA Softskill"),
+    ]
+
+    for department, sub_domain, short_label in domain_configs:
+        query = db.query(StudentBatch).filter(func.lower(StudentBatch.domain) == department.lower())
+        
+        # Filter Softskill by specific sub-domain in batch_name to track start dates independently
+        if department == "Softskill" and sub_domain:
+            query = query.filter(StudentBatch.batch_name.ilike(f"%{short_label}%"))
+
+        last_batch = query.order_by(desc(StudentBatch.start_date)).first()
 
         if last_batch:
             prev_start = last_batch.start_date
@@ -670,17 +1047,21 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
             end_year += 1
         end_dt = date(end_year, end_month, 14)
 
+        # Gets next mentor + free session + free day_of_week list
         assigned_mentor = get_next_mentor_for_batch(
             domain=department,
             month_num=start_dt.month,
-            year=start_dt.year
+            year=start_dt.year,
+            sub_domain=sub_domain or "Data Science",
+            engine=db.get_bind()
         )
+        
         mentor_id = assigned_mentor.get("employee_id") if assigned_mentor else None
-        session = assigned_mentor.get("session")
-        short_domain = "DA" if department == "Data Analytics" else "DS"
+        session = assigned_mentor.get("session") if assigned_mentor else None
+        day_of_week = assigned_mentor.get("day_of_week") if assigned_mentor else None
 
         for mode in ["offline", "online"]:
-            batch_name = f"{start_dt.strftime('%b')} {short_domain} {mode.capitalize()}"
+            batch_name = f"{start_dt.strftime('%b')} {short_label} {mode.capitalize()}"
             new_batch = StudentBatch(
                 batch_name=batch_name,
                 domain=department,
@@ -688,22 +1069,69 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
                 end_date=end_dt,
                 delivery_mode=mode,
                 mentor_id=mentor_id,
-                sesion=session,
+                session=session,
+                day_of_week=day_of_week,
                 status="open"
             )
             db.add(new_batch)
             all_created_batches.append(new_batch)
 
+    # 1. Commit new batches
     db.commit()
     for b in all_created_batches:
         db.refresh(b)
 
+    # 2. Fetch mentor details for response and notifications
     mentor_ids = list({b.mentor_id for b in all_created_batches if b.mentor_id})
     mentor_map = {}
+    employee_objects = {}
     if mentor_ids:
         employees = db.query(CompanyEmployee).filter(CompanyEmployee.employee_id.in_(mentor_ids)).all()
         mentor_map = {e.employee_id: e.name for e in employees}
+        employee_objects = {e.employee_id: e for e in employees}
 
+    # 3. Update Mentor Availability & Send Email Notifications
+    for batch in all_created_batches:
+        if batch.mentor_id:
+            update_mentor_availability_for_batch(
+                db=db,
+                mentor_id=str(batch.mentor_id),
+                batch=batch,
+                session_name=batch.session,
+                day_of_week_input=batch.day_of_week,
+                hours_per_day=2.0
+            )
+
+            mentor = employee_objects.get(batch.mentor_id)
+            if mentor and mentor.email:
+                try:
+                    days_str = (
+                        ", ".join(batch.day_of_week) 
+                        if isinstance(batch.day_of_week, list) 
+                        else str(batch.day_of_week or "N/A")
+                    )
+                    batch_title = batch.batch_name or f"Batch {batch.batch_id}"
+                    description = (
+                        f"You have been automatically assigned as the mentor for Student Batch '{batch_title}'. "
+                        f"Delivery Mode: {batch.delivery_mode.capitalize()} | "
+                        f"Schedule: {str(batch.session).capitalize() if batch.session else 'N/A'} Session on {days_str}."
+                    )
+
+                    send_assignment_notification(
+                        recipient_email=mentor.email,
+                        recipient_name=mentor.name,
+                        project_title=batch_title,
+                        description=description,
+                        start_date=str(batch.start_date) if batch.start_date else "TBD",
+                        end_date=str(batch.end_date) if batch.end_date else "TBD",
+                        priority="High",
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to send batch mentor assignment notification email: {e}")
+
+    db.commit()
+
+    # 4. Response Payload
     response = []
     for b in all_created_batches:
         response.append({
@@ -717,9 +1145,11 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
             "trainer_name": mentor_map.get(b.mentor_id, "Unassigned"),
             "status": b.status,
             "session": b.session,
+            "day_of_week": getattr(b, "day_of_week", None)
         })
 
     return response
+
 
 class UpdateEngagementSchema(BaseModel):
     title: Optional[str] = None

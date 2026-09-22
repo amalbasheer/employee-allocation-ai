@@ -9,7 +9,10 @@ import {
   DockIcon,
   Clock,
   WrapText,
-  Book
+  Book,
+  Calendar,
+  Timer,
+  PenLine
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -19,17 +22,21 @@ export const Sidebar: React.FC = () => {
 
   const adminNav = [
     { label: 'Overview', path: '/admin/overview', icon: LayoutDashboard },
-    { label: 'Project Allocations', path: '/admin/allocations', icon: GitMerge },
+    { label: 'Schedule', path: '/admin/schedule', icon: Calendar },
+    { label: 'Leave Management', path: '/admin/leave', icon: PenLine },
     { label: 'User Management', path: '/admin/users', icon: Users },
-    { label: 'Webinars & Workshops', path: '/admin/webinars', icon: Video },
     { label: 'Student Batches', path: '/admin/batches', icon: Book },
+    { label: 'Project Allocations', path: '/admin/allocations', icon: GitMerge },
+    { label: 'Webinars & Workshops', path: '/admin/webinars', icon: Video },
+    
   ];
 
   const employeeNav = [
+    { label: 'My Profile', path: '/employee/profile', icon: Users },
+    { label: 'My Schedule', path: '/employee/schedule', icon: Timer },
+    { label: 'Availability Check', path: '/employee/availability', icon: Clock },
     { label: 'My Proposal & Projects', path: '/employee/dashboard', icon: DockIcon },
     { label: 'Training & Engagements', path: '/employee/engagement', icon: WrapText },
-    { label: 'Availability Check', path: '/employee/availability', icon: Clock },
-    { label: 'My Profile', path: '/employee/profile', icon: Users },
   ];
 
   const studentNav = [

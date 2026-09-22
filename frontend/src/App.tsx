@@ -6,14 +6,17 @@ import { Login } from './pages/auth/Login';
 import { ActivateAccount } from './pages/auth/ActivateAccount';
 import DashboardOverview from './pages/admin/OverviewDashboard';
 import { UserManagement } from './pages/admin/UserManagement';
+import { LeaveManagement } from './pages/admin/LeaveManagement';
 import { TrainingManagement } from './pages/admin/WebinarManagement';
 import { EmployeeDashboard } from './pages/employee/EmployeeDashboard';
 import StudentDashboard from './pages/student/StudentDashboard';
 import { Role } from './types';
 import { ProjectAllocation } from './pages/admin/ProjectAllocations';
+import { WeeklySchedule } from './pages/admin/WeeklySchedule';
 import { EmployeeAvailabilityPage } from './pages/employee/EmployeeAvailability';
 import { EmployeeSkillsManager } from './pages/employee/profile';
 import { TrainingAllocationsDashboard } from './pages/employee/TrainingEngagement';
+import { MySchedule } from './pages/employee/MySchedule';
 import { StudentBatches } from './pages/admin/StudentBatches';
 
 interface ProtectedRouteProps {
@@ -66,10 +69,26 @@ export default function App() {
                 }
               />
               <Route
+                path="/admin/schedule"
+                element={
+                  <ProtectedRoute allowedRoles={['ADMIN']}>
+                    <WeeklySchedule />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
                 path="/admin/users"
                 element={
                   <ProtectedRoute allowedRoles={['ADMIN']}>
                     <UserManagement />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/leave"
+                element={
+                  <ProtectedRoute allowedRoles={['ADMIN']}>
+                    <LeaveManagement />
                   </ProtectedRoute>
                 }
               />
@@ -126,6 +145,14 @@ export default function App() {
                 element={
                   <ProtectedRoute allowedRoles={['EMPLOYEE']}>
                     <EmployeeSkillsManager />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/employee/schedule"
+                element={
+                  <ProtectedRoute allowedRoles={['EMPLOYEE']}>
+                    <MySchedule />
                   </ProtectedRoute>
                 }
               />

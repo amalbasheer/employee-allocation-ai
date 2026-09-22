@@ -16,6 +16,11 @@ from ai_engine.db import engine
 from skill_utils import get_or_create_skill
 from ai_engine.embedding import generate_embedding
 
+def reset():
+    with engine.begin() as conn:
+        conn.execute(text("TRUNCATE TABLE company_employees CASCADE"))
+    print("Cleared employees table.\n")
+
 NEW_EMPLOYEE_SKILLS = {
     "divya.da@rp2.com": [
         ("Python", 4), ("SQL", 5), ("Power BI", 4), ("Data Analytics", 4),
@@ -97,5 +102,4 @@ def seed_availability():
 
 if __name__ == "__main__":
     seed_skills()
-    seed_availability()
     print("\n✅ Done.")

@@ -273,7 +273,8 @@ async def get_all_projects(db: Session = Depends(get_db)):
                 s.skill_name,
                 a.allocation_id,
                 a.resource_id,
-                a.session,
+                p.session,
+                p.day_of_week,
                 a.status AS allocation_status,
                 COALESCE(e.name, i.name, 'Unknown') AS resource_name,
                 CASE 
@@ -347,6 +348,7 @@ async def get_all_projects(db: Session = Depends(get_db)):
                     "github_url": row["github_url"] or "",   
                     "deployed_url": row["deployed_url"] or "",
                     "session": row["session"],
+                    "day_of_week": row["day_of_week"],
                     "skills": set(),
                     "allocations": {}
                 }
@@ -385,6 +387,7 @@ async def get_all_projects(db: Session = Depends(get_db)):
                 "deployed_url": proj["deployed_url"],
                 "progress_percentage": proj["progress_percentage"], 
                 "session": proj["session"],   
+                "day_of_week": proj["day_of_week"],
                 "skills": list(proj["skills"]),
                 "allocations": list(proj["allocations"].values())
             })
