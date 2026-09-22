@@ -244,11 +244,15 @@ def generate_next_skill_id(db: Session) -> str:
     """
     Finds the highest existing rp2-skl-XXXX ID in the DB, 
     increments the counter, and returns the next formatted ID.
+    Sorts NUMERICALLY (not alphabetically) to avoid issues once
+    IDs cross into 3+ digit territory.
     """
+    from sqlalchemy import func, cast, Integer
+
     max_id = (
         db.query(Skill.skill_id)
         .filter(Skill.skill_id.like("rp2-skl-%"))
-        .order_by(Skill.skill_id.desc())
+        .order_by(cast(func.split_part(Skill.skill_id, '-', 3), Integer).desc())
         .first()
     )
 
@@ -262,10 +266,6 @@ def generate_next_skill_id(db: Session) -> str:
         next_num = 1
 
     return f"rp2-skl-{next_num:04d}"
-# 1. Fetch all available skills for the frontend dropdown
-@router.get("/skills/catalog", response_model=List[SkillResponse])
-def get_skill_catalog(db: Session = Depends(get_db)):
-    return db.query(Skill).all()
 
 
 # 2. Get all skills for a specific employee

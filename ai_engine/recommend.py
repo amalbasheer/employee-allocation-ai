@@ -229,10 +229,16 @@ def recommend_mentor_for_training(engagement_id: str) -> list[dict]:
     region_filter = None if engagement.get("mode") == "online" else engagement.get("region")
 
     mentors = get_available_mentors(domain=engagement.get("domain"), region=region_filter, check_project_conflicts=False)
-    team_leads = [
-        m for m in mentors
-        if m.get("is_team_lead") and m["id"] not in conflicting_ids and m["id"] not in on_leave_ids
-    ]
+    if engagement.get("domain") == "Soft Skills":
+        team_leads = [
+            m for m in mentors
+            if m["id"] not in conflicting_ids and m["id"] not in on_leave_ids
+        ]
+    else:
+        team_leads = [
+            m for m in mentors
+            if m.get("is_team_lead") and m["id"] not in conflicting_ids and m["id"] not in on_leave_ids
+        ]
 
     for tl in team_leads:
         tl["skills"] = get_person_skills(tl["id"], "employee")
