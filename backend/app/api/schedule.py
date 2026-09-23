@@ -128,8 +128,9 @@ def get_weekly_calendar_schedule(
             LOWER(TRIM(new_session)) AS new_session,
             scope, reason
         FROM schedule_overrides
-        WHERE override_date BETWEEN :w_start AND :w_end
-           OR week_start_date = :w_start
+        WHERE (override_date BETWEEN :w_start AND :w_end
+           OR week_start_date = :w_start)
+           AND LOWER(TRIM(status)) = 'approved'
     """)
     override_rows = db.execute(
         overrides_query, 
