@@ -107,7 +107,7 @@ def get_available_mentors(domain: str = None, region: str = None, check_project_
         conditions.append("department = :domain")
         params["domain"] = domain
     if region:
-        conditions.append("location LIKE :region")
+        conditions.append("location ILIKE :region")
         params["region"] = f"%{region}%"
 
     if conditions:
@@ -307,8 +307,7 @@ def get_next_mentor_for_batch(
     domain: str, 
     month_num: int, 
     year: int = 2026, 
-    sub_domain: str = "Data Science", 
-    engine: Engine = None
+    sub_domain: str = "Data Science"
 ) -> Optional[dict]:
     """
     Finds or assigns the next mentor for a batch, including session and day_of_week.

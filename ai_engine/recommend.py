@@ -229,15 +229,10 @@ def calculate_daily_occupied_hours(
     training_date: datetime.date, 
     training_session: str
 ) -> float:
-    """
-    Calculates total occupied hours for a mentor on a specific training date & session.
-    """
     session_lower = training_session.lower().strip()
-    day_name = training_date.strftime("%A")  # e.g., 'Monday'
+    day_name = training_date.strftime("%A")
 
-    # -------------------------------------------------------------
-    # 1. PROJECT OCCUPIED HOURS
-    # -------------------------------------------------------------
+    # 1. PROJECT OCCUPIED HOURS — session column doesn't exist, remove that filter
     project_query = text("""
         SELECT COUNT(p.project_id) AS active_project_count
         FROM allocations a
@@ -245,11 +240,10 @@ def calculate_daily_occupied_hours(
         WHERE a.resource_id = :mentor_id
           AND a.reference_type = 'project'
           AND LOWER(p.status) = 'in progress'
-          AND LOWER(a.session) = :session
     """)
     project_res = conn.execute(
         project_query, 
-        {"mentor_id": mentor_id, "session": session_lower}
+        {"mentor_id": mentor_id}
     ).fetchone()
     
     active_projects = project_res[0] if project_res else 0
@@ -257,15 +251,11 @@ def calculate_daily_occupied_hours(
 
     if active_projects > 0:
         if domain.lower() in ["data science", "datascience", "ds"]:
-            # Fixed 1 hr total regardless of project count
             project_hours = 1.0
         else:
-            # 1 hr per project (e.g. Data Analytics)
             project_hours = float(active_projects) * 1.0
 
-    # -------------------------------------------------------------
-    # 2. STUDENT BATCH OCCUPIED HOURS
-    # -------------------------------------------------------------
+    # 2. STUDENT BATCH OCCUPIED HOURS — this column genuinely exists, keep as-is
     batch_query = text("""
         SELECT day_of_week
         FROM student_batches
@@ -283,7 +273,6 @@ def calculate_daily_occupied_hours(
     matching_batch_count = 0
     for row in batch_rows:
         days = row[0]
-        # Handle string or list column format for day_of_week
         if isinstance(days, list):
             if day_name in days or day_name[:3] in days:
                 matching_batch_count += 1
