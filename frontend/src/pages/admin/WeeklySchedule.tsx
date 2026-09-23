@@ -65,6 +65,23 @@ const getFormattedDateForDay = (dayName: string): string => {
   return targetDate.toISOString().split('T')[0];
 };
 
+// --- Date Helpers ---
+const getMonday = (d: Date): Date => {
+  const date = new Date(d);
+  const day = date.getDay();
+  const diff = date.getDate() - day + (day === 0 ? -6 : 1); // Adjust when Sunday
+  date.setDate(diff);
+  return date;
+};
+
+
+const formatDateString = (dateObj: Date): string => {
+  const yyyy = dateObj.getFullYear();
+  const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const dd = String(dateObj.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
 export const WeeklySchedule: React.FC = () => {
@@ -72,6 +89,8 @@ export const WeeklySchedule: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
+  const [currentWeekStart, setCurrentWeekStart] = useState<Date>(() => getMonday(new Date()));
+    
   const [pendingRequests, setPendingRequests] = useState<PendingShiftRequest[]>([]);
   const [processingOverrideId, setProcessingOverrideId] = useState<string | null>(null);
 
@@ -85,6 +104,23 @@ export const WeeklySchedule: React.FC = () => {
     setLoading(true);
     await Promise.all([fetchCalendarSchedule(), fetchPendingRequests()]);
     setLoading(false);
+  };
+
+    // --- Week Navigation Handlers ---
+  const handlePrevWeek = () => {
+    const prev = new Date(currentWeekStart);
+    prev.setDate(prev.getDate() - 7);
+    setCurrentWeekStart(prev);
+  };
+
+  const handleNextWeek = () => {
+    const next = new Date(currentWeekStart);
+    next.setDate(next.getDate() + 7);
+    setCurrentWeekStart(next);
+  };
+
+  const handleCurrentWeek = () => {
+    setCurrentWeekStart(getMonday(new Date()));
   };
 
   const fetchCalendarSchedule = async () => {
@@ -181,6 +217,12 @@ export const WeeklySchedule: React.FC = () => {
     }
   };
 
+  const formattedWeekStart = formatDateString(currentWeekStart);
+  const weekEndObj = new Date(currentWeekStart);
+  weekEndObj.setDate(weekEndObj.getDate() + 4);
+  const formattedWeekEnd = formatDateString(weekEndObj);
+
+
 if (loading) {
     return (
       <div className="p-12 text-center text-cyan-400 font-medium bg-[#050814] min-h-screen flex flex-col justify-center items-center">
@@ -191,22 +233,58 @@ if (loading) {
   }
 
   return (
-    <div className="p-6 max-w-[105rem] mx-auto bg-[#050814] text-zinc-100 min-h-screen">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-2xl font-extrabold bg-gradient-to-r from-cyan-400 via-fuchsia-400 to-amber-300 bg-clip-text text-transparent tracking-tight drop-shadow-[0_0_12px_rgba(34,211,238,0.3)]">
-            Weekly Calendar Schedule
-          </h1>
-          <p className="text-sm text-indigo-300/80">Employee schedule view (Monday – Friday)</p>
-        </div>
+    <div className="p-6 max-w-[105rem] mx-auto bg-[#050814] text-zinc-100 min-h-screen space-y-6">
+  {/* Header */}
+  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-[#0a0f1d]/90 p-5 rounded-xl border border-indigo-900/60 shadow-[0_0_35px_rgba(5,8,20,0.95)] backdrop-blur-sm">
+    {/* Title Section */}
+    <div>
+      <h1 className="text-2xl font-extrabold bg-gradient-to-r from-cyan-400 via-fuchsia-400 to-amber-300 bg-clip-text text-transparent tracking-tight drop-shadow-[0_0_12px_rgba(34,211,238,0.3)]">
+        Weekly Calendar Schedule
+      </h1>
+      <p className="text-sm text-indigo-300/80 mt-1">
+        Employee schedule view (Monday – Friday)
+      </p>
+    </div>
+
+    {/* Combined Date Controls & Refresh Button */}
+    <div className="flex flex-wrap items-center gap-3">
+      {/* "This Week" Button */}
+      <button
+        onClick={handleCurrentWeek}
+        className="px-3 py-1.5 text-xs font-semibold bg-indigo-950/80 hover:bg-indigo-900 text-cyan-300 border border-indigo-700/60 rounded-md transition"
+      >
+        This Week
+      </button>
+
+      {/* Date Selector */}
+      <div className="flex items-center bg-[#080d1a] rounded-lg border border-indigo-900/60 p-1">
         <button
-          onClick={loadAllData}
-          className="px-4 py-2 bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-600 hover:from-violet-500 hover:to-cyan-500 text-white font-medium rounded-md text-sm transition shadow-[0_0_20px_rgba(124,58,237,0.5)] hover:shadow-[0_0_25px_rgba(34,211,238,0.6)] flex items-center gap-2"
+          onClick={handlePrevWeek}
+          className="p-1.5 hover:bg-indigo-900/50 rounded transition text-cyan-300"
+          title="Previous Week"
         >
-          <span>↻</span> Refresh Schedule
+          &#9664;
+        </button>
+        <span className="px-3 text-xs font-semibold text-cyan-200 min-w-[170px] text-center font-mono">
+          {formattedWeekStart} &rarr; {formattedWeekEnd}
+        </span>
+        <button
+          onClick={handleNextWeek}
+          className="p-1.5 hover:bg-indigo-900/50 rounded transition text-cyan-300"
+          title="Next Week"
+        >
+          &#9654;
         </button>
       </div>
+
+      {/* Refresh Schedule Button */}
+      <button
+        onClick={loadAllData}
+        className="px-4 py-2 bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-600 hover:from-violet-500 hover:to-cyan-500 text-white font-medium rounded-md text-sm transition shadow-[0_0_20px_rgba(124,58,237,0.5)] hover:shadow-[0_0_25px_rgba(34,211,238,0.6)] flex items-center gap-2"
+      >
+        <span>↻</span> Refresh Schedule
+      </button>
+    </div></div>
 
       {/* Pending Shift Requests Panel (Dark Glow Styling) */}
       {pendingRequests.length > 0 && (
