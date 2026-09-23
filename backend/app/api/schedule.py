@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import text, func
 from datetime import datetime, timedelta, timezone, date
 from typing import Optional, Literal, Any
 from pydantic import BaseModel, validator
 
 from app.database import get_db
-from app.models import Allocation, TrainingEngagement, StudentBatch, AllocationLog, Project
+from app.models import Allocation, TrainingEngagement, StudentBatch, AllocationLog, Project, CompanyEmployee
 from app.models.taxonomy import ScheduleOverride
 from app.api.deps import require_admin, get_current_user
 from app.schemas.project import UserProfile
@@ -561,7 +561,52 @@ def create_or_request_schedule_override(
     entity_type = payload.entity_type.lower().strip()
     user_role = get_user_role(current_user)
     user_is_admin = is_admin_user(current_user)
-    
+
+   # 1. Safely extract email and raw ID from current_user (Object or Dict)
+    user_email = None
+    raw_user_id = None
+
+    if isinstance(current_user, dict):
+        user_email = current_user.get("email") or (current_user.get("user_metadata") or {}).get("email")
+        raw_user_id = (
+            current_user.get("employee_id") or 
+            current_user.get("emp_id") or 
+            current_user.get("id") or 
+            current_user.get("sub")
+        )
+    else:
+        user_email = getattr(current_user, "email", None)
+        raw_user_id = (
+            getattr(current_user, "employee_id", None) or 
+            getattr(current_user, "emp_id", None) or 
+            getattr(current_user, "id", None) or 
+            getattr(current_user, "sub", None)
+        )
+
+    # 2. Map to CompanyEmployee table to retrieve employee_id (e.g. rp2-emp-0001)
+    employee_id_val = None
+
+    # Match by Email
+    if user_email:
+        emp_record = db.query(CompanyEmployee).filter(
+            func.lower(CompanyEmployee.email) == str(user_email).lower().strip()
+        ).first()
+        if emp_record:
+            employee_id_val = emp_record.employee_id
+
+    # Fallback: Match by raw_user_id in CompanyEmployee
+    if not employee_id_val and raw_user_id:
+        emp_record = db.query(CompanyEmployee).filter(
+            (CompanyEmployee.employee_id == str(raw_user_id)) |
+            (func.lower(CompanyEmployee.email) == str(raw_user_id).lower().strip())
+        ).first()
+        if emp_record:
+            employee_id_val = emp_record.employee_id
+
+    # Final fallback if not found in CompanyEmployee table
+    if not employee_id_val:
+        employee_id_val = str(raw_user_id or user_email or "UNKNOWN")
+
     # 1. Fetch current default session from base entity
     original_session = None
     if entity_type == "project":
@@ -605,7 +650,7 @@ def create_or_request_schedule_override(
         existing_override.new_session = payload.new_session
         existing_override.reason = payload.reason
         existing_override.status = override_status
-        existing_override.created_by_user_id = user_id_str
+        existing_override.created_by_user_id = employee_id_val
         existing_override.created_by_role = user_role
         target_override = existing_override
     else:
@@ -621,7 +666,7 @@ def create_or_request_schedule_override(
             new_session=payload.new_session,
             reason=payload.reason,
             status=override_status,
-            created_by_user_id=user_id_str,
+            created_by_user_id=employee_id_val,
             created_by_role=user_role
         )
         db.add(target_override)
@@ -671,22 +716,107 @@ def create_or_request_schedule_override(
         "requested_session": target_override.new_session
     }
 
-
 @router.get("/pending")
 def get_pending_shift_requests(
     db: Session = Depends(get_db),
     current_user: UserProfile = Depends(get_current_user)
 ):
-    """Admin-only: Retrieve all pending shift override requests."""
+    """Admin-only: Retrieve all pending shift override requests with employee name."""
     if not is_admin_user(current_user):
         raise HTTPException(status_code=403, detail="Access denied. Admin rights required.")
 
-    pending_requests = db.query(ScheduleOverride).filter(
-        ScheduleOverride.status == "PENDING"
-    ).order_by(ScheduleOverride.override_id.desc()).all()
+    # Outer join with CompanyEmployee mapping created_by_user_id -> employee_id
+    results = (
+        db.query(ScheduleOverride, CompanyEmployee.name.label("employee_name"))
+        .outerjoin(CompanyEmployee, ScheduleOverride.created_by_user_id == CompanyEmployee.employee_id)
+        .filter(ScheduleOverride.status == "PENDING")
+        .order_by(ScheduleOverride.override_id.desc())
+        .all()
+    )
 
-    return pending_requests
+    if not results:
+        return []
 
+    # 2. Extract entity IDs by entity_type for batch lookup
+    project_ids = list({
+        r[0].entity_id for r in results 
+        if r[0].entity_type and r[0].entity_type.lower().strip() == "project"
+    })
+    batch_ids = list({
+        r[0].entity_id for r in results 
+        if r[0].entity_type and r[0].entity_type.lower().strip() in ("student_batch", "batch")
+    })
+    training_ids = list({
+        r[0].entity_id for r in results 
+        if r[0].entity_type and r[0].entity_type.lower().strip() in ("training_engagement", "training")
+    })
+
+    # 3. Batch query entity names/titles
+    project_map = {}
+    if project_ids:
+        projects = db.query(Project).filter(Project.project_id.in_(project_ids)).all()
+        project_map = {
+            p.project_id: getattr(p, "title", getattr(p, "project_name", getattr(p, "name", None)))
+            for p in projects
+        }
+
+    batch_map = {}
+    if batch_ids:
+        batches = db.query(StudentBatch).filter(StudentBatch.batch_id.in_(batch_ids)).all()
+        batch_map = {
+            b.batch_id: getattr(b, "batch_name", getattr(b, "name", getattr(b, "title", None)))
+            for b in batches
+        }
+
+    training_map = {}
+    if training_ids:
+        trainings = db.query(TrainingEngagement).filter(TrainingEngagement.engagement_id.in_(training_ids)).all()
+        training_map = {
+            t.engagement_id: getattr(t, "title", getattr(t, "name", getattr(t, "engagement_name", None)))
+            for t in trainings
+        }
+
+    # 4. Format requests with mapped names/titles
+    formatted_requests = []
+    for override, emp_name in results:
+        e_type = (override.entity_type or "").lower().strip()
+        
+        batch_name = None
+        project_title = None
+        entity_name = None
+
+        if e_type == "project":
+            project_title = project_map.get(override.entity_id)
+            entity_name = project_title
+        elif e_type in ("student_batch", "batch"):
+            batch_name = batch_map.get(override.entity_id)
+            entity_name = batch_name
+        elif e_type in ("training_engagement", "training"):
+            entity_name = training_map.get(override.entity_id)
+
+        request_dict = {
+            "override_id": override.override_id,
+            "entity_type": override.entity_type,
+            "entity_id": override.entity_id,
+            "entity_name": entity_name or override.entity_id,
+            "batch_name": batch_name,
+            "project_title": project_title,
+            "title": entity_name or override.entity_id,
+            "scope": override.scope,
+            "override_date": override.override_date,
+            "week_start_date": override.week_start_date,
+            "original_session": override.original_session,
+            "new_session": override.new_session,
+            "reason": override.reason,
+            "status": override.status,
+            "created_by_user_id": override.created_by_user_id,
+            "created_by_role": override.created_by_role,
+            "employee_name": emp_name or "Unknown Employee",
+            "created_by_name": emp_name or "Unknown Employee"
+        }
+        formatted_requests.append(request_dict)
+
+    return formatted_requests
 
 @router.post("/review/{override_id}")
 def review_shift_override_request(

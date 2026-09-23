@@ -28,6 +28,8 @@ interface PendingShiftRequest {
   override_id: string;
   entity_type: string;
   entity_id: string;
+  project_title?: string;
+  batch_name?: string;
   scope: 'single_day' | 'full_week';
   override_date?: string;
   week_start_date?: string;
@@ -35,6 +37,7 @@ interface PendingShiftRequest {
   new_session: string;
   reason?: string;
   created_by_user_id?: string;
+  employee_name?: string;
   created_by_role?: string;
   status: string;
 }
@@ -238,13 +241,33 @@ if (loading) {
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase tracking-wider ${badge.color}`}>
                         {badge.label}
                       </span>
-                      <span className="font-semibold text-white text-sm">
-                        ID: {req.entity_id}
-                      </span>
+                      {/* Entity Title/Batch Name (with fallback to ID) */}
+      <span className="font-semibold text-white text-sm">
+        {req.project_title || req.batch_name || req.project_title || `ID: ${req.entity_id}`}
+      </span>
+
+      {/* Optional raw ID display for quick reference */}
+      {(req.batch_name || req.project_title) && (
+        <span className="text-xs text-indigo-300/60 font-mono">
+          ({req.entity_id})
+        </span>
+      )}
                       <span className="text-xs text-indigo-300/70 font-mono">
                         ({req.scope === 'single_day' ? req.override_date : `Week of ${req.week_start_date}`})
                       </span>
                     </div>
+                    {/* Requested By Employee Name */}
+    <div className="text-xs text-indigo-200/80">
+      Requested by:{' '}
+      <span className="font-semibold text-white">
+        {req.employee_name || 'Unknown'}
+      </span>
+      {req.created_by_user_id && (
+        <span className="text-indigo-300/60 text-[11px] ml-1.5 font-mono">
+          ({req.created_by_user_id})
+        </span>
+      )}
+    </div>
 
                     <div className="text-sm text-zinc-300">
                       Requested Shift:{' '}
