@@ -16,6 +16,7 @@ def backfill_training_requirements():
                 FROM training_engagements te
                 LEFT JOIN training_requirements tr ON tr.engagement_id = te.engagement_id
                 WHERE tr.requirement_id IS NULL
+                ORDER BY te.engagement_id
             """)
         ).mappings().fetchall()
 

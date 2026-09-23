@@ -278,6 +278,8 @@ def get_recommendations(engagement_id: str, db: Session = Depends(get_db)):
     try:
         raw_recommendations = recommend_mentor_for_training(engagement_id=engagement_id)
     except Exception as e:
+        import traceback
+        print(f"FULL ERROR TRACEBACK:\n{traceback.format_exc()}")
         logger.warning(f"AI Mentor Recommendation failed: {e}")
 
     # 1. Collect all recommended employee IDs
