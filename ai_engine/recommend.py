@@ -65,7 +65,9 @@ def recommend_candidates_for_project(project_id: str) -> dict:
     result = {"project_title": project["title"], "roles_needed": roles_needed}
 
     # -------------------------------------------------------------
-    # 1. MENTORS (EMPLOYEES) — Fetch skills & session availability
+    # 1. MENTORS (EMPLOYEES) — Fetch skills & session availability.
+    # Project mentors are team-leads-only — this is decided HERE,
+    # not by the caller/frontend, so it's clear from this file alone.
     # -------------------------------------------------------------
     all_mentors = get_all_mentors_with_project_count(domain=domain)
     mentor_ids = [m["id"] for m in all_mentors]
@@ -91,24 +93,20 @@ def recommend_candidates_for_project(project_id: str) -> dict:
                     mentor_availability_map[res_id] = {
                         "morning_hours": 0.0,
                         "evening_hours": 0.0,
-                        
                     }
                 if session == "morning":
                     mentor_availability_map[res_id]["morning_hours"] = hrs
                 elif session == "evening":
                     mentor_availability_map[res_id]["evening_hours"] = hrs
 
-                
-
     for m in all_mentors:
         m["skills"] = mentor_skills_map.get(m["id"], [])
 
-        # Attach session availability for employees
         m_avail = mentor_availability_map.get(
-            m["id"], 
-            {"morning_hours": 20.0, "evening_hours": 20.0}  # Default fallback
+            m["id"],
+            {"morning_hours": 20.0, "evening_hours": 20.0}
         )
-    
+
         m["session_availability"] = {
             "morning": m_avail["morning_hours"],
             "evening": m_avail["evening_hours"]
@@ -121,9 +119,8 @@ def recommend_candidates_for_project(project_id: str) -> dict:
         elif evening_hrs > morning_hrs and evening_hrs > 1:
             m["session"] = "evening"
         else:
-            m["session"] = "morning"  # Fallback
+            m["session"] = "morning"
 
-    # Rank mentors and apply workload penalty
     ranked_mentors = rank_candidates(all_mentors, requirements)
     for candidate in ranked_mentors:
         raw_skill_score = candidate["suitability_score"]
@@ -131,7 +128,11 @@ def recommend_candidates_for_project(project_id: str) -> dict:
             raw_skill_score, candidate.get("active_project_count", 0)
         )
     ranked_mentors.sort(key=lambda c: c["suitability_score"], reverse=True)
-    result["mentors"] = _strip_embeddings(ranked_mentors)
+
+    # Filter to team-leads-only HERE, the single source of truth
+    team_lead_mentors = [m for m in ranked_mentors if m.get("is_team_lead")]
+    result["mentors"] = _strip_embeddings(team_lead_mentors)
+    result["eligible_team_leads"] = result["mentors"]  # same data, kept for backward compatibility
 
     # -------------------------------------------------------------
     # 2. INTERNS — Fetch skills only (NO availability check)
@@ -144,10 +145,8 @@ def recommend_candidates_for_project(project_id: str) -> dict:
         for i in interns:
             i["skills"] = intern_skills_map.get(i["id"], [])
 
-        # Rank interns purely on skills
         result["interns"] = _strip_embeddings(rank_candidates(interns, requirements))
 
-        # Completed project count query
         with engine.connect() as conn:
             completed_counts = conn.execute(
                 text("""
@@ -161,7 +160,6 @@ def recommend_candidates_for_project(project_id: str) -> dict:
         for intern in result["interns"]:
             intern["completed_projects_count"] = completed_count_map.get(intern["id"], 0)
 
-        # Currently assigned interns
         assignments = get_project_assignments(project_id)
         current_interns = [a for a in assignments if a["resource_type"] == "intern"]
 
@@ -181,10 +179,6 @@ def recommend_candidates_for_project(project_id: str) -> dict:
                 "score": real_score,
             })
         result["currently_assigned_interns"] = current_interns_with_scores
-
-        result["eligible_team_leads"] = [
-            m for m in result["mentors"] if m.get("is_team_lead")
-        ]
 
     return result
 

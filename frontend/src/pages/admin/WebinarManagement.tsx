@@ -152,6 +152,8 @@ export const TrainingManagement: React.FC = () => {
   const [suggestedWebinars, setSuggestedWebinars] = useState<WebinarIdea[]>([]);
 
   const API_BASE = import.meta.env.VITE_BACKEND_URL || 'https://employee-allocation-ai.onrender.com';
+
+
   // Status Filter & Multi-Select States
   const [engagementStatusFilter, setEngagementStatusFilter] = useState<string>('all');
   const [selectedEngagementIds, setSelectedEngagementIds] = useState<string[]>([]);
