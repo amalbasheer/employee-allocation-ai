@@ -17,6 +17,8 @@ export interface RecommendedMentor {
   batch_count?: number;
   session?: string;
   day_of_week?: string;
+  can_propose?: boolean;
+  unavailable_reason?: string | null;
 }
 
 export interface StudentBatch {

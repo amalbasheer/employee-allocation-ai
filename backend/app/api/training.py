@@ -356,7 +356,9 @@ def get_recommendations(engagement_id: str, db: Session = Depends(get_db)):
             "name": emp_name,
             "designation": emp_designation,
             "match_score": round(float(score) * 100 if float(score) <= 1.0 else float(score), 1),
-            "skills": extracted_skills
+            "skills": extracted_skills,
+            "can_propose": item.get("can_propose", True),
+            "unavailable_reason": item.get("unavailable_reason"),
         })
 
     # Fallback if recommendations list is empty

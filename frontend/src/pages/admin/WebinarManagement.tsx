@@ -28,6 +28,8 @@ export interface RecommendedMentor {
   skills?: string[];
   is_team_lead?: boolean;
   batch_count?: number;
+  can_propose?: boolean;
+  unavailable_reason?: string | null;
 }
 
 export interface TrainingEngagement {
@@ -960,12 +962,23 @@ const handleBulkDeleteEngagements = async () => {
 
                         <div>
                           {selectedEngagement.status === 'open' || selectedEngagement.status === 'rejected' ? (
-                            <button
-                              onClick={() => handleProposeMentor(selectedEngagement.engagement_id, mentor)}
-                              className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all shadow-md"
-                            >
-                              <UserPlus className="w-3.5 h-3.5" /> Propose Speaker
-                            </button>
+                            <>
+                             <button
+                               onClick={() => handleProposeMentor(selectedEngagement.engagement_id, mentor)}
+                               disabled={mentor.can_propose === false}
+                               className={`text-white text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all shadow-md ${
+                                  mentor.can_propose === false
+                                   ? 'bg-slate-700 cursor-not-allowed opacity-60'
+                                   : 'bg-indigo-600 hover:bg-indigo-500'
+                               }`}
+                             >
+                               <UserPlus className="w-3.5 h-3.5" /> Propose Speaker
+                             </button>
+
+                             {mentor.can_propose === false && mentor.unavailable_reason && (
+                               <p className="text-[11px] text-rose-400 mt-1.5">{mentor.unavailable_reason}</p>
+                             )}
+                            </>
                           ) : null}
 
                           {isProposed && selectedEngagement.status === 'proposed' && (
