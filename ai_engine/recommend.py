@@ -221,67 +221,107 @@ def calculate_daily_occupied_hours(
     mentor_id: str, 
     domain: str, 
     training_date: datetime.date, 
-    training_session: str
-) -> float:
+    training_session: str,
+    current_engagement_id: str = None
+) -> dict:
+    """
+    Calculates real, schedule-based occupied hours for a mentor on a
+    specific training date/session, using ACTUAL day/session data from
+    both projects and student_batches (not just active-count approximations).
+    Also flags training-to-training conflicts for the caller to act on.
+    """
     session_lower = training_session.lower().strip()
-    day_name = training_date.strftime("%A")
+    day_full = training_date.strftime("%A")
+    day_abbr = training_date.strftime("%a")
 
-    # 1. PROJECT OCCUPIED HOURS — session column doesn't exist, remove that filter
+    # -------------------------------------------------------------
+    # 1. PROJECT OCCUPIED HOURS — real day/session overlap check,
+    # flat 1 hour if ANY active project overlaps (not multiplied by count)
+    # -------------------------------------------------------------
     project_query = text("""
-        SELECT COUNT(p.project_id) AS active_project_count
+        SELECT COUNT(p.project_id) AS overlapping_project_count
         FROM allocations a
         JOIN projects p ON p.project_id = a.reference_id
         WHERE a.resource_id = :mentor_id
           AND a.reference_type = 'project'
-          AND LOWER(p.status) = 'in progress'
+          AND LOWER(p.status) != 'completed'
+          AND LOWER(p.session) = :session
+          AND (
+              LOWER(p.day_of_week) LIKE '%' || :day_full || '%'
+              OR LOWER(p.day_of_week) LIKE '%' || :day_abbr || '%'
+          )
     """)
     project_res = conn.execute(
-        project_query, 
-        {"mentor_id": mentor_id}
+        project_query,
+        {"mentor_id": mentor_id, "session": session_lower, "day_full": day_full.lower(), "day_abbr": day_abbr.lower()}
     ).fetchone()
-    
-    active_projects = project_res[0] if project_res else 0
-    project_hours = 0.0
+    overlapping_projects = project_res[0] if project_res else 0
+    project_hours = 1.0 if overlapping_projects > 0 else 0.0
 
-    if active_projects > 0:
-        if domain.lower() in ["data science", "datascience", "ds"]:
-            project_hours = 1.0
-        else:
-            project_hours = float(active_projects) * 1.0
-
-    # 2. STUDENT BATCH OCCUPIED HOURS — this column genuinely exists, keep as-is
+    # -------------------------------------------------------------
+    # 2. STUDENT BATCH OCCUPIED HOURS — fixed to match abbreviated
+    # day names (e.g. "Tue, Fri") correctly
+    # -------------------------------------------------------------
     batch_query = text("""
-        SELECT day_of_week
-        FROM student_batches
+        SELECT day_of_week, batch_name FROM student_batches
         WHERE mentor_id = :mentor_id
           AND status IN ('open', 'in_progress', 'active')
-          AND start_date <= :t_date
-          AND end_date >= :t_date
+          AND start_date <= :t_date AND end_date >= :t_date
           AND LOWER(session) = :session
     """)
     batch_rows = conn.execute(
-        batch_query, 
-        {"mentor_id": mentor_id, "t_date": training_date, "session": session_lower}
+        batch_query, {"mentor_id": mentor_id, "t_date": training_date, "session": session_lower}
     ).fetchall()
 
     matching_batch_count = 0
+    batch_conflict_name = None
     for row in batch_rows:
-        days = row[0]
-        if isinstance(days, list):
-            if day_name in days or day_name[:3] in days:
-                matching_batch_count += 1
-        elif isinstance(days, str):
-            if day_name.lower() in days.lower():
-                matching_batch_count += 1
+        days_lower = (row[0] or "").lower()
+        if day_full.lower() in days_lower or day_abbr.lower() in days_lower:
+            matching_batch_count += 1
+            batch_conflict_name = row[1]
 
     batch_hours = float(matching_batch_count) * 2.0
 
-    return project_hours + batch_hours
+    # -------------------------------------------------------------
+    # 3. OTHER TRAINING CONFLICTS — same-session (hard) vs
+    # different-session-offline (soft) on the SAME date
+    # -------------------------------------------------------------
+    training_conflict_query = text("""
+        SELECT te.title, LOWER(te.session) AS t_session, LOWER(te.mode) AS t_mode
+        FROM allocations a
+        JOIN training_engagements te ON te.engagement_id = a.reference_id
+        WHERE a.resource_id = :mentor_id AND a.reference_type = 'training'
+          AND a.status IN ('proposed', 'assigned')
+          AND te.start_date = :t_date
+          AND te.engagement_id != :current_eid
+    """)
+    training_rows = conn.execute(
+        training_conflict_query,
+        {"mentor_id": mentor_id, "t_date": training_date, "current_eid": current_engagement_id or ""}
+    ).fetchall()
+
+    same_session_training_conflict = None
+    has_offline_diff_session = False
+    for row in training_rows:
+        title, t_session, t_mode = row[0], row[1], row[2]
+        if t_session == session_lower:
+            same_session_training_conflict = title
+        elif t_mode == "offline":
+            has_offline_diff_session = True
+
+    return {
+        "project_hours": project_hours,
+        "batch_hours": batch_hours,
+        "batch_conflict_name": batch_conflict_name,
+        "total_occupied_hours": project_hours + batch_hours,
+        "same_session_training_conflict": same_session_training_conflict,
+        "has_offline_diff_session": has_offline_diff_session,
+    }
 
 
 def recommend_mentor_for_training(engagement_id: str, session_capacity_hours: float = 4.0) -> list[dict]:
     with engine.connect() as conn:
-        # Fetch training details
         engagement = conn.execute(
             text("SELECT * FROM training_engagements WHERE engagement_id = :eid"),
             {"eid": engagement_id},
@@ -295,40 +335,44 @@ def recommend_mentor_for_training(engagement_id: str, session_capacity_hours: fl
         required_hours = float(engagement.get("required_hours") or engagement.get("duration_hours") or 1.0)
         domain = engagement.get("domain", "")
 
-        # Fetch requirements & conflict checks
         requirements_rows = conn.execute(
             text("SELECT * FROM training_requirements WHERE engagement_id = :eid"),
             {"eid": engagement_id},
         ).mappings().fetchall()
 
-        # Fetch candidate mentors / team leads
+        # Fetch ALL mentors in the domain — team leads AND regular mentors
         region_filter = None if engagement.get("mode") == "online" else engagement.get("region")
-        mentors = get_available_mentors(domain=domain, region=region_filter, check_project_conflicts=False)
-        team_leads = [m for m in mentors if m.get("is_team_lead")]
+        all_mentors = get_available_mentors(domain=domain, region=region_filter, check_project_conflicts=False)
 
-        # -------------------------------------------------------------
-        # FILTER BY DAILY SESSION AVAILABILITY
-        # -------------------------------------------------------------
-        available_team_leads = []
-        for tl in team_leads:
-            occupied_hrs = calculate_daily_occupied_hours(
+        for m in all_mentors:
+            occ = calculate_daily_occupied_hours(
                 conn=conn,
-                mentor_id=tl["id"],
+                mentor_id=m["id"],
                 domain=domain,
                 training_date=training_date,
-                training_session=training_session
+                training_session=training_session,
+                current_engagement_id=engagement_id
             )
-            
-            daily_available_hrs = max(0.0, session_capacity_hours - occupied_hrs)
-            
-            # Keep candidate ONLY if daily available hours >= training required hours
-            if daily_available_hrs >= required_hours:
-                tl["occupied_hours"] = occupied_hrs
-                tl["daily_available_hours"] = daily_available_hrs
-                tl["skills"] = get_person_skills(tl["id"], "employee")
-                available_team_leads.append(tl)
 
-        # Parse requirements and rank remaining candidates
+            daily_available_hrs = max(0.0, session_capacity_hours - occ["total_occupied_hours"])
+
+            # Determine availability and reason
+            if occ["same_session_training_conflict"]:
+                m["can_propose"] = False
+                m["unavailable_reason"] = f"Committed to another training this session ({occ['same_session_training_conflict']})"
+            elif occ["batch_conflict_name"]:
+                m["can_propose"] = False
+                m["unavailable_reason"] = f"Batch class scheduled this session ({occ['batch_conflict_name']})"
+            elif daily_available_hrs < required_hours:
+                m["can_propose"] = False
+                m["unavailable_reason"] = "Not enough available hours this session"
+            else:
+                m["can_propose"] = True
+                m["unavailable_reason"] = None
+
+            m["has_offline_penalty"] = occ["has_offline_diff_session"]
+            m["skills"] = get_person_skills(m["id"], "employee")
+
         requirements = [
             {
                 "skill_id": r["skill_id"],
@@ -339,18 +383,20 @@ def recommend_mentor_for_training(engagement_id: str, session_capacity_hours: fl
             for r in requirements_rows
         ]
 
-        ranked = rank_candidates(available_team_leads, requirements)
+        ranked = rank_candidates(all_mentors, requirements)
 
-        # Apply scoring adjustments
         training_audience = engagement.get("audience")
         for candidate in ranked:
             raw_skill_score = candidate["suitability_score"]
             candidate["suitability_score"] = score_with_audience_preference(
                 raw_skill_score, candidate.get("preferred_audience"), training_audience
             )
+            if candidate.get("has_offline_penalty"):
+                candidate["suitability_score"] *= 0.90
 
         ranked.sort(key=lambda c: c["suitability_score"], reverse=True)
         return ranked
+
 
 if __name__ == "__main__":
     print("Import recommend_candidates_for_project, recommend_projects_for_person,")
