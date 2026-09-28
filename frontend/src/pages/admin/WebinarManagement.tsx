@@ -960,26 +960,35 @@ const handleBulkDeleteEngagements = async () => {
                           </div>
                         </div>
 
-                        <div>
-                          {selectedEngagement.status === 'open' || selectedEngagement.status === 'rejected' ? (
-                            <>
-                             <button
-                               onClick={() => handleProposeMentor(selectedEngagement.engagement_id, mentor)}
-                               disabled={mentor.can_propose === false}
-                               className={`text-white text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all shadow-md ${
-                                  mentor.can_propose === false
-                                   ? 'bg-slate-700 cursor-not-allowed opacity-60'
-                                   : 'bg-indigo-600 hover:bg-indigo-500'
-                               }`}
-                             >
-                               <UserPlus className="w-3.5 h-3.5" /> Propose Speaker
-                             </button>
+                        <div className="w-64 flex flex-col items-end shrink-0">
+                           {selectedEngagement.status === 'open' || selectedEngagement.status === 'rejected' ? (
+                              <>
+                                <button
+                                   onClick={() => {
+                                     if (mentor.can_propose === false) {
+                                        const ok = window.confirm(
+                                          `${mentor.name} has a conflict: ${mentor.unavailable_reason}\n\nPropose anyway? You'll need to shift or cancel the other session yourself.`
+                                        );
+                                        if (!ok) return;
+                                     }
+                                     handleProposeMentor(selectedEngagement.engagement_id, mentor);
+                                   }}
+                                   className={`text-white text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all shadow-md ${
+                                     mentor.can_propose === false
+                                       ? 'bg-amber-600/80 hover:bg-amber-500'
+                                       : 'bg-indigo-600 hover:bg-indigo-500'
+                                   }`}
+                                >
+                                   <UserPlus className="w-3.5 h-3.5" /> Propose Speaker
+                                </button>
 
-                             {mentor.can_propose === false && mentor.unavailable_reason && (
-                               <p className="text-[11px] text-rose-400 mt-1.5">{mentor.unavailable_reason}</p>
-                             )}
-                            </>
-                          ) : null}
+                                {mentor.can_propose === false && mentor.unavailable_reason && (
+                                   <p className="text-[11px] text-rose-400 mt-1.5 text-right">
+                                     {mentor.unavailable_reason}
+                                   </p>
+                                )}
+                              </>
+                           ) : null}
 
                           {isProposed && selectedEngagement.status === 'proposed' && (
                             <span className="text-xs text-amber-400 font-medium italic flex items-center gap-1.5 bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/20">
