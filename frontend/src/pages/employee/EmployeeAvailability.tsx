@@ -124,6 +124,7 @@ export const EmployeeAvailabilityPage: React.FC<{ employeeId?: string }> = ({
       } else {
         throw new Error('Failed to update availability');
       }
+      alert('Availability updated successfully!');
     } catch (err) {
       setStatusMessage({ type: 'error', text: 'Error updating availability record.' });
     }
@@ -160,6 +161,7 @@ const handleLeaveSubmit = async (e: React.FormEvent) => {
     } else {
       throw new Error(responseData.detail || 'Failed to submit leave');
     }
+    alert('Leave Request Submitted!');
   } catch (err: any) {
     setStatusMessage({
       type: 'error',
@@ -199,6 +201,7 @@ const handleUrgentLeaveSubmit = async (e: React.FormEvent) => {
     } else {
       throw new Error(responseData.detail || 'Failed to submit urgent leave');
     }
+    alert('Urgent Leave Request Submitted!');
   } catch (err: any) {
     setStatusMessage({
       type: 'error',

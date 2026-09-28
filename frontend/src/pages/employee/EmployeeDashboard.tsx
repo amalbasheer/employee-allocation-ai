@@ -551,6 +551,7 @@ const handleUpdateProjectStatus = async (projectId: string, newStatus: string) =
           : p
       )
     );
+    alert('Project Completed!');
   } catch (err: any) {
     console.error('Failed to update project status:', err);
   }
@@ -584,6 +585,7 @@ const handleProposalAction = async (id: string, action: 'accept') => {
         body: JSON.stringify({ status: allocationStatus }),
       });
     }
+    alert('Proposal Accepted!');
   } catch (err) {
     console.warn('Failed to persist action to server, updating UI locally:', err);
   } finally {
@@ -630,6 +632,7 @@ const handleRejectionAction = async (id: string, action: 'reject') => {
         body: JSON.stringify({ status: allocationStatus }),
       });
     }
+    alert('Proposal Rejected!');
   } catch (err) {
     console.warn('Failed to persist action to server, updating UI locally:', err);
   } finally {

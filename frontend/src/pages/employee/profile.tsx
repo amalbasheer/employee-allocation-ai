@@ -130,6 +130,7 @@ export const EmployeeSkillsManager: React.FC<EmployeeSkillsManagerProps> = ({
         const errData = await response.json();
         throw new Error(errData.detail || 'Failed to add skill');
       }
+      alert('Skill Added Successfully!');
 
       await fetchData();
       setNewSkillName('');
@@ -158,6 +159,7 @@ export const EmployeeSkillsManager: React.FC<EmployeeSkillsManagerProps> = ({
       );
 
       if (!response.ok) throw new Error('Failed to update proficiency');
+      alert('Skill updated successfully!');
 
       setEmployeeSkills((prev) =>
         prev.map((item) =>
@@ -189,6 +191,7 @@ export const EmployeeSkillsManager: React.FC<EmployeeSkillsManagerProps> = ({
       );
 
       if (!response.ok) throw new Error('Failed to delete skill');
+      alert('Skill Deleted successfully!');
 
       setEmployeeSkills((prev) => prev.filter((item) => item.skill_id !== skillId));
     } catch (err: any) {

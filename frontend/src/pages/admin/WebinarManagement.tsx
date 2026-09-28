@@ -295,6 +295,8 @@ export const TrainingManagement: React.FC = () => {
         body: JSON.stringify({ mentor_id: mentor.employee_id }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      
+      alert(`Proposal sent Successfully!`);
     } catch (err) {
       console.warn('API proposal request failed:', err);
     }
@@ -309,6 +311,8 @@ export const TrainingManagement: React.FC = () => {
     try {
       const res = await fetch(`${API_BASE}/api/training/engagements/${engagementId}/confirm`, { method: 'POST' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      
+      alert(`Assignment Successfull!`);
     } catch (err) {
       console.warn('API confirmation request failed:', err);
     }
@@ -374,7 +378,7 @@ export const TrainingManagement: React.FC = () => {
     setIsModalOpen(false);
     resetForm();
 
-      alert('Engagement added successfully.');
+    alert('Engagement added successfully.');
     } catch (err) {
       console.warn('API engagement creation failed:', err);
     }
@@ -601,7 +605,7 @@ const handleBulkDeleteEngagements = async () => {
         })
       )
     );
-    alert(`Successfully deleted ${count} engagement(s).`);
+    alert(`Successfully cancelled ${count} engagement(s).`);
   } catch (err) {
     console.error('Failed to perform bulk delete:', err);
     alert('Failed to delete some engagements. Please refresh and try again.');

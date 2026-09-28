@@ -158,6 +158,10 @@ export const WeeklySchedule: React.FC = () => {
       });
       // Refresh schedule and pending queue after approval/rejection
       await Promise.all([fetchCalendarSchedule(), fetchPendingRequests()]);
+
+      const pastTenseAction = action === 'approve' ? 'approved' : 'rejected';
+      alert(`Shift request ${pastTenseAction} successfully!`);
+
     } catch (err) {
       console.error(`Failed to ${action} shift request:`, err);
       alert(`Failed to ${action} shift request.`);
@@ -194,6 +198,9 @@ export const WeeklySchedule: React.FC = () => {
 
       await api.post(`${API_BASE}/api/schedule/override`, payload);
       await fetchCalendarSchedule();
+
+      alert('Shift updated successfully!');
+      
     } catch (err) {
       console.error('Failed to update shift override:', err);
       alert('Failed to update temporary shift schedule.');

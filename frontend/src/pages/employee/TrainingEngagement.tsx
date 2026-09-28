@@ -297,6 +297,7 @@ export const TrainingAllocationsDashboard: React.FC<{ propEmployeeId?: string }>
           employee_id: targetEmployeeId,
         }),
       });
+      alert('proposal Accepted!');
     } catch (err) {
       console.warn('Network issue during accept:', err);
     } finally {
@@ -321,6 +322,7 @@ export const TrainingAllocationsDashboard: React.FC<{ propEmployeeId?: string }>
           employee_id: targetEmployeeId,
         }),
       });
+      alert('Proposal rejected!');
     } catch (err) {
       console.warn('Network issue during reject:', err);
     } finally {

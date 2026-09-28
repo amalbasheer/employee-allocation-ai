@@ -139,6 +139,8 @@ export const LeaveManagement: React.FC = () => {
       }`,
     });
 
+    alert('Leave approved');
+
     // Optimistic update local state
     setLeaveRequests((prev) =>
       prev.map((item) =>

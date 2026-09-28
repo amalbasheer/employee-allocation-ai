@@ -381,6 +381,7 @@ export const UserManagement: React.FC = () => {
       setStudents((prev) =>
         prev.map((std) => (std.intern_id === internId ? res.data : std))
       );
+      alert('Student Verified Successfully!');
     } catch (err) {
       console.error('Failed to verify student:', err);
       alert('Verification failed. Ensure you have admin privileges.');
@@ -449,6 +450,10 @@ export const UserManagement: React.FC = () => {
         }
       }
 
+      const recordType = activeTab === 'EMPLOYEE' ? 'Employee' : 'Student';
+      const actionType = editingId ? 'updated' : 'saved';
+      alert(`${recordType} ${actionType} successfully!`);
+
       setIsModalOpen(false);
     } catch (err) {
       console.error('Failed to save record:', err);
@@ -467,6 +472,7 @@ export const UserManagement: React.FC = () => {
           await api.delete(`/api/interns/${id}`);
           setStudents((prev) => prev.filter((s) => s.intern_id !== id));
         }
+        alert('User Deleted Successfully!');
       } catch (err) {
         console.error('Failed to delete record:', err);
         // Fallback local UI removal

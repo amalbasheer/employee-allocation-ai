@@ -339,6 +339,8 @@ export const ProjectAllocation: React.FC = () => {
       setProjects([newProject, ...projects]);
       setSelectedProjectId(newProject.id);
 
+      alert('Project added Successfully!');
+
     // 5. Reset Form State
       setProjectName('');
       setCategory('Machine Learning');
@@ -608,6 +610,7 @@ export const ProjectAllocation: React.FC = () => {
               : p
           )
         );
+        alert('Mentor assignment confirmed successfully!');
       }
     } catch (err: any) {
       const errorMsg = err.response?.data?.detail || "Failed to confirm mentor assignment.";
@@ -631,6 +634,7 @@ export const ProjectAllocation: React.FC = () => {
             : p
         )
       );
+      alert('Mentor proposal reset!');
     } catch (err) {
       console.error("Failed to reset mentor proposal:", err);
     }
@@ -854,6 +858,8 @@ export const ProjectAllocation: React.FC = () => {
       if (res.data && res.data.success) {
         const syncedCount = res.data.count ?? res.data.synced_count ?? 0;
         setSyncStatus(`Synced ${syncedCount} records`);
+
+        alert('Sync successful!');
         
         // Re-fetch projects to refresh dashboard data
         fetchProjects();
@@ -959,7 +965,7 @@ const handleBulkDeleteProjects = async () => {
     setProjects((prev) => prev.filter((p) => !selectedProjectIds.includes(p.id)));
     clearSelection();
 
-    alert('Selected projects deleted successfully!');
+    alert('Selected projects cancelled successfully!');
   } catch (err: any) {
     // Fallback: If bulk endpoint isn't implemented, delete sequentially
     try {
@@ -968,7 +974,7 @@ const handleBulkDeleteProjects = async () => {
       );
       setProjects((prev) => prev.filter((p) => !selectedProjectIds.includes(p.id)));
       clearSelection();
-      alert('Selected projects deleted successfully!');
+      alert('Selected projects cancelled successfully!');
     } catch (fallbackErr: any) {
       console.error('Bulk delete error:', fallbackErr);
       alert('Failed to delete some or all selected projects.');

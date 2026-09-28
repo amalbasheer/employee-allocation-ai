@@ -180,6 +180,9 @@ export const StudentBatches: React.FC = () => {
       });
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      alert('Mentor assigned to batch successfully!');
+
     } catch (err) {
       console.error('API assignment failed, refreshing real batch data:', err);
       fetchStudentBatches();
@@ -196,6 +199,8 @@ export const StudentBatches: React.FC = () => {
 
       const generated = await res.json();
       setBatches([...generated, ...batches]);
+
+      alert('Batches generated successfully!');
     } catch (e) {
       console.error('Failed to auto-generate batch:', e);
       alert('Failed to generate batch. Please try again or contact support.');
