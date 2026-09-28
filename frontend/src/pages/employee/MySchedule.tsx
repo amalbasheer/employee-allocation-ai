@@ -150,6 +150,7 @@ export const MySchedule: React.FC = () => {
       setSelectedTarget(null);
       setOverrideReason('');
       await fetchMySchedule();
+      alert('Shift request sent');
     } catch (err) {
       console.error('Failed to submit shift request:', err);
       alert('Failed to submit shift request. Please try again.');
