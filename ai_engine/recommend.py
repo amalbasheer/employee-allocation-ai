@@ -239,7 +239,7 @@ def calculate_daily_occupied_hours(
     # flat 1 hour if ANY active project overlaps (not multiplied by count)
     # -------------------------------------------------------------
     project_query = text("""
-        SELECT COUNT(p.project_id) AS overlapping_project_count
+        SELECT p.title
         FROM allocations a
         JOIN projects p ON p.project_id = a.reference_id
         WHERE a.resource_id = :mentor_id
@@ -251,13 +251,14 @@ def calculate_daily_occupied_hours(
               OR LOWER(p.day_of_week) LIKE '%' || :day_abbr || '%'
           )
     """)
-    project_res = conn.execute(
+    project_rows = conn.execute(
         project_query,
-        {"mentor_id": mentor_id, "session": session_lower, "day_full": day_full.lower(), "day_abbr": day_abbr.lower()}
-    ).fetchone()
-    overlapping_projects = project_res[0] if project_res else 0
-    project_hours = 1.0 if overlapping_projects > 0 else 0.0
-
+        {"mentor_id": mentor_id, "session": session_lower,
+         "day_full": day_full.lower(), "day_abbr": day_abbr.lower()}
+    ).fetchall()
+    project_conflict_name = ", ".join(r[0] for r in project_rows) if project_rows else None
+    project_hours = 1.0 if project_rows else 0.0
+    
     # -------------------------------------------------------------
     # 2. STUDENT BATCH OCCUPIED HOURS — fixed to match abbreviated
     # day names (e.g. "Tue, Fri") correctly
@@ -317,6 +318,7 @@ def calculate_daily_occupied_hours(
         "total_occupied_hours": project_hours + batch_hours,
         "same_session_training_conflict": same_session_training_conflict,
         "has_offline_diff_session": has_offline_diff_session,
+        "project_conflict_name": project_conflict_name,
     }
 
 
@@ -363,6 +365,9 @@ def recommend_mentor_for_training(engagement_id: str, session_capacity_hours: fl
             elif occ["batch_conflict_name"]:
                 m["can_propose"] = False
                 m["unavailable_reason"] = f"Batch class scheduled this session ({occ['batch_conflict_name']})"
+            elif occ["project_conflict_name"]:
+                m["can_propose"] = False
+                m["unavailable_reason"] = f"Project meeting scheduled this session ({occ['project_conflict_name']})"
             elif daily_available_hrs < required_hours:
                 m["can_propose"] = False
                 m["unavailable_reason"] = "Not enough available hours this session"
