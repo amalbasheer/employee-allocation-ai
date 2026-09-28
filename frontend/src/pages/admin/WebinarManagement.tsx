@@ -178,20 +178,30 @@ export const TrainingManagement: React.FC = () => {
       });
   }, []);
 
-  // 3. Fetch Real Recommended Mentors for Selected Engagement
+    // 3. Fetch Real Recommended Mentors for Selected Engagement
+  const [isLoadingMentors, setIsLoadingMentors] = useState(false);
+  const [mentorError, setMentorError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!selectedEngagementId) return;
+
+    let cancelled = false;
+    setRecommendedMentors([]);
+    setIsLoadingMentors(true);
 
     fetch(`${API_BASE}/api/training/engagements/${selectedEngagementId}/recommendations`)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
       })
-      .then((data) => setRecommendedMentors(data))
+      .then((data) => { if (!cancelled) setRecommendedMentors(data); })
       .catch((err) => {
         console.warn('API error fetching engagement mentor recommendations, using fallback:', err);
-        setRecommendedMentors(fallbackMentors);
-      });
+        if (!cancelled) setRecommendedMentors(fallbackMentors);
+      })
+      .finally(() => { if (!cancelled) setIsLoadingMentors(false); });
+
+    return () => { cancelled = true; };
   }, [selectedEngagementId]);
 
   const selectedEngagement = 
@@ -930,7 +940,13 @@ const handleBulkDeleteEngagements = async () => {
                 <h4 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-indigo-400" /> AI Skill-Matched Mentors
                 </h4>
-
+                
+                
+                {isLoadingMentors ? (
+                  <div className="p-4 text-center text-xs text-slate-400">Loading recommendations...</div>
+                ) : mentorError ? (
+                  <div className="p-4 text-center text-xs text-rose-400">{mentorError}</div>
+                ) : (
                 <div className="grid grid-cols-1 gap-3">
                   {recommendedMentors.map((mentor) => {
                     const isProposed = selectedEngagement.mentor_id === mentor.employee_id;
@@ -1006,6 +1022,7 @@ const handleBulkDeleteEngagements = async () => {
                     );
                   })}
                 </div>
+                 )}
               </div>
             </div>
           </Card>
