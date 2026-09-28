@@ -370,7 +370,7 @@ def recommend_mentor_for_training(engagement_id: str, session_capacity_hours: fl
                 m["unavailable_reason"] = f"Project meeting scheduled this session ({occ['project_conflict_name']})"
             elif daily_available_hrs < required_hours:
                 m["can_propose"] = False
-                m["unavailable_reason"] = "Not enough available hours this session"
+                m["unavailable_reason"] = f"Only {daily_available_hrs:g}h free, needs {required_hours:g}h [v2]"
             else:
                 m["can_propose"] = True
                 m["unavailable_reason"] = None
