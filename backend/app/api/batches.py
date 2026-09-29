@@ -300,7 +300,7 @@ def get_recommended_mentors(batch_id: str, db: Session = Depends(get_db)):
             month_num=batch.start_date.month,
             year=batch.start_date.year,
             sub_domain=batch.domain,
-            engine=db.get_bind()
+            
         )
         top_pick_id = top_pick.get("employee_id") if top_pick else None
 
