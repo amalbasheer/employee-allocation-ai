@@ -1057,7 +1057,7 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
             month_num=start_dt.month,
             year=start_dt.year,
             sub_domain=sub_domain or "Data Science",
-            engine=db.get_bind()
+        
         )
         
         mentor_id = assigned_mentor.get("employee_id") if assigned_mentor else None
