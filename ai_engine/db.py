@@ -630,20 +630,11 @@ def get_workload_extremes(domain: str = None) -> dict:
     }
 
 def get_employee_workload_summary(employee_name: str) -> dict:
-    """
-    Returns a complete summary of one employee's active work across
-    projects, trainings and student batches.
-    """
-
     with engine.connect() as conn:
-
         employee = conn.execute(
             text("""
-                SELECT employee_id,
-                       name,
-                       department,
-                       weekly_capacity_hours,
-                       is_team_lead
+                SELECT employee_id, name, department,
+                       weekly_capacity_hours, is_team_lead
                 FROM company_employees
                 WHERE LOWER(name)=LOWER(:name)
             """),
@@ -657,37 +648,45 @@ def get_employee_workload_summary(employee_name: str) -> dict:
 
         allocations = conn.execute(
             text("""
-                SELECT
-                    reference_type,
-                    reference_id,
-                    status
+                SELECT reference_type, reference_id, status
                 FROM allocations
                 WHERE resource_id=:id
                 AND status IN ('proposed','assigned','accepted')
+                AND reference_type IN ('project','training')
+            """),
+            {"id": employee_id},
+        ).mappings().fetchall()
+
+        # Batches live in student_batches, not allocations
+        batch_rows = conn.execute(
+            text("""
+                SELECT batch_name, day_of_week, session, start_date, end_date
+                FROM student_batches
+                WHERE mentor_id = :id
+                AND status IN ('open','in_progress','active')
+                AND end_date >= CURRENT_DATE
+                ORDER BY start_date
             """),
             {"id": employee_id},
         ).mappings().fetchall()
 
     projects = []
     trainings = []
-    batches = []
 
     for allocation in allocations:
-
         if allocation["reference_type"] == "project":
             project = get_project(allocation["reference_id"])
             if project:
                 projects.append(project["title"])
-
         elif allocation["reference_type"] == "training":
             training = get_training_engagement(allocation["reference_id"])
             if training:
                 trainings.append(training["title"])
 
-        elif allocation["reference_type"] == "batch":
-            batch = get_batch(allocation["reference_id"])
-            if batch:
-                batches.append(batch["batch_name"])
+    batches = [
+        f"{b['batch_name']} ({b['day_of_week']}, {b['session']})"
+        for b in batch_rows
+    ]
 
     return {
         "employee": employee["name"],
@@ -699,7 +698,7 @@ def get_employee_workload_summary(employee_name: str) -> dict:
         "batches": batches,
         "project_count": len(projects),
         "training_count": len(trainings),
-        "batch_count": len(batches)
+        "batch_count": len(batches),
     }
 
 def get_project_assignments(project_id: str) -> list[dict]:
