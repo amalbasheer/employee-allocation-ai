@@ -21,8 +21,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-
+# -------------------------------------------------------------------------
 # --- Pydantic Schemas ---
+# -------------------------------------------------------------------------
 class AssignMentorRequest(BaseModel):
     mentor_id: str
     session: Optional[str] = None
@@ -53,31 +54,8 @@ class BatchResponse(BaseModel):
     session: Optional[str]
     day: Optional[str]
 
-
 # -------------------------------------------------------------------------
-# 1. GET ALL BATCHES
-# -------------------------------------------------------------------------
-@router.get("", response_model=List[BatchResponse])
-def get_student_batches(db: Session = Depends(get_db)):
-    """
-    Fetches student batches joining 'company_employees' table to return employee name instead of ID.
-    """
-    query = text("""
-        SELECT 
-            b.batch_id, b.batch_name, b.domain, b.status, b.session, b.day_of_week as day
-            b.start_date, b.end_date, b.delivery_mode, b.mentor_id,
-            e.name AS trainer_name
-        FROM student_batches b
-        LEFT JOIN company_employees e ON b.mentor_id = e.employee_id
-    """)
-    results = db.execute(query).mappings().fetchall()
-    return [dict(r) for r in results]
-
-
-
-
-# -------------------------------------------------------------------------
-# 3. ASSIGN / CHANGE MENTOR FOR A BATCH
+# --- Helper Functions ---
 # -------------------------------------------------------------------------
 def parse_days_count(day_of_week_input) -> int:
     """
@@ -203,6 +181,31 @@ def update_mentor_availability_for_batch(
             db.add(new_availability)
             db.flush()
 
+
+# -------------------------------------------------------------------------
+# GET ALL BATCHES
+# -------------------------------------------------------------------------
+@router.get("", response_model=List[BatchResponse])
+def get_student_batches(db: Session = Depends(get_db)):
+    """
+    Fetches student batches joining 'company_employees' table to return employee name instead of ID.
+    """
+    query = text("""
+        SELECT 
+            b.batch_id, b.batch_name, b.domain, b.status, b.session, b.day_of_week as day
+            b.start_date, b.end_date, b.delivery_mode, b.mentor_id,
+            e.name AS trainer_name
+        FROM student_batches b
+        LEFT JOIN company_employees e ON b.mentor_id = e.employee_id
+    """)
+    results = db.execute(query).mappings().fetchall()
+    return [dict(r) for r in results]
+
+
+
+# -------------------------------------------------------------------------
+# ASSIGN / CHANGE MENTOR FOR A BATCH
+# -------------------------------------------------------------------------
 @router.put("/{batch_id}/assign-mentor")
 def assign_mentor_to_batch(
     batch_id: str, 
@@ -280,6 +283,9 @@ def assign_mentor_to_batch(
     db.refresh(batch)
     return batch
 
+
+# -------------------------------------------------------------------------
+# GET RECOMMENDED MENTORS FOR A BATCH
 # -------------------------------------------------------------------------
 @router.get("/{batch_id}/recommended-mentors", response_model=List[MentorResponse])
 def get_recommended_mentors(batch_id: str, db: Session = Depends(get_db)):

@@ -45,6 +45,10 @@ from app.schemas.employee import (
 
 router = APIRouter()
 
+class ReviewLeaveRequestPayload(BaseModel):
+    status: Literal["APPROVED", "REJECTED"]
+
+
 class LeaveRequestResponse(BaseModel):
     request_id: str
     employee_id: Optional[str]
@@ -127,8 +131,6 @@ def get_all_leave_requests(
 
     return output
 
-class ReviewLeaveRequestPayload(BaseModel):
-    status: Literal["APPROVED", "REJECTED"]
 
 @router.put("/leave-requests/{request_id}/review", status_code=status.HTTP_200_OK)
 def review_leave_request(

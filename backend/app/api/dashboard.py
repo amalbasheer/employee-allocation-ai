@@ -28,7 +28,9 @@ from app.models import (
 
 router = APIRouter()
 
-
+# -------------------------------------------------------------------------
+# DASHBOARD OVERVIEW ENDPOINT
+# -------------------------------------------------------------------------
 @router.get("/overview", status_code=status.HTTP_200_OK)
 def get_dashboard_overview(db: Session = Depends(get_db)) -> Dict[str, Any]:
     """

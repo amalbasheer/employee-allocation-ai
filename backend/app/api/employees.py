@@ -48,7 +48,103 @@ import secrets
 # Import email helper
 from app.services.services import send_activation_email
 
+# ==========================================
+# PYDANTIC SCHEMAS
+# ==========================================
 
+class SkillResponse(BaseModel):
+    skill_id: str
+    skill_name: str
+
+    class Config:
+        from_attributes = True
+
+class EmployeeSkillRead(BaseModel):
+    skill_id: str
+    skill_name: str
+    proficiency_level: int
+
+class AddEmployeeSkillRequest(BaseModel):
+    skill_name: str  # Can be selected from dropdown or typed as new
+    proficiency_level: int
+
+class UpdateProficiencyRequest(BaseModel):
+    proficiency_level: int
+
+class EmployeeSummary(BaseModel):
+    employee_id: str
+    name: str
+    email: str
+    designation_id: str
+    designation: Optional[str] = None  # Resolved from designation_id
+    department: str
+    experience_years: float
+    weekly_capacity_hours: int
+    is_team_lead: bool
+
+class SkillDetail(BaseModel):
+    skill_id: str
+    skill_name: str
+    category: str
+    proficiency_level: int
+
+class ProjectDetail(BaseModel):
+    project_id: str
+    allocation_id: str
+    title: str
+    category: str
+    role: str
+    allocated_hours_per_week: float
+    start_date: Optional[str]
+    end_date: Optional[str]
+    status: str
+    allocation_status: str
+
+class StudentBatchDetail(BaseModel):
+    batch_id: str
+    batch_name: str
+    program_name: str
+    role: str
+    assigned_students_count: int
+    start_date: Optional[str]
+    end_date: Optional[str]
+    batch_status: str
+
+class WebinarDetail(BaseModel):
+    engagement_id: str
+    allocation_id: str
+    title: str
+    topic: str
+    type: str
+    scheduled_date: Optional[str]
+    duration_hours: float
+    target_audience: str
+    engagement_status: str
+
+class BasicInfo(EmployeeSummary):
+    phone: Optional[str] = None
+    joining_date: Optional[str] = None
+    location: Optional[str] = None
+    manager_name: Optional[str] = None
+
+class EmployeeFullProfile(BaseModel):
+    basic_info: BasicInfo
+    skills: List[SkillDetail]
+    projects: dict
+    student_batches: dict
+    training_engagements: dict
+
+
+class UrgentLeaveRequest(BaseModel):
+    duration_value: int = Field(..., gt=0, description="Number of days or weeks")
+    duration_unit: Literal["days", "weeks"]
+    reason: str
+    session: Optional[str] = None
+
+
+# -------------------------------------------------------------------------
+# Helper Functions
+# -------------------------------------------------------------------------
 def generate_activation_token() -> str:
     """Generates a secure, 32-byte URL-safe random token for account activation."""
     return secrets.token_urlsafe(32)
@@ -56,9 +152,112 @@ def generate_activation_token() -> str:
 router = APIRouter()
 
 
-# ==========================================
-# EMPLOYEE ENDPOINTS
-# ==========================================
+
+def generate_next_skill_id(db: Session) -> str:
+    """
+    Finds the highest existing rp2-skl-XXXX ID in the DB, 
+    increments the counter, and returns the next formatted ID.
+    Sorts NUMERICALLY (not alphabetically) to avoid issues once
+    IDs cross into 3+ digit territory.
+    """
+    from sqlalchemy import func, cast, Integer
+
+    max_id = (
+        db.query(Skill.skill_id)
+        .filter(Skill.skill_id.like("rp2-skl-%"))
+        .order_by(cast(func.split_part(Skill.skill_id, '-', 3), Integer).desc())
+        .first()
+    )
+
+    if not max_id or not max_id[0]:
+        return "rp2-skl-0001"
+
+    try:
+        current_num = int(max_id[0].split("-")[-1])
+        next_num = current_num + 1
+    except ValueError:
+        next_num = 1
+
+    return f"rp2-skl-{next_num:04d}"
+
+
+
+def normalize_to_monday(d: date) -> date:
+    return d - timedelta(days=d.weekday())
+
+def generate_availability_id(db: Session) -> str:
+    """
+    Generates sequential availability IDs based on the highest existing ID.
+    """
+    # Fetch the lexicographically highest availability_id
+    max_id = db.query(func.max(Availability.availability_id)).scalar()
+    
+    if not max_id:
+        next_num = 1
+    else:
+        # Extract trailing numbers (e.g., 'rp2-avail-0005' -> 5)
+        try:
+            next_num = int(max_id.split("-")[-1]) + 1
+        except (ValueError, IndexError):
+            next_num = 1
+
+    return f"rp2-avail-{next_num:04d}"
+
+
+def generate_leave_request_id(db: Session) -> str:
+    """
+    Generates sequential IDs in the format: req-0001, req-0002, etc.
+    """
+    # Fetch the latest created leave request with a 'req-' prefix
+    last_request = (
+        db.query(LeaveRequest)
+        .filter(LeaveRequest.request_id.like("req-%"))
+        .order_by(LeaveRequest.created_at.desc())
+        .first()
+    )
+
+    if not last_request:
+        return "req-0001"
+
+    # Extract the trailing numbers from req-XXXX
+    match = re.search(r"req-(\d+)", last_request.request_id)
+    if match:
+        next_num = int(match.group(1)) + 1
+    else:
+        # Fallback to row count if regex parsing fails
+        next_num = db.query(LeaveRequest).count() + 1
+
+    return f"req-{next_num:04d}"
+
+
+def resolve_reviewer_id(user) -> str:
+    """
+    Dynamically resolves the reviewer identifier:
+    1. Uses employee_id if present (Future state)
+    2. Falls back to email / username / role (Current state)
+    """
+    # 1. Future: Admin has an employee_id
+    if getattr(user, "employee_id", None):
+        return user.employee_id
+
+    # 2. Current: Fallback to email or username
+    if getattr(user, "email", None):
+        return user.email
+
+    if getattr(user, "username", None):
+        return user.username
+
+    # 3. Final Fallback: User ID or generic role string
+    user_id = getattr(user, "id", None)
+    if user_id:
+        return f"ADMIN-{user_id}"
+
+    return "ADMIN"
+
+
+# -------------------------------------------------------------------------
+# EMPLOYEE CRUD ENDPOINTS
+# -------------------------------------------------------------------------
 @router.get("", response_model=List[CompanyEmployeeResponse])
 def get_employees(db: Session = Depends(get_db)):
     """Fetch all employees with their assigned skills."""
@@ -171,7 +370,7 @@ def create_employee(
 
 @router.get("/{employee_id}", response_model=CompanyEmployeeResponse)
 def get_employee_by_id(employee_id: str, db: Session = Depends(get_db)):
-    """Fetch a single employee by UUID."""
+    """Fetch a single employee."""
     employee = db.query(CompanyEmployee).filter(CompanyEmployee.employee_id == employee_id).first()
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
@@ -218,58 +417,9 @@ def delete_employee(employee_id: str, db: Session = Depends(get_db)):
     return None
 
 
-# ==========================================
-# EMPLOYEE SKILLS ENDPOINTS (Composite PK)
-# ==========================================
-
-class SkillResponse(BaseModel):
-    skill_id: str
-    skill_name: str
-
-    class Config:
-        from_attributes = True
-
-class EmployeeSkillRead(BaseModel):
-    skill_id: str
-    skill_name: str
-    proficiency_level: int
-
-class AddEmployeeSkillRequest(BaseModel):
-    skill_name: str  # Can be selected from dropdown or typed as new
-    proficiency_level: int
-
-class UpdateProficiencyRequest(BaseModel):
-    proficiency_level: int
-
-def generate_next_skill_id(db: Session) -> str:
-    """
-    Finds the highest existing rp2-skl-XXXX ID in the DB, 
-    increments the counter, and returns the next formatted ID.
-    Sorts NUMERICALLY (not alphabetically) to avoid issues once
-    IDs cross into 3+ digit territory.
-    """
-    from sqlalchemy import func, cast, Integer
-
-    max_id = (
-        db.query(Skill.skill_id)
-        .filter(Skill.skill_id.like("rp2-skl-%"))
-        .order_by(cast(func.split_part(Skill.skill_id, '-', 3), Integer).desc())
-        .first()
-    )
-
-    if not max_id or not max_id[0]:
-        return "rp2-skl-0001"
-
-    try:
-        current_num = int(max_id[0].split("-")[-1])
-        next_num = current_num + 1
-    except ValueError:
-        next_num = 1
-
-    return f"rp2-skl-{next_num:04d}"
-
-
-# 2. Get all skills for a specific employee
+# -------------------------------------------------------------------------
+# GET all skills for a specific employee (with skill names)
+# -------------------------------------------------------------------------
 @router.get("/{employee_id}/skills", response_model=List[EmployeeSkillRead])
 def get_employee_skills(employee_id: str, db: Session = Depends(get_db)):
     emp_skills = (
@@ -288,7 +438,10 @@ def get_employee_skills(employee_id: str, db: Session = Depends(get_db)):
         for es, skill_name in emp_skills
     ]
 
-# 3. Add a skill to an employee (auto-creates skill in `skills` table if it doesn't exist)
+
+# -------------------------------------------------------------------------
+# Add a new skill to an employee
+# -------------------------------------------------------------------------
 @router.post("/{employee_id}/skills", status_code=status.HTTP_201_CREATED)
 def add_employee_skill(
     employee_id: str, 
@@ -348,7 +501,10 @@ def add_employee_skill(
     db.commit()
     return {"message": "Skill added successfully", "skill_id": existing_skill.skill_id}
 
-# 4. Update proficiency of an existing employee skill
+
+# -------------------------------------------------------------------------
+# Update proficiency level for an existing skill of an employee
+# -------------------------------------------------------------------------
 @router.put("/{employee_id}/skills/{skill_id}")
 def update_skill_proficiency(
     employee_id: str,
@@ -368,7 +524,10 @@ def update_skill_proficiency(
     db.commit()
     return {"message": "Proficiency updated successfully"}
 
-# 5. Delete a skill from an employee
+
+# -------------------------------------------------------------------------
+# Delete a skill mapping for an employee
+# -------------------------------------------------------------------------
 @router.delete("/{employee_id}/skills/{skill_id}")
 def delete_employee_skill(employee_id: str, skill_id: str, db: Session = Depends(get_db)):
     emp_skill = db.query(EmployeeSkill).filter(
@@ -383,30 +542,11 @@ def delete_employee_skill(employee_id: str, skill_id: str, db: Session = Depends
     db.commit()
     return {"message": "Skill removed successfully"}
 
-# ==========================================
-# AVAILABILITY ENDPOINTS
-# ==========================================
-def normalize_to_monday(d: date) -> date:
-    return d - timedelta(days=d.weekday())
 
-def generate_availability_id(db: Session) -> str:
-    """
-    Generates sequential availability IDs based on the highest existing ID.
-    """
-    # Fetch the lexicographically highest availability_id
-    max_id = db.query(func.max(Availability.availability_id)).scalar()
-    
-    if not max_id:
-        next_num = 1
-    else:
-        # Extract trailing numbers (e.g., 'rp2-avail-0005' -> 5)
-        try:
-            next_num = int(max_id.split("-")[-1]) + 1
-        except (ValueError, IndexError):
-            next_num = 1
 
-    return f"rp2-avail-{next_num:04d}"
-
+# -------------------------------------------------------------------------
+# GET employee availability with optional date range filtering
+# -------------------------------------------------------------------------
 @router.get(
     "/{employee_id}/availability", response_model=List[AvailabilityResponse]
 )
@@ -438,6 +578,9 @@ def get_employee_availability(
     return query.order_by(Availability.week_start_date.asc()).all()
 
 
+# -------------------------------------------------------------------------
+# Add or Update Availability for a Specific Week
+# -------------------------------------------------------------------------
 @router.post(
     "/{employee_id}/availability",
     response_model=AvailabilityResponse,
@@ -496,31 +639,9 @@ def add_or_update_availability(
 
 
 
-# --- NEW API 1: Date Range PTO Leave Submission ---
-def generate_leave_request_id(db: Session) -> str:
-    """
-    Generates sequential IDs in the format: req-0001, req-0002, etc.
-    """
-    # Fetch the latest created leave request with a 'req-' prefix
-    last_request = (
-        db.query(LeaveRequest)
-        .filter(LeaveRequest.request_id.like("req-%"))
-        .order_by(LeaveRequest.created_at.desc())
-        .first()
-    )
-
-    if not last_request:
-        return "req-0001"
-
-    # Extract the trailing numbers from req-XXXX
-    match = re.search(r"req-(\d+)", last_request.request_id)
-    if match:
-        next_num = int(match.group(1)) + 1
-    else:
-        # Fallback to row count if regex parsing fails
-        next_num = db.query(LeaveRequest).count() + 1
-
-    return f"req-{next_num:04d}"
+# -------------------------------------------------------------------------
+# Submit request for leave (date range or urgent) 
+# -------------------------------------------------------------------------
 
 # --- 1. Regular Date Range Leave Submission (Creates Pending Request) ---
 @router.post("/{employee_id}/leave", status_code=status.HTTP_201_CREATED)
@@ -555,11 +676,6 @@ def submit_date_range_leave(
         "request_id": leave_req.request_id,
     }
 
-class UrgentLeaveRequest(BaseModel):
-    duration_value: int = Field(..., gt=0, description="Number of days or weeks")
-    duration_unit: Literal["days", "weeks"]
-    reason: str
-    session: Optional[str] = None
 
 # --- 2. Urgent Leave Submission (Creates Pending Request) ---
 @router.post("/{employee_id}/urgent-leave", status_code=status.HTTP_201_CREATED)
@@ -595,6 +711,9 @@ def submit_urgent_leave(
         "end_date": end_date,
     }
 
+# -------------------------------------------------------------------------
+# Fetch all leave requests for a specific employee
+# -------------------------------------------------------------------------
 @router.get("/{employee_id}/leave-requests", status_code=status.HTTP_200_OK)
 def get_employee_leave_requests(
     employee_id: str,
@@ -611,33 +730,10 @@ def get_employee_leave_requests(
     )
     return requests
 
-def resolve_reviewer_id(user) -> str:
-    """
-    Dynamically resolves the reviewer identifier:
-    1. Uses employee_id if present (Future state)
-    2. Falls back to email / username / role (Current state)
-    """
-    # 1. Future: Admin has an employee_id
-    if getattr(user, "employee_id", None):
-        return user.employee_id
 
-    # 2. Current: Fallback to email or username
-    if getattr(user, "email", None):
-        return user.email
-
-    if getattr(user, "username", None):
-        return user.username
-
-    # 3. Final Fallback: User ID or generic role string
-    user_id = getattr(user, "id", None)
-    if user_id:
-        return f"ADMIN-{user_id}"
-
-    return "ADMIN"
-
-
-# -- daily bandwidth endpoint for employee
-
+# -------------------------------------------------------------------------
+# Calculate Employee Daily Bandwidth (Remaining Hours for Current Week)
+# -------------------------------------------------------------------------
 @router.get("/{employee_id}/daily-bandwidth")
 def get_employee_daily_bandwidth(
     employee_id: str,
@@ -707,6 +803,10 @@ def get_employee_daily_bandwidth(
         "remaining_unallocated_hours": remaining_hours
     }
 
+
+# -------------------------------------------------------------------------
+# Calculate Employee Weekly Bandwidth Forecast (Next N Weeks)
+# -------------------------------------------------------------------------
 @router.get("/{employee_id}/bandwidth", response_model=List[BandwidthForecastItem])
 def get_employee_weekly_bandwidth(
     employee_id: str,
@@ -758,77 +858,10 @@ def get_employee_weekly_bandwidth(
 
     return projections
 
-# ==========================================
-# PYDANTIC SCHEMAS
-# ==========================================
 
-class EmployeeSummary(BaseModel):
-    employee_id: str
-    name: str
-    email: str
-    designation_id: str
-    designation: Optional[str] = None  # Resolved from designation_id
-    department: str
-    experience_years: float
-    weekly_capacity_hours: int
-    is_team_lead: bool
-
-class SkillDetail(BaseModel):
-    skill_id: str
-    skill_name: str
-    category: str
-    proficiency_level: int
-
-class ProjectDetail(BaseModel):
-    project_id: str
-    allocation_id: str
-    title: str
-    category: str
-    role: str
-    allocated_hours_per_week: float
-    start_date: Optional[str]
-    end_date: Optional[str]
-    status: str
-    allocation_status: str
-
-class StudentBatchDetail(BaseModel):
-    batch_id: str
-    batch_name: str
-    program_name: str
-    role: str
-    assigned_students_count: int
-    start_date: Optional[str]
-    end_date: Optional[str]
-    batch_status: str
-
-class WebinarDetail(BaseModel):
-    engagement_id: str
-    allocation_id: str
-    title: str
-    topic: str
-    type: str
-    scheduled_date: Optional[str]
-    duration_hours: float
-    target_audience: str
-    engagement_status: str
-
-class BasicInfo(EmployeeSummary):
-    phone: Optional[str] = None
-    joining_date: Optional[str] = None
-    location: Optional[str] = None
-    manager_name: Optional[str] = None
-
-class EmployeeFullProfile(BaseModel):
-    basic_info: BasicInfo
-    skills: List[SkillDetail]
-    projects: dict
-    student_batches: dict
-    training_engagements: dict
-
-# ==========================================
-# ENDPOINTS
-# ========================================
-
+# -------------------------------------------------------------------------
+# Fetch Full Employee Profile (Aggregated Data)
+# -------------------------------------------------------------------------
 @router.get("/{employee_id}/full-details", response_model=EmployeeFullProfile)
 def get_employee_full_details(employee_id: str, db: Session = Depends(get_db)):
     """Fetch aggregated employee profile joining skills, projects, batches, and webinars."""
