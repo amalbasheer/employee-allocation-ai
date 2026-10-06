@@ -14,6 +14,8 @@ import { Card } from '../../components/common/Card';
 import AIProjectModal from "../../components/AIProjectModal";
 import api from '../../services/api'
 
+const AIProjectModalWithProps = AIProjectModal as React.ComponentType<any>;
+
 
 // --- Types ---
 export type ProjectStatus = 'open' | 'completed' |'in_progress' | 'on_leave' | 'cancelled';
@@ -272,7 +274,7 @@ export const ProjectAllocation: React.FC = () => {
   const handleFetchAISuggestions = async () => {
     setIsGeneratingAI(true);
     try {
-      const response = await api.post(`${API_BASE}/api/projects/suggest`, {
+      const response = await api.post(`${API_BASE}/api/ai_project_helper/suggest`, {
         category: aiCategory,
         tech_stack: aiTechStack,
         difficulty: aiDifficulty,
@@ -305,7 +307,7 @@ export const ProjectAllocation: React.FC = () => {
     setDownloadingPdfId(suggestion.id);
     try {
       const token = localStorage.getItem('auth_token');
-      const response = await fetch(`${API_BASE}/api/projects/generate-proposal-pdf`, {
+      const response = await fetch(`${API_BASE}/api/ai_project_helper/generate-proposal-pdf`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2418,25 +2420,23 @@ const renderProjectLinks = (project: Project) => {
 )}
       
       {/* 4. Render the AI Modal */}
-      <AIProjectModal
-        {...({
-          isOpen: isAIModalOpen,
-          onClose: handleCloseAIModal,
-          aiCategory,
-          setAiCategory,
-          aiTechStack,
-          setAiTechStack,
-          aiDifficulty,
-          setAiDifficulty,
-          aiPrompt,
-          setAiPrompt,
-          aiSuggestions,
-          isGeneratingAI,
-          downloadingPdfId,
-          onFetchSuggestions: handleFetchAISuggestions,
-          onSelectSuggestion: handleSelectAISuggestion,
-          onDownloadProposal: handleDownloadProposalPDF,
-        } as any)}
+      <AIProjectModalWithProps
+        isOpen={isAIModalOpen}
+        onClose={handleCloseAIModal}
+      aiCategory={aiCategory}
+      setAiCategory={setAiCategory}
+      aiTechStack={aiTechStack}
+      setAiTechStack={setAiTechStack}
+      aiDifficulty={aiDifficulty}
+      setAiDifficulty={setAiDifficulty}
+      aiPrompt={aiPrompt}
+      setAiPrompt={setAiPrompt}
+      aiSuggestions={aiSuggestions}
+      isGeneratingAI={isGeneratingAI}
+      downloadingPdfId={downloadingPdfId}
+      onFetchSuggestions={handleFetchAISuggestions}
+      onSelectSuggestion={handleSelectAISuggestion}
+      onDownloadProposal={handleDownloadProposalPDF}
       />
     </div>
   );}
