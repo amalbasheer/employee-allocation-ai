@@ -60,10 +60,20 @@ except ImportError:
 
 router = APIRouter()
 
+# ==========================================
+# pydantic models
+# ==========================================
 class RecommendationRequest(BaseModel):
     skills: Optional[List[str]] = []
     type: str = "mentors"  # 'mentors' or 'students'/'interns'
 
+class BulkProjectDeleteRequest(BaseModel):
+    project_ids: List[str]
+
+
+# ==========================================
+# Helper functions
+# ==========================================
 def get_designation_titles_map(db : Session) -> dict:
     """Fetches designation_id -> title mapping from the designations table."""
     title_map = {}
@@ -84,6 +94,67 @@ def get_designation_titles_map(db : Session) -> dict:
         print(f"[DEBUG] Failed to fetch designations map: {e}")
     return title_map
 
+
+def get_or_create_skill(db: Session, skill_name: str, default_category: str = "General") -> Skill:
+    clean_name = skill_name.strip()
+
+    # 1. Check if skill already exists (case-insensitive)
+    existing_skill = (
+        db.query(Skill)
+        .filter(func.lower(Skill.skill_name) == clean_name.lower())
+        .first()
+    )
+    if existing_skill:
+        return existing_skill
+
+    # 2. Generate Skill Embedding (if embedding function exists)
+    embedding = None
+    if generate_embedding:
+        try:
+            embedding = generate_embedding(clean_name)
+        except Exception as e:
+            logger.warning(f"Failed to generate embedding for skill '{clean_name}': {e}")
+
+    # 3. Auto-generate skills_id (Format: rp2-skl-0001)
+    total_skills = db.query(func.count(Skill.skill_id)).scalar() or 0
+    next_id = f"rp2-skl-{(total_skills + 1):04d}"
+
+    # 4. Create and insert new Skill record
+    new_skill = Skill(
+        skill_id=next_id,
+        skill_name=clean_name,
+        skill_embedding=embedding,
+        category=default_category
+    )
+    db.add(new_skill)
+    db.flush()  # Flushes to obtain skills_id without committing transaction
+
+    return new_skill
+
+
+def calculate_progress(completed_keys: List[str]) -> int:
+    """Computes total percentage from completed milestone keys."""
+    if not completed_keys:
+        return 0
+    total = sum(MILESTONE_WEIGHTS.get(key, 0) for key in completed_keys)
+    return min(100, total)
+
+VALID_PROJECT_STATUSES = ["open", "in_progress", "completed", "cancelled"]
+
+def calculate_progress(status: str) -> int:
+    status_lower = str(status).lower()
+    if status_lower in ["completed", "done", "finished"]:
+        return 100
+    elif status_lower in ["in_progress", "active", "started", "assigned"]:
+        return 50
+    elif status_lower in ["accepted", "proposed", "pending"]:
+        return 10
+    return 0
+
+
+# ==========================================
+# Recommendation for Project Candidates 
+# ==========================================
 @router.post("/{project_id}/recommendations")
 async def fetch_recommendations(
     project_id: str, 
@@ -183,54 +254,10 @@ async def fetch_recommendations(
             detail=f"Engine execution error: {str(e)}"
         )
 
-def get_or_create_skill(db: Session, skill_name: str, default_category: str = "General") -> Skill:
-    clean_name = skill_name.strip()
-
-    # 1. Check if skill already exists (case-insensitive)
-    existing_skill = (
-        db.query(Skill)
-        .filter(func.lower(Skill.skill_name) == clean_name.lower())
-        .first()
-    )
-    if existing_skill:
-        return existing_skill
-
-    # 2. Generate Skill Embedding (if embedding function exists)
-    embedding = None
-    if generate_embedding:
-        try:
-            embedding = generate_embedding(clean_name)
-        except Exception as e:
-            logger.warning(f"Failed to generate embedding for skill '{clean_name}': {e}")
-
-    # 3. Auto-generate skills_id (Format: rp2-skl-0001)
-    total_skills = db.query(func.count(Skill.skill_id)).scalar() or 0
-    next_id = f"rp2-skl-{(total_skills + 1):04d}"
-
-    # 4. Create and insert new Skill record
-    new_skill = Skill(
-        skill_id=next_id,
-        skill_name=clean_name,
-        skill_embedding=embedding,
-        category=default_category
-    )
-    db.add(new_skill)
-    db.flush()  # Flushes to obtain skills_id without committing transaction
-
-    return new_skill
-
 
 # ==========================================
-# PROJECT ENDPOINTS
+# PROJECT PROGRESS UPDATE 
 # ==========================================
-def calculate_progress(completed_keys: List[str]) -> int:
-    """Computes total percentage from completed milestone keys."""
-    if not completed_keys:
-        return 0
-    total = sum(MILESTONE_WEIGHTS.get(key, 0) for key in completed_keys)
-    return min(100, total)
-
-
 @router.patch("/{project_id}/milestones", response_model=ProjectResponse)
 def update_project_milestones(
     project_id: str,
@@ -255,6 +282,10 @@ def update_project_milestones(
 
     return ProjectResponse.model_validate(project)
 
+
+# ==========================================
+# PROJECT DETAILS 
+# ==========================================
 @router.get("/details")
 async def get_all_projects(db: Session = Depends(get_db)):
     try:
@@ -400,16 +431,12 @@ async def get_all_projects(db: Session = Depends(get_db)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch projects from database: {str(e)}"
         )
-    
-@router.get("", response_model=List[ProjectResponse])
-def get_projects(
-    db: Session = Depends(get_db),
-    current_user: UserProfile = Depends(get_current_user)
-):
-    """Fetch all projects from database."""
-    return db.query(Project).all()
 
 
+
+# ==========================================
+# ADD PROJECT 
+# ==========================================
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 def create_project(
     project_in: ProjectCreate, 
@@ -593,6 +620,10 @@ def create_project(
             detail=f"Failed to create project: {str(e)}"
         )
 
+
+# ==========================================
+# PROJECT LINKS UPDATE
+# ==========================================
 @router.patch("/{project_id}/links")
 def update_project_links(
     project_id: str,
@@ -618,6 +649,10 @@ def update_project_links(
         "deployed_url": project.deployed_url
     }
 
+
+# ==========================================
+# SPECIFIC PROJECT DETAILS
+# ==========================================
 @router.get("/{project_id}", response_model=ProjectResponse)
 def get_project_by_id(
     project_id: str, 
@@ -630,17 +665,10 @@ def get_project_by_id(
         raise HTTPException(status_code=404, detail="Project not found")
     return project
 
-VALID_PROJECT_STATUSES = ["open", "in_progress", "completed", "cancelled"]
 
-def calculate_progress(status: str) -> int:
-    status_lower = str(status).lower()
-    if status_lower in ["completed", "done", "finished"]:
-        return 100
-    elif status_lower in ["in_progress", "active", "started", "assigned"]:
-        return 50
-    elif status_lower in ["accepted", "proposed", "pending"]:
-        return 10
-    return 0
+# ==========================================
+# PROJECT STATUS UPDATE
+# ==========================================
 @router.patch("/{project_id}/status", response_model=ProjectResponse)
 def update_project_status(
     project_id: str,
@@ -712,6 +740,10 @@ def update_project_status(
 
     return project
 
+
+# ==========================================
+# PROJECT DETAILS UPDATE (ADMIN ONLY)
+# ==========================================
 @router.patch("/{project_id}")
 def update_project(
     project_id: str, 
@@ -874,9 +906,12 @@ def update_project(
             detail=f"Failed to update project: {str(e)}"
         )
 
-class BulkProjectDeleteRequest(BaseModel):
-    project_ids: List[str]
 
+
+
+# ==========================================
+# PROJECT CANCELLATION 
+# ==========================================
 @router.delete("/bulk", status_code=status.HTTP_200_OK)
 def cancel_projects_bulk(
     payload: BulkProjectDeleteRequest,
@@ -919,6 +954,10 @@ def cancel_projects_bulk(
         "cancelled_project_ids": found_ids
     }
 
+
+# ==========================================
+# PROJECT DELETION (HARD DELETE)
+# ==========================================
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_project(
     project_id: str, 
@@ -1000,6 +1039,9 @@ def add_project_requirement(
     return new_req
 
 
+# ==========================================
+# PROJECT REQUIREMENT DELETION
+# ==========================================
 @router.delete("/{project_id}/requirements/{requirement_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_project_requirement(
     project_id: str, 
@@ -1021,6 +1063,9 @@ def remove_project_requirement(
     return None
 
 
+# ==========================================
+# EMPLOYEE COMPLETED PROJECTS SYNC
+# ==========================================
 @router.post("/sync-completed-projects")
 def sync_completed_projects(db: Session = Depends(get_db)):
     try:
