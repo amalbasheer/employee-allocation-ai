@@ -559,7 +559,7 @@ class UrgentLeaveRequest(BaseModel):
     duration_value: int = Field(..., gt=0, description="Number of days or weeks")
     duration_unit: Literal["days", "weeks"]
     reason: str
-    session: Optional[str]
+    session: Optional[str] = None
 
 # --- 2. Urgent Leave Submission (Creates Pending Request) ---
 @router.post("/{employee_id}/urgent-leave", status_code=status.HTTP_201_CREATED)

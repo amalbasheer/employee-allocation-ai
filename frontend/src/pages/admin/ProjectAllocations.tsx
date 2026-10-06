@@ -1318,6 +1318,12 @@ const renderProjectLinks = (project: Project) => {
 
                   {/* Milestone Progress Bar with Hover Tooltip */}
  {(() => {
+  // 0. Check if project status is "in_progress"
+  const currentStatus = String(project?.status || '').toLowerCase().trim();
+  const isInProgress = currentStatus === 'in_progress' || currentStatus === 'in progress' || currentStatus === 'inprogress';
+
+  // Do not show the progress bar if not in progress
+  if (!isInProgress) return null;
   // 1. Extract API progress percentage across common property name variations
   const apiProgress =
     typeof project.progress_percentage === 'number' && project.progress_percentage > 0
