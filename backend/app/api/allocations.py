@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# -------------------------------------------------------------------
+# HELPER FUNCTIONS
+# -------------------------------------------------------------------
 
 def safe_get(obj, key, default=None):
     if isinstance(obj, dict):
@@ -65,229 +68,6 @@ def get_allocation_target(db: Session, reference_id: str, reference_type: str):
             detail=f"Invalid reference_type '{reference_type}'. Must be 'project', 'batch', or 'training'."
         )
 
-
-# -------------------------------------------------------------------
-# 1. ADMIN PROPOSES AN ALLOCATION
-# -------------------------------------------------------------------
-def generate_next_allocation_id(db: Session) -> str:
-    # Fetch all allocation IDs matching the prefix
-    alloc_ids = db.scalars(
-        select(Allocation.allocation_id).filter(Allocation.allocation_id.like("rp2-alloc-%"))
-    ).all()
-    
-    max_num = 0
-    for alloc_id in alloc_ids:
-        parts = alloc_id.split("-")
-        if parts[-1].isdigit():
-            max_num = max(max_num, int(parts[-1]))
-            
-    return f"rp2-alloc-{max_num + 1:04d}"
-
-def generate_next_log_id(db: Session) -> str:
-    """Safely extracts the maximum numeric suffix from allocation_logs to generate rp2-log-XXXX."""
-    records = db.query(AllocationLog.log_id).filter(
-        AllocationLog.log_id.like("rp2-log-%")
-    ).all()
-
-    max_num = 0
-    for (log_id,) in records:
-        if log_id:
-            parts = str(log_id).split("-")
-            if parts[-1].isdigit():
-                max_num = max(max_num, int(parts[-1]))
-
-    return f"rp2-log-{max_num + 1:04d}"
-
-@router.post("/propose", response_model=AllocationResponse, status_code=status.HTTP_201_CREATED)
-def propose_allocation(
-    payload: ProposeAllocationRequest,
-    db: Session = Depends(get_db),
-    admin_user: UserProfile = Depends(require_admin)
-):
-    # 1. Verify that the target project/batch/training engagement exists
-    target_obj, target_type_label = get_allocation_target(
-        db, payload.reference_id, payload.reference_type
-    )
-
-    if not target_obj:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"{target_type_label} with ID '{payload.reference_id}' not found."
-        )
-
-    # Generate custom formatted primary key
-    new_alloc_id = generate_next_allocation_id(db)
-
-    # 2. Create the Allocation record
-    new_allocation = Allocation(
-        allocation_id=new_alloc_id,
-        reference_id=payload.reference_id,
-        reference_type=payload.reference_type.lower().strip(),
-        resource_type=payload.resource_type,
-        resource_id=payload.resource_id,
-        role_on_project=payload.role_on_project,
-        allocated_hours=payload.allocated_hours,
-        suitability_score=payload.suitability_score,
-        status="proposed",
-        assigned_by=admin_user.name,
-        assigned_at=datetime.now(timezone.utc),
-    )
-
-    # --- CATCH EXACT DATABASE ERROR HERE ---
-    try:
-        db.add(new_allocation)
-        db.flush()  # Populates new_allocation.allocation_id for the audit log
-    except IntegrityError as e:
-        db.rollback()
-        print("================ EXACT DB DRIVER ERROR ================")
-        print(e.orig)
-        print("=======================================================")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Database constraint error: {str(e.orig)}"
-        )
-
-    # 3. Create Audit Log entry
-    new_log_id = generate_next_log_id(db)
-
-    log = AllocationLog(
-        log_id=new_log_id,
-        allocation_id=new_allocation.allocation_id,
-        action="PROPOSED",
-        changed_by=admin_user.name,
-        timestamp=datetime.now(timezone.utc)
-    )
-    db.add(log)
-
-    # 4. Commit transaction
-    db.commit()
-    db.refresh(new_allocation)
-
-    # -------------------------------------------------------------------
-    # 5. SEND EMAIL NOTIFICATION TO PROPOSED EMPLOYEE / MENTOR
-    # -------------------------------------------------------------------
-    if payload.resource_type.lower().strip() in ["employee", "mentor"]:
-        person = (
-            db.query(CompanyEmployee)
-            .filter(CompanyEmployee.employee_id == payload.resource_id)
-            .first()
-        )
-
-        if person and person.email:
-            try:
-                # Safely extract details across Project, Batch, or Training Engagement
-                target_title = (
-                    getattr(target_obj, "title", None)
-                    or getattr(target_obj, "batch_name", None)
-                    or getattr(target_obj, "name", None)
-                    or f"{target_type_label.capitalize()} {payload.reference_id}"
-                )
-
-                base_desc = getattr(target_obj, "description", "") or ""
-                role_str = f"Role: {payload.role_on_project}" if payload.role_on_project else ""
-                
-                
-
-                full_description = (
-                    f"A new {target_type_label} allocation proposal has been submitted for your review.\n"
-                    
-                    f"Details: {base_desc}"
-                ).strip()
-
-                start_date_str = str(getattr(target_obj, "start_date", "TBD"))
-                end_date_str = str(getattr(target_obj, "end_date", "TBD"))
-                priority_str = getattr(target_obj, "priority_level", "Medium") or "Medium"
-
-                send_proposed_notification(
-                    recipient_email=person.email,
-                    recipient_name=person.name,
-                    project_title=f"[Proposal] {target_title}",
-                    description=full_description,
-                    start_date=start_date_str,
-                    end_date=end_date_str,
-                    priority=priority_str,
-                )
-            except Exception as e:
-                logger.warning(f"Failed to send proposal notification email: {e}")
-
-    return new_allocation
-
-# -------------------------------------------------------------------
-# ASSIGNING PROJECT TO INTERN BY ADMIN
-# -------------------------------------------------------------------
-
-# Pydantic Schema for Student Assignment Request
-class StudentAssignRequest(BaseModel):
-    reference_id: str  # e.g., 'rp2-proj-0006' (Project ID)
-    resource_id: str
-    resource_type: str = "intern"    # Unique ID of the student
-    reference_type: Optional[str] = "project"
-    role_on_project: Optional[str] = "Student Contributor"
-    allocated_hours: Optional[int] = 10
-    suitability_score: Optional[float] = 0.0
-
-@router.post("/assign-student", response_model=AllocationResponse, status_code=status.HTTP_201_CREATED)
-def assign_student(
-    payload: StudentAssignRequest,
-    db: Session = Depends(get_db),
-    admin_user: UserProfile = Depends(require_admin)
-):
-    clean_ref_id = payload.reference_id.strip()
-    clean_student_id = payload.resource_id.strip()
-
-    # 1. Prevent duplicate active assignments for the same student on this project
-    existing_allocation = (
-        db.query(Allocation)
-        .filter(
-            Allocation.reference_id == clean_ref_id,
-            Allocation.resource_id == clean_student_id,
-            Allocation.resource_type == "intern",
-            Allocation.status.in_(["assigned", "proposed", "accepted"])
-        )
-        .first()
-    )
-
-    if existing_allocation:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Student '{clean_student_id}' is already assigned or proposed for this project."
-        )
-
-    # 2. Create the new Allocation directly with status='assigned'
-    new_allocation = Allocation(
-        allocation_id=generate_next_allocation_id(db),
-        reference_id=clean_ref_id,
-        reference_type=payload.reference_type,
-        resource_type="intern",
-        resource_id=clean_student_id,
-        role_on_project=payload.role_on_project,
-        allocated_hours=payload.allocated_hours,
-        suitability_score=payload.suitability_score,
-        status="assigned",  # Directly assigned without requiring student acceptance phase
-        assigned_by=admin_user.name,
-        assigned_at=datetime.now(timezone.utc)
-    )
-    db.add(new_allocation)
-    db.flush()
-
-    # 3. Create Audit Log
-    log = AllocationLog(
-        log_id=generate_next_log_id(db),
-        allocation_id=new_allocation.allocation_id,
-        action="STUDENT_ASSIGNED",
-        changed_by=admin_user.name,
-        timestamp=datetime.now(timezone.utc)
-    )
-    db.add(log)
-
-    db.commit()
-    db.refresh(new_allocation)
-
-    return new_allocation
-
-# -------------------------------------------------------------------
-# HELPER FUNCTIONS
-# -------------------------------------------------------------------
 
 def get_week_start(d: date) -> date:
     """Returns the Monday of the week for a given date."""
@@ -515,6 +295,225 @@ def update_employee_availability_on_assignment(
 
 
 # -------------------------------------------------------------------
+# 1. ADMIN PROPOSES AN ALLOCATION
+# -------------------------------------------------------------------
+def generate_next_allocation_id(db: Session) -> str:
+    # Fetch all allocation IDs matching the prefix
+    alloc_ids = db.scalars(
+        select(Allocation.allocation_id).filter(Allocation.allocation_id.like("rp2-alloc-%"))
+    ).all()
+    
+    max_num = 0
+    for alloc_id in alloc_ids:
+        parts = alloc_id.split("-")
+        if parts[-1].isdigit():
+            max_num = max(max_num, int(parts[-1]))
+            
+    return f"rp2-alloc-{max_num + 1:04d}"
+
+def generate_next_log_id(db: Session) -> str:
+    """Safely extracts the maximum numeric suffix from allocation_logs to generate rp2-log-XXXX."""
+    records = db.query(AllocationLog.log_id).filter(
+        AllocationLog.log_id.like("rp2-log-%")
+    ).all()
+
+    max_num = 0
+    for (log_id,) in records:
+        if log_id:
+            parts = str(log_id).split("-")
+            if parts[-1].isdigit():
+                max_num = max(max_num, int(parts[-1]))
+
+    return f"rp2-log-{max_num + 1:04d}"
+
+@router.post("/propose", response_model=AllocationResponse, status_code=status.HTTP_201_CREATED)
+def propose_allocation(
+    payload: ProposeAllocationRequest,
+    db: Session = Depends(get_db),
+    admin_user: UserProfile = Depends(require_admin)
+):
+    # 1. Verify that the target project/batch/training engagement exists
+    target_obj, target_type_label = get_allocation_target(
+        db, payload.reference_id, payload.reference_type
+    )
+
+    if not target_obj:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"{target_type_label} with ID '{payload.reference_id}' not found."
+        )
+
+    # Generate custom formatted primary key
+    new_alloc_id = generate_next_allocation_id(db)
+
+    # 2. Create the Allocation record
+    new_allocation = Allocation(
+        allocation_id=new_alloc_id,
+        reference_id=payload.reference_id,
+        reference_type=payload.reference_type.lower().strip(),
+        resource_type=payload.resource_type,
+        resource_id=payload.resource_id,
+        role_on_project=payload.role_on_project,
+        allocated_hours=payload.allocated_hours,
+        suitability_score=payload.suitability_score,
+        status="proposed",
+        assigned_by=admin_user.name,
+        assigned_at=datetime.now(timezone.utc),
+    )
+
+    # --- CATCH EXACT DATABASE ERROR HERE ---
+    try:
+        db.add(new_allocation)
+        db.flush()  # Populates new_allocation.allocation_id for the audit log
+    except IntegrityError as e:
+        db.rollback()
+        print("================ EXACT DB DRIVER ERROR ================")
+        print(e.orig)
+        print("=======================================================")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Database constraint error: {str(e.orig)}"
+        )
+
+    # 3. Create Audit Log entry
+    new_log_id = generate_next_log_id(db)
+
+    log = AllocationLog(
+        log_id=new_log_id,
+        allocation_id=new_allocation.allocation_id,
+        action="PROPOSED",
+        changed_by=admin_user.name,
+        timestamp=datetime.now(timezone.utc)
+    )
+    db.add(log)
+
+    # 4. Commit transaction
+    db.commit()
+    db.refresh(new_allocation)
+
+    # -------------------------------------------------------------------
+    # 5. SEND EMAIL NOTIFICATION TO PROPOSED EMPLOYEE / MENTOR
+    # -------------------------------------------------------------------
+    if payload.resource_type.lower().strip() in ["employee", "mentor"]:
+        person = (
+            db.query(CompanyEmployee)
+            .filter(CompanyEmployee.employee_id == payload.resource_id)
+            .first()
+        )
+
+        if person and person.email:
+            try:
+                # Safely extract details across Project, Batch, or Training Engagement
+                target_title = (
+                    getattr(target_obj, "title", None)
+                    or getattr(target_obj, "batch_name", None)
+                    or getattr(target_obj, "name", None)
+                    or f"{target_type_label.capitalize()} {payload.reference_id}"
+                )
+
+                base_desc = getattr(target_obj, "description", "") or ""
+                role_str = f"Role: {payload.role_on_project}" if payload.role_on_project else ""
+                
+                
+
+                full_description = (
+                    f"A new {target_type_label} allocation proposal has been submitted for your review.\n"
+                    
+                    f"Details: {base_desc}"
+                ).strip()
+
+                start_date_str = str(getattr(target_obj, "start_date", "TBD"))
+                end_date_str = str(getattr(target_obj, "end_date", "TBD"))
+                priority_str = getattr(target_obj, "priority_level", "Medium") or "Medium"
+
+                send_proposed_notification(
+                    recipient_email=person.email,
+                    recipient_name=person.name,
+                    project_title=f"[Proposal] {target_title}",
+                    description=full_description,
+                    start_date=start_date_str,
+                    end_date=end_date_str,
+                    priority=priority_str,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send proposal notification email: {e}")
+
+    return new_allocation
+
+
+# -------------------------------------------------------------------
+# ASSIGNING PROJECT TO INTERN BY ADMIN
+# -------------------------------------------------------------------
+class StudentAssignRequest(BaseModel):
+    reference_id: str  # e.g., 'rp2-proj-0006' (Project ID)
+    resource_id: str
+    resource_type: str = "intern"    # Unique ID of the student
+    reference_type: Optional[str] = "project"
+    role_on_project: Optional[str] = "Student Contributor"
+    allocated_hours: Optional[int] = 10
+    suitability_score: Optional[float] = 0.0
+
+@router.post("/assign-student", response_model=AllocationResponse, status_code=status.HTTP_201_CREATED)
+def assign_student(
+    payload: StudentAssignRequest,
+    db: Session = Depends(get_db),
+    admin_user: UserProfile = Depends(require_admin)
+):
+    clean_ref_id = payload.reference_id.strip()
+    clean_student_id = payload.resource_id.strip()
+
+    # 1. Prevent duplicate active assignments for the same student on this project
+    existing_allocation = (
+        db.query(Allocation)
+        .filter(
+            Allocation.reference_id == clean_ref_id,
+            Allocation.resource_id == clean_student_id,
+            Allocation.resource_type == "intern",
+            Allocation.status.in_(["assigned", "proposed", "accepted"])
+        )
+        .first()
+    )
+
+    if existing_allocation:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Student '{clean_student_id}' is already assigned or proposed for this project."
+        )
+
+    # 2. Create the new Allocation directly with status='assigned'
+    new_allocation = Allocation(
+        allocation_id=generate_next_allocation_id(db),
+        reference_id=clean_ref_id,
+        reference_type=payload.reference_type,
+        resource_type="intern",
+        resource_id=clean_student_id,
+        role_on_project=payload.role_on_project,
+        allocated_hours=payload.allocated_hours,
+        suitability_score=payload.suitability_score,
+        status="assigned",  # Directly assigned without requiring student acceptance phase
+        assigned_by=admin_user.name,
+        assigned_at=datetime.now(timezone.utc)
+    )
+    db.add(new_allocation)
+    db.flush()
+
+    # 3. Create Audit Log
+    log = AllocationLog(
+        log_id=generate_next_log_id(db),
+        allocation_id=new_allocation.allocation_id,
+        action="STUDENT_ASSIGNED",
+        changed_by=admin_user.name,
+        timestamp=datetime.now(timezone.utc)
+    )
+    db.add(log)
+
+    db.commit()
+    db.refresh(new_allocation)
+
+    return new_allocation
+
+
+# -------------------------------------------------------------------
 # CONFIRMATION BY ADMIN ROUTE
 # -------------------------------------------------------------------
 @router.patch("/{identifier}/assign", response_model=AllocationResponse)
@@ -679,8 +678,10 @@ def assign_allocation(
     db.refresh(allocation)
 
     return allocation
+
+
 # -------------------------------------------------------------------
-# 2. STATUS TRANSITION (ACCEPT / REJECT / ASSIGN)
+#  STATUS TRANSITION (ACCEPT / REJECT / ASSIGN)
 # -------------------------------------------------------------------
 @router.patch("/{identifier}/status", response_model=AllocationResponse)
 def update_allocation_status(
@@ -820,6 +821,7 @@ def update_allocation_status(
                 print(f"❌ Failed to send assignment email: {repr(e)}")
     return allocation
 
+
 # -------------------------------------------------------------------
 # 1. EMPLOYEE ACCEPTING THE PROPOSAL
 # -------------------------------------------------------------------
@@ -894,7 +896,7 @@ def accept_allocation(
 
 
 # -------------------------------------------------------------------
-# 2. EMPLOYEE REJECTING THE PROPOSAL
+#  EMPLOYEE REJECTING THE PROPOSAL
 # -------------------------------------------------------------------
 @router.patch("/{allocation_id}/reject")
 def reject_allocation(
@@ -961,7 +963,7 @@ def reject_allocation(
 
 
 # -------------------------------------------------------------------
-# 3. SUBSTITUTE REJECTED ALLOCATION (ADMIN)
+# SUBSTITUTE REJECTED ALLOCATION (ADMIN)
 # -------------------------------------------------------------------
 def generate_next_sub_id(db: Session) -> str:
     sub_ids = db.scalars(
@@ -1065,6 +1067,10 @@ def substitute_allocation(
     db.refresh(sub_record)
     return sub_record
 
+
+# -------------------------------------------------------
+# GET ALLOCATIONS FOR CURRENT USER (EMPLOYEE)
+# -------------------------------------------------------
 @router.get("/my-allocations")
 def get_my_allocations(
     resource_id: Optional[str] = Query(None),
@@ -1319,8 +1325,10 @@ def get_my_allocations(
             status_code=500,
             detail=f"Internal Server Error during allocation lookup: {str(e)}"
         )
+
+
 # -------------------------------------------------------------------
-# 5. ADMIN REVIEW ENDPOINT
+# ADMIN REVIEW ENDPOINT
 # -------------------------------------------------------------------
 @router.patch("/{allocation_id}/admin-review", response_model=AllocationResponse)
 def admin_review_allocation(
@@ -1358,7 +1366,9 @@ def admin_review_allocation(
     db.refresh(alloc)
     return alloc
 
-
+# -------------------------------------------------------
+# GET ALLOCATION LOGS FOR A SPECIFIC ALLOCATION
+# -------------------------------------------------------
 @router.get("/{allocation_id}/logs", response_model=List[AllocationLogResponse])
 def get_allocation_logs(
     allocation_id: str,
@@ -1392,7 +1402,7 @@ class AssignedBatchResponse(BaseModel):
 
 
 # -------------------------------------------------------------------------
-# API Route: Fetch Allocated Batches by Logged-in Employee Email
+# Fetch Allocated Batches by Logged-in Employee Email
 # -------------------------------------------------------------------------
 @router.get(
     "/student-batches/my-allocated-batches",

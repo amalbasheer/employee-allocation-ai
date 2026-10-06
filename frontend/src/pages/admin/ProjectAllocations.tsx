@@ -571,8 +571,7 @@ export const ProjectAllocation: React.FC = () => {
   };
 
 // 2. Confirm Mentor Assignment (Admin Action)
-  // Confirm Mentor Assignment (Admin Action)
-  // Confirm Mentor Assignment (Admin Action)
+  
   const handleConfirmMentor = async (
     itemOrId: string | { allocationId?: string; reference_id?: string; project_id?: string; id?: string }
   ) => {
