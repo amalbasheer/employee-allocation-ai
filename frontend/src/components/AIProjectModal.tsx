@@ -33,6 +33,8 @@ export const AIProjectModal: React.FC<AIProjectModalProps> = ({ isOpen, onClose 
     description: "",
   });
 
+  const API_BASE = import.meta.env.VITE_BACKEND_URL || 'https://employee-allocation-ai.onrender.com';
+  
   const [suggestions, setSuggestions] = useState<ProjectSuggestion[]>([]);
   const [selectedProject, setSelectedProject] = useState<ProjectSuggestion | null>(null);
 
@@ -43,7 +45,7 @@ export const AIProjectModal: React.FC<AIProjectModalProps> = ({ isOpen, onClose 
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await fetch("/api/ai_project_helper/suggest", {
+      const res = await fetch(`${API_BASE}/api/ai-projects/suggest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
@@ -66,7 +68,7 @@ export const AIProjectModal: React.FC<AIProjectModalProps> = ({ isOpen, onClose 
     setSelectedProject(project);
     setLoading(true);
     try {
-      const response = await fetch("/api/ai_project_helper/generate-proposal-pdf", {
+      const response = await fetch(`${API_BASE}/api/ai-projects/generate-proposal-pdf`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(project),
