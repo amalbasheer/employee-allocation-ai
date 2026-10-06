@@ -23,6 +23,21 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+DAY_ABBR = {"monday": "Mon", "tuesday": "Tue", "wednesday": "Wed",
+            "thursday": "Thu", "friday": "Fri", "saturday": "Sat", "sunday": "Sun"}
+
+def format_days(days):
+    if not days:
+        return None
+    if isinstance(days, str):
+        days = days.replace("{", "").replace("}", "").replace('"', "").split(",")
+    out = []
+    for d in days:
+        d = str(d).strip()
+        if d:
+            out.append(DAY_ABBR.get(d.lower(), d[:3].title()))
+    return ", ".join(out)
+
 
 # ==================== SCHEMAS ====================
 
@@ -1062,7 +1077,7 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
         
         mentor_id = assigned_mentor.get("employee_id") if assigned_mentor else None
         session = assigned_mentor.get("session") if assigned_mentor else None
-        day_of_week = assigned_mentor.get("day_of_week") if assigned_mentor else None
+        day_of_week = format_days(assigned_mentor.get("day_of_week")) if assigned_mentor else None
 
         for mode in ["offline", "online"]:
             batch_name = f"{start_dt.strftime('%b')} {short_label} {mode.capitalize()}"
