@@ -83,19 +83,19 @@ export const EmployeeSkillsManager: React.FC<EmployeeSkillsManagerProps> = ({
 
     try {
       const headers = getAuthHeaders();
-      const [skillsRes, catalogRes] = await Promise.all([
+      const [skillsRes] = await Promise.all([
         fetch(`${API_BASE}/api/employees/${targetEmployeeId}/skills`, { headers }),
-        fetch(`${API_BASE}/api/employees/skills/catalog`, { headers }),
+        
       ]);
 
       if (!skillsRes.ok) throw new Error('Failed to fetch employee skills');
-      if (!catalogRes.ok) throw new Error('Failed to fetch skill catalog');
+      
 
       const skillsData: EmployeeSkill[] = await skillsRes.json();
-      const catalogData: SkillCatalogItem[] = await catalogRes.json();
+    
 
       setEmployeeSkills(skillsData);
-      setSkillCatalog(catalogData);
+      
     } catch (err: any) {
       setError(err.message || 'An error occurred while loading data.');
     } finally {
