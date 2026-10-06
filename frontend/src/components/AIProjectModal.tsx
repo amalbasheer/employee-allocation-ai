@@ -43,7 +43,7 @@ export const AIProjectModal: React.FC<AIProjectModalProps> = ({ isOpen, onClose 
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await fetch("/api/ai-projects/suggest", {
+      const res = await fetch("/api/ai_project_helper/suggest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
@@ -66,7 +66,7 @@ export const AIProjectModal: React.FC<AIProjectModalProps> = ({ isOpen, onClose 
     setSelectedProject(project);
     setLoading(true);
     try {
-      const response = await fetch("/api/ai-projects/generate-proposal-pdf", {
+      const response = await fetch("/api/ai_project_helper/generate-proposal-pdf", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(project),

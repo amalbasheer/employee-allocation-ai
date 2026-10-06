@@ -14,8 +14,6 @@ import { Card } from '../../components/common/Card';
 import AIProjectModal from "../../components/AIProjectModal";
 import api from '../../services/api'
 
-const AIProjectModalWithProps = AIProjectModal as React.ComponentType<any>;
-
 
 // --- Types ---
 export type ProjectStatus = 'open' | 'completed' |'in_progress' | 'on_leave' | 'cancelled';
@@ -101,16 +99,6 @@ export interface ProjectOptimizeResponse {
   unstaffed_projects: string[];
 }
 
-// Interface for backend /suggest response
-interface SuggestedProject {
-  id: number;
-  title: string;
-  summary: string;
-  category: string;
-  difficulty: string;
-  target_audience: string;
-}
-
 // --- Mock Data ---
 const mockMentors: Mentor[] = [
   { id: 'm-1', name: 'Dr. Sarah Jenkins', role: 'Principal AI Engineer', matchScore: 98, skills: ['PyTorch', 'CUDA', 'FastAPI'] },
@@ -145,15 +133,6 @@ export const ProjectAllocation: React.FC = () => {
   const [requiredHours, setRequiredHours] = useState<number>(10);
   const [priorityLevel, setPriorityLevel] = useState<string>('Medium');
   const [skillsInput, setSkillsInput] = useState('');
-
-  // AI Suggestion & PDF Generation State
-  const [aiCategory, setAiCategory] = useState<string>('Machine Learning');
-  const [aiTechStack, setAiTechStack] = useState<string>('Python, FastAPI, React');
-  const [aiDifficulty, setAiDifficulty] = useState<string>('Intermediate');
-  const [aiPrompt, setAiPrompt] = useState<string>('');
-  const [aiSuggestions, setAiSuggestions] = useState<SuggestedProject[]>([]);
-  const [isGeneratingAI, setIsGeneratingAI] = useState<boolean>(false);
-  const [downloadingPdfId, setDownloadingPdfId] = useState<number | null>(null);
 
   const [recommendedMentors, setRecommendedMentors] = useState<Mentor[]>([]);
   const [recommendedStudents, setRecommendedStudents] = useState<Student[]>([]);
@@ -250,108 +229,28 @@ export const ProjectAllocation: React.FC = () => {
   
   // Open & Close Handlers
   const handleOpenAIModal = () => setIsAIModalOpen(true);
-  const handleCloseAIModal = () => {
-    setIsAIModalOpen(false);
-    setAiSuggestions([]);
-  };
+  const handleCloseAIModal = () => setIsAIModalOpen(false);
 
-  // Handler to apply raw AI-generated project details into the form
+// Handler to apply AI-generated project details into the form or state
   const handleAIProjectGenerated = (aiData: any) => {
-    if (aiData.title) setProjectName(aiData.title);
-    if (aiData.description || aiData.summary) setDescription(aiData.description || aiData.summary);
-    if (aiData.category) setCategory(aiData.category);
-    if (aiData.requiredSkills) {
-      setSkillsInput(Array.isArray(aiData.requiredSkills) ? aiData.requiredSkills.join(', ') : aiData.requiredSkills);
-    }
-    if (aiData.requiredHours) setRequiredHours(aiData.requiredHours);
-    if (aiData.priorityLevel) setPriorityLevel(aiData.priorityLevel);
-
-    setIsAIModalOpen(false);
-    setIsModalOpen(true); // Open standard modal populated with AI data
-  };
-
-  // 1. Fetch AI Suggestions from Backend Endpoint (/suggest)
-  const handleFetchAISuggestions = async () => {
-    setIsGeneratingAI(true);
-    try {
-      const response = await api.post(`${API_BASE}/api/ai_project_helper/suggest`, {
-        category: aiCategory,
-        tech_stack: aiTechStack,
-        difficulty: aiDifficulty,
-        description: aiPrompt,
-      });
-
-      const suggestions = response.data?.projects || response.data || [];
-      setAiSuggestions(suggestions);
-    } catch (err: any) {
-      console.error('Failed to fetch AI suggestions:', err);
-      alert(err.response?.data?.detail || 'Failed to generate project suggestions. Please try again.');
-    } finally {
-      setIsGeneratingAI(false);
-    }
-  };
-
-  // 2. Select an AI Suggested Project & Auto-Fill Form
-  const handleSelectAISuggestion = (suggestion: SuggestedProject) => {
-    setProjectName(suggestion.title);
-    setDescription(suggestion.summary);
-    setCategory(suggestion.category || aiCategory);
-    setSkillsInput(aiTechStack);
-    
-    setIsAIModalOpen(false);
-    setIsModalOpen(true); // Open creation modal
-  };
-
-  // 3. Download Project Proposal PDF (/generate-proposal-pdf)
-  const handleDownloadProposalPDF = async (suggestion: SuggestedProject) => {
-    setDownloadingPdfId(suggestion.id);
-    try {
-      const token = localStorage.getItem('auth_token');
-      const response = await fetch(`${API_BASE}/api/ai_project_helper/generate-proposal-pdf`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          title: suggestion.title,
-          category: suggestion.category,
-          summary: suggestion.summary,
-          target_audience: suggestion.target_audience,
-        }),
-      });
-
-      if (!response.ok) throw new Error('PDF generation failed');
-
-      // Convert stream to Blob and trigger file download
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      const safeTitle = suggestion.title.replace(/[^a-zA-Z0-9_\-]/g, '_');
-      a.download = `Proposal_${safeTitle}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Error downloading PDF proposal:', err);
-      alert('Failed to generate PDF proposal.');
-    } finally {
-      setDownloadingPdfId(null);
-    }
-  };
+  if (aiData.title) setProjectName(aiData.title);
+  if (aiData.description) setDescription(aiData.description);
+  if (aiData.category) setCategory(aiData.category);
+  if (aiData.requiredSkills) setSkillsInput(aiData.requiredSkills.join(', '));
+  if (aiData.requiredHours) setRequiredHours(aiData.requiredHours);
+  if (aiData.priorityLevel) setPriorityLevel(aiData.priorityLevel);
+  
+  setIsAIModalOpen(false);
+  setIsModalOpen(true); // Open standard modal populated with AI data
+};
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setIsModalOpen(false);
-        setIsAIModalOpen(false);
-      }
+      if (e.key === 'Escape') setIsModalOpen(false);
     };
-    if (isModalOpen || isAIModalOpen) window.addEventListener('keydown', handleKeyDown);
+    if (isModalOpen) window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isModalOpen, isAIModalOpen]);
+  }, [isModalOpen]);
    
   // --- Filtering Logic ---
   const filteredProjects = useMemo(() => {
@@ -672,7 +571,8 @@ export const ProjectAllocation: React.FC = () => {
   };
 
 // 2. Confirm Mentor Assignment (Admin Action)
-  
+  // Confirm Mentor Assignment (Admin Action)
+  // Confirm Mentor Assignment (Admin Action)
   const handleConfirmMentor = async (
     itemOrId: string | { allocationId?: string; reference_id?: string; project_id?: string; id?: string }
   ) => {
@@ -2420,23 +2320,9 @@ const renderProjectLinks = (project: Project) => {
 )}
       
       {/* 4. Render the AI Modal */}
-      <AIProjectModalWithProps
+      <AIProjectModal
         isOpen={isAIModalOpen}
-        onClose={handleCloseAIModal}
-      aiCategory={aiCategory}
-      setAiCategory={setAiCategory}
-      aiTechStack={aiTechStack}
-      setAiTechStack={setAiTechStack}
-      aiDifficulty={aiDifficulty}
-      setAiDifficulty={setAiDifficulty}
-      aiPrompt={aiPrompt}
-      setAiPrompt={setAiPrompt}
-      aiSuggestions={aiSuggestions}
-      isGeneratingAI={isGeneratingAI}
-      downloadingPdfId={downloadingPdfId}
-      onFetchSuggestions={handleFetchAISuggestions}
-      onSelectSuggestion={handleSelectAISuggestion}
-      onDownloadProposal={handleDownloadProposalPDF}
+        onClose={() => setIsAIModalOpen(false)}
       />
     </div>
   );}
