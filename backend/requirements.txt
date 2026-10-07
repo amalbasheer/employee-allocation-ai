@@ -23,6 +23,7 @@ fpdf2>=2.7.0
 pulp
 resend
 psycopg
+apscheduler
 
 
 

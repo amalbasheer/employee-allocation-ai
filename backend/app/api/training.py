@@ -626,6 +626,8 @@ def update_mentor_availability_for_training(
             available_hours=new_hours
         )
         db.add(new_availability)
+
+        
 @router.post("/engagements/{engagement_id}/confirm")
 def confirm_allocation(engagement_id: str, db: Session = Depends(get_db)):
     # 1. Fetch Training Engagement
