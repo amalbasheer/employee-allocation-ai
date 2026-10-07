@@ -1054,7 +1054,13 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
             if next_month > 12:
                 next_month -= 12
                 next_year += 1
-            start_dt = date(next_year, next_month, 15)
+            if department.lower() == "bridge":
+                # Bridge batches start on the 1st of the next month
+                start_dt = date(next_year, next_month, 1)
+            else:
+                # Other batches start on the 15th of the next month
+                start_dt = date(next_year, next_month, 15)
+
         else:
             today = date.today()
             start_dt = date(today.year, today.month, 15)
@@ -1062,7 +1068,7 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
         # --- Dynamic End Date Calculation based on Domain ---
         if department.lower() == "bridge":
             # 15 days duration for Bridge
-            end_dt = start_dt + timedelta(days=15)
+            end_dt = start_dt + timedelta(days=13)
 
         elif department.lower() == "agentic ai":
             # 2 months duration for Agentic AI
