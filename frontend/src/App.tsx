@@ -40,7 +40,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles 
     if (!normalizedAllowed.includes(activeRole)) {
       if (activeRole === 'ADMIN') return <Navigate to="/admin/overview" replace />;
       if (activeRole === 'STUDENT' || activeRole === 'INTERN') return <Navigate to="/student/dashboard" replace />;
-      return <Navigate to="/employee/dashboard" replace />;
+      return <Navigate to="/employee/profile" replace />;
     }
   }
 
@@ -117,6 +117,14 @@ export default function App() {
                 }
               />
               <Route
+                path="/employee/profile"
+                element={
+                  <ProtectedRoute allowedRoles={['EMPLOYEE']}>
+                    <EmployeeSkillsManager />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
                 path="/employee/dashboard"
                 element={
                   <ProtectedRoute allowedRoles={['EMPLOYEE']}>
@@ -139,14 +147,8 @@ export default function App() {
                     <EmployeeAvailabilityPage />
                   </ProtectedRoute>
                 }
-              />
-              <Route
-                path="/employee/profile"
-                element={
-                  <ProtectedRoute allowedRoles={['EMPLOYEE']}>
-                    <EmployeeSkillsManager />
-                  </ProtectedRoute>
-                }
+              
+              
               />
               <Route
                 path="/employee/schedule"
