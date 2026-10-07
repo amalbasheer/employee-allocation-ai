@@ -138,14 +138,16 @@ def assign_project_schedule_for_mentor(
 
         # 1. Fetch busy slots from active in-progress projects (excluding current project)
         active_projects = (
-            db.query(Project)
-            .filter(
-                Project.mentor_id == mentor_id_str,
-                Project.status == "in_progress",
-                Project.project_id != project.project_id
-            )
+             db.query(Project)
+             .join(Allocation, Allocation.reference_id == Project.project_id)
+             .filter(
+               Allocation.resource_id == mentor_id_str,
+                # Allocation.status == "assigned",  # Optional: include if allocations have active statuses
+               Project.status == "in_progress",
+               Project.project_id != project.project_id
+              )
             .all()
-        )
+         )
 
         for proj in active_projects:
             if proj.day_of_week and proj.session:

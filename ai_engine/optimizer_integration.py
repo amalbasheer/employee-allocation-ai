@@ -64,6 +64,8 @@ def _fetch_single_project_candidates(project_id: str):
     result = recommend_candidates_for_project(project_id)
     eligible = result.get("eligible_team_leads", [])
     interns = result.get("interns", [])
+    session = result.get("session", None)
+    day_of_week = result.get("day_of_week", None)
     top_intern = interns[0] if interns else None
 
     logging.info(f"Project {project_id} candidate fetch took: {time.time() - t_start:.2f}s")
@@ -71,6 +73,8 @@ def _fetch_single_project_candidates(project_id: str):
         "project_id": project_id,
         "eligible": eligible,
         "top_intern": top_intern,
+        "session": session,
+        "day_of_week": day_of_week,
     }
 
 
@@ -100,6 +104,9 @@ def optimize_multiple_projects(project_ids: list[str]) -> dict:
                 projects_for_optimizer.append({"project_id": pid})
                 projects_with_ranked_candidates[pid] = res["eligible"]
                 intern_suggestions[pid] = res["top_intern"]
+                # Store the recommended session and day of week
+                projects_for_optimizer[-1]["session"] = res["session"]
+                projects_for_optimizer[-1]["day_of_week"] = res["day_of_week"]
 
     logging.info(f"All candidate recommendations fetched concurrently in: {time.time() - t0:.2f}s")
 
