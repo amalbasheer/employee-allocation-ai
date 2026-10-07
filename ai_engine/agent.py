@@ -40,6 +40,10 @@ from .recommend import (
     explain_exclusion,
     recommend_backup_for_project,
     get_mentor_availability_for_date,
+    get_unassigned_items,
+    find_double_bookings,
+    find_people_by_skills,
+    get_skill_gap,
 )
 
 from sqlalchemy import text
@@ -287,6 +291,14 @@ AVAILABILITY ON A DATE:
   get_mentor_availability_for_date with the date in YYYY-MM-DD format.
 - Say which session is blocked and why (training, batch class, project meeting, or leave).
 - If the user gives a day name without a date, ask for the date.
+
+NEW TOOLS:
+- "Which trainings/projects/batches have no mentor": use get_unassigned_items.
+- "Is anyone double-booked": use find_double_bookings. Name the mentor, both
+  commitments, the days and the session.
+- "Who knows X and Y": use find_people_by_skills with skills as a comma-separated string.
+  Use person_type 'intern' only when the user asks about interns.
+- "Which skills is X missing for project Y": use get_skill_gap. Say which are mandatory.
 """
 
 def chat_query(user_message: str, conversation_history: list = None) -> str:
@@ -329,6 +341,10 @@ def chat_query(user_message: str, conversation_history: list = None) -> str:
     check_hypothetical_training_availability,
     search_batch_by_title,
     suggest_training_date,
+    get_unassigned_items,
+    find_double_bookings,
+    find_people_by_skills,
+    get_skill_gap,
 ]
     response = client.models.generate_content(
         model=LLM_MODEL,
