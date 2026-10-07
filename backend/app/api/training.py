@@ -1059,12 +1059,29 @@ def auto_generate_next_batch(db: Session = Depends(get_db)):
             today = date.today()
             start_dt = date(today.year, today.month, 15)
 
-        end_month = start_dt.month + 4
-        end_year = start_dt.year
-        if end_month > 12:
-            end_month -= 12
-            end_year += 1
-        end_dt = date(end_year, end_month, 14)
+        # --- Dynamic End Date Calculation based on Domain ---
+        if department.lower() == "bridge":
+            # 15 days duration for Bridge
+            end_dt = start_dt + timedelta(days=15)
+
+        elif department.lower() == "agentic ai":
+            # 2 months duration for Agentic AI
+            end_month = start_dt.month + 2
+            end_year = start_dt.year
+            if end_month > 12:
+                end_month -= 12
+                end_year += 1
+            end_dt = date(end_year, end_month, 14)
+
+        else:
+            # Default 4 months duration for Data Analytics, Data Science, Softskill
+            end_month = start_dt.month + 4
+            end_year = start_dt.year
+            if end_month > 12:
+                end_month -= 12
+                end_year += 1
+            end_dt = date(end_year, end_month, 14)
+        
 
         # Gets next mentor + free session + free day_of_week list
         assigned_mentor = get_next_mentor_for_batch(
