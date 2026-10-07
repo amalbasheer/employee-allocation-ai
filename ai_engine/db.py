@@ -718,26 +718,6 @@ def get_project_assignments(project_id: str) -> list[dict]:
         ).mappings().fetchall()
     return [dict(r) for r in rows]
 
-def get_mentor_availability_for_week(week_start_date: str) -> list[dict]:
-    """Who's free for a specific week (YYYY-MM-DD, must be a Monday),
-    based on the availability table's recorded hours and leave status."""
-    with engine.connect() as conn:
-        rows = conn.execute(
-            text("""
-                SELECT ce.employee_id, ce.name,
-                       COALESCE(av.available_hours, ce.weekly_capacity_hours) AS available_hours,
-                       COALESCE(av.is_on_leave, FALSE) AS is_on_leave
-                FROM company_employees ce
-                LEFT JOIN availability av
-                    ON av.resource_id = ce.employee_id
-                    AND av.resource_type = 'employee'
-                    AND av.week_start_date = :week
-                WHERE COALESCE(av.is_on_leave, FALSE) = FALSE
-                  AND COALESCE(av.available_hours, ce.weekly_capacity_hours) > 0
-            """),
-            {"week": week_start_date},
-        ).mappings().fetchall()
-    return [dict(r) for r in rows]
 
 def get_available_mentors_for_training(domain: str = None, region: str = None) -> list[dict]:
     """

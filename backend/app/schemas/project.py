@@ -71,6 +71,7 @@ class ProjectBase(BaseModel):
     end_date: date
     required_hours_per_week: int
     priority_level: str = "Medium"
+    
 
     
 

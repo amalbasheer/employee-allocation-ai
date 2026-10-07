@@ -24,7 +24,7 @@ from ai_engine.db import (
 
 )
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from ai_engine.matching import rank_candidates, score_with_workload_penalty, score_with_training_load_penalty
 from ai_engine.project_taxonomy import get_required_roles
 
@@ -493,3 +493,65 @@ def recommend_backup_for_project(project_id: str) -> dict:
         "recommended_replacement": replacement["name"] if replacement else None,
         "replacement_score": replacement["suitability_score"] if replacement else None,
     }
+
+from datetime import datetime, timedelta
+
+def get_mentor_availability_for_date(date_str: str, session: str = "") -> list[dict]:
+    """Who is free on a specific date (YYYY-MM-DD). Optional session: morning or evening.
+    Checks leave, student batches, project meetings and other trainings.
+    If no session is given, both morning and evening are checked."""
+    target = datetime.strptime(date_str, "%Y-%m-%d").date()
+    week_start = target - timedelta(days=target.weekday())
+    sessions = [session.lower().strip()] if session else ["morning", "evening"]
+
+    results = []
+    with engine.connect() as conn:
+        mentors = conn.execute(
+            text("SELECT employee_id, name, department FROM company_employees ORDER BY employee_id")
+        ).mappings().fetchall()
+
+        leave_rows = conn.execute(
+            text("""
+                SELECT DISTINCT resource_id FROM availability
+                WHERE resource_type = 'employee'
+                  AND week_start_date = :w
+                  AND is_on_leave = TRUE
+            """),
+            {"w": week_start},
+        ).fetchall()
+        on_leave = {r[0] for r in leave_rows}
+
+        for m in mentors:
+            entry = {
+                "employee_id": m["employee_id"],
+                "name": m["name"],
+                "department": m["department"],
+                "date": date_str,
+                "sessions": {},
+            }
+            for s in sessions:
+                occ = calculate_daily_occupied_hours(
+                    conn=conn,
+                    mentor_id=m["employee_id"],
+                    domain=m["department"] or "",
+                    training_date=target,
+                    training_session=s,
+                )
+                if m["employee_id"] in on_leave:
+                    reason = "On leave this week"
+                elif occ["same_session_training_conflict"]:
+                    reason = f"Training: {occ['same_session_training_conflict']}"
+                elif occ["batch_conflict_name"]:
+                    reason = f"Batch class: {occ['batch_conflict_name']}"
+                elif occ["project_conflict_name"]:
+                    reason = f"Project meeting: {occ['project_conflict_name']}"
+                else:
+                    reason = None
+
+                entry["sessions"][s] = {
+                    "free": reason is None,
+                    "reason": reason,
+                    "free_hours": max(0.0, 4.0 - occ["total_occupied_hours"]),
+                }
+            results.append(entry)
+    return results

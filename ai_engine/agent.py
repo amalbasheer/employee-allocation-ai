@@ -23,7 +23,6 @@ from .db import (
     search_training_by_title,
     get_best_mentor_for_domain,
     get_project_assignments,
-    get_mentor_availability_for_week,
     get_available_mentors_for_training,
     recommend_batch_replacement,
     get_employee_workload_summary,
@@ -40,6 +39,7 @@ from .recommend import (
     compare_mentors_for_project,
     explain_exclusion,
     recommend_backup_for_project,
+    get_mentor_availability_for_date,
 )
 
 from sqlalchemy import text
@@ -281,6 +281,12 @@ BATCH REPLACEMENT QUESTIONS:
   previous lookup) to find the next best fit, ranked by fewest existing
   batch commitments (fairness-based, not skill-based, since batches use a
   fixed curriculum regardless of who teaches).
+
+AVAILABILITY ON A DATE:
+- For questions like "who is free on 5 Oct" or "is Asif free on Tuesday morning", use
+  get_mentor_availability_for_date with the date in YYYY-MM-DD format.
+- Say which session is blocked and why (training, batch class, project meeting, or leave).
+- If the user gives a day name without a date, ask for the date.
 """
 
 def chat_query(user_message: str, conversation_history: list = None) -> str:
@@ -304,7 +310,7 @@ def chat_query(user_message: str, conversation_history: list = None) -> str:
     get_training_engagement,
     get_next_mentor_for_batch,
     get_project_assignments,
-    get_mentor_availability_for_week,
+    get_mentor_availability_for_date,
     get_best_mentor_for_domain,
     recommend_candidates_for_project,
     search_project_by_title,
