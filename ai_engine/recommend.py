@@ -7,6 +7,8 @@ and matching.py (the ranking math).
 
 from sqlalchemy import text
 from datetime import date, datetime
+from .matching import cosine_similarity
+
 from ai_engine.db import (
     engine,
     get_project,
@@ -555,3 +557,254 @@ def get_mentor_availability_for_date(date_str: str, session: str = "") -> list[d
                 }
             results.append(entry)
     return results
+
+
+_DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
+
+def _days_set(value):
+    t = (value or "").lower()
+    return {d for d in _DAYS if d in t}
+
+
+def get_unassigned_items() -> dict:
+    """Projects, trainings and student batches that have no mentor yet."""
+    with engine.connect() as conn:
+        projects = conn.execute(text("""
+            SELECT p.title, p.status, p.start_date
+            FROM projects p
+            WHERE LOWER(p.status) NOT IN ('completed', 'cancelled')
+              AND NOT EXISTS (
+                SELECT 1 FROM allocations a
+                WHERE a.reference_type = 'project'
+                  AND a.reference_id = p.project_id
+                  AND a.status IN ('proposed', 'accepted', 'assigned')
+                  AND a.resource_id IN (SELECT employee_id FROM company_employees)
+              )
+            ORDER BY p.start_date
+        """)).mappings().fetchall()
+
+        trainings = conn.execute(text("""
+            SELECT title, status, start_date, session
+            FROM training_engagements
+            WHERE mentor_id IS NULL
+              AND LOWER(status) NOT IN ('completed', 'cancelled')
+              AND start_date >= CURRENT_DATE
+            ORDER BY start_date
+        """)).mappings().fetchall()
+
+        batches = conn.execute(text("""
+            SELECT batch_name, start_date, session, day_of_week
+            FROM student_batches
+            WHERE mentor_id IS NULL
+              AND LOWER(status) NOT IN ('completed', 'cancelled')
+              AND end_date >= CURRENT_DATE
+            ORDER BY start_date
+        """)).mappings().fetchall()
+
+    def clean(rows):
+        return [{k: (str(v) if v is not None else None) for k, v in r.items()} for r in rows]
+
+    result = {
+        "projects_without_mentor": clean(projects),
+        "trainings_without_mentor": clean(trainings),
+        "batches_without_mentor": clean(batches),
+    }
+    result["total"] = sum(len(v) for v in result.values())
+    return result
+
+
+def find_double_bookings() -> dict:
+    """Mentors with two commitments on the same day and session, with overlapping dates."""
+    far_past, far_future = date(2000, 1, 1), date(2100, 1, 1)
+    commitments = {}   # mentor_id -> list of commitments
+
+    def add(mentor_id, kind, name, days, session, start, end):
+        if not mentor_id or not session or not days:
+            return
+        commitments.setdefault(mentor_id, []).append({
+            "kind": kind, "name": name, "days": days,
+            "session": session.lower().strip(),
+            "start": start or far_past, "end": end or far_future,
+        })
+
+    with engine.connect() as conn:
+        names = {r[0]: r[1] for r in conn.execute(
+            text("SELECT employee_id, name FROM company_employees")).fetchall()}
+
+        for r in conn.execute(text("""
+            SELECT mentor_id, batch_name, day_of_week, session, start_date, end_date
+            FROM student_batches
+            WHERE mentor_id IS NOT NULL
+              AND LOWER(status) NOT IN ('completed', 'cancelled')
+              AND end_date >= CURRENT_DATE
+        """)).fetchall():
+            add(r[0], "batch", r[1], _days_set(r[2]), r[3], r[4], r[5])
+
+        for r in conn.execute(text("""
+            SELECT a.resource_id, p.title, p.day_of_week, p.session, p.start_date, p.end_date
+            FROM allocations a
+            JOIN projects p ON p.project_id = a.reference_id
+            WHERE a.reference_type = 'project'
+              AND a.status IN ('proposed', 'accepted', 'assigned')
+              AND LOWER(p.status) NOT IN ('completed', 'cancelled')
+              AND a.resource_id IN (SELECT employee_id FROM company_employees)
+        """)).fetchall():
+            add(r[0], "project meeting", r[1], _days_set(r[2]), r[3], r[4], r[5])
+
+        for r in conn.execute(text("""
+            SELECT mentor_id, title, session, start_date
+            FROM training_engagements
+            WHERE mentor_id IS NOT NULL
+              AND LOWER(status) NOT IN ('completed', 'cancelled')
+              AND start_date >= CURRENT_DATE
+        """)).fetchall():
+            day = {_DAYS[r[3].weekday()]}
+            add(r[0], "training", r[1], day, r[2], r[3], r[3])
+
+    conflicts = []
+    for mentor_id, items in commitments.items():
+        for i in range(len(items)):
+            for j in range(i + 1, len(items)):
+                a, b = items[i], items[j]
+                shared_days = a["days"] & b["days"]
+                if (a["session"] == b["session"] and shared_days
+                        and a["start"] <= b["end"] and b["start"] <= a["end"]):
+                    conflicts.append({
+                        "mentor": names.get(mentor_id, mentor_id),
+                        "first": f"{a['name']} ({a['kind']})",
+                        "second": f"{b['name']} ({b['kind']})",
+                        "days": sorted(shared_days),
+                        "session": a["session"],
+                        "overlap_from": str(max(a["start"], b["start"])),
+                        "overlap_to": str(min(a["end"], b["end"])),
+                    })
+
+    return {
+        "double_bookings": conflicts[:20],
+        "count": len(conflicts),
+        "message": "No double-booking found." if not conflicts else None,
+    }
+
+
+def find_people_by_skills(skills: str, person_type: str = "mentor") -> dict:
+    """Find people who have the given skills. skills is comma-separated,
+    for example 'Power BI, SQL'. person_type is 'mentor' or 'intern'."""
+    wanted = [s.strip() for s in skills.split(",") if s.strip()]
+    if not wanted:
+        return {"error": "Give at least one skill name."}
+
+    with engine.connect() as conn:
+        skill_names = {r[0]: r[1] for r in conn.execute(
+            text("SELECT skill_id, skill_name FROM skills")).fetchall()}
+
+    wanted_ids = {}
+    for w in wanted:
+        exact = {sid for sid, nm in skill_names.items() if nm.lower() == w.lower()}
+        if not exact and len(w) > 3:
+            exact = {sid for sid, nm in skill_names.items() if w.lower() in nm.lower()}
+        wanted_ids[w] = exact
+
+    unknown = [w for w, ids in wanted_ids.items() if not ids]
+    if len(unknown) == len(wanted):
+        return {"error": f"No skill named {', '.join(unknown)} exists in the system."}
+
+    if person_type.lower().startswith("intern"):
+        people = [{"id": p["id"], "name": p["name"]} for p in get_available_interns(domain=None)]
+        skill_map = get_bulk_person_skills([p["id"] for p in people], "intern")
+        note = "Only interns without an active project are searched."
+    else:
+        with engine.connect() as conn:
+            people = [{"id": r[0], "name": r[1], "department": r[2]} for r in conn.execute(
+                text("SELECT employee_id, name, department FROM company_employees")).fetchall()]
+        skill_map = get_bulk_person_skills([p["id"] for p in people], "employee")
+        note = None
+
+    matches = []
+    for p in people:
+        have_ids = {s.get("skill_id") for s in skill_map.get(p["id"], [])}
+        found = [w for w, ids in wanted_ids.items() if ids and (ids & have_ids)]
+        if found:
+            entry = dict(p)
+            entry["skills_matched"] = found
+            entry["has_all"] = len(found) == len([w for w in wanted if wanted_ids[w]])
+            matches.append(entry)
+
+    matches.sort(key=lambda m: len(m["skills_matched"]), reverse=True)
+    return {
+        "searched_for": wanted,
+        "not_found_in_system": unknown,
+        "matches": matches[:10],
+        "note": note,
+    }
+
+
+def get_skill_gap(mentor_name: str, project_title: str) -> dict:
+    """Which of a project's required skills a mentor is missing or weak in."""
+    with engine.connect() as conn:
+        emp = conn.execute(
+            text("SELECT employee_id, name FROM company_employees WHERE LOWER(name) = LOWER(:n)"),
+            {"n": mentor_name.strip()},
+        ).mappings().fetchone()
+        proj = conn.execute(
+            text("SELECT project_id, title FROM projects WHERE title ILIKE :t LIMIT 1"),
+            {"t": f"%{project_title.strip()}%"},
+        ).mappings().fetchone()
+        skill_names = {r[0]: r[1] for r in conn.execute(
+            text("SELECT skill_id, skill_name FROM skills")).fetchall()}
+
+    if not emp:
+        return {"error": f"No mentor named {mentor_name} found."}
+    if not proj:
+        return {"error": f"No project matching '{project_title}' found."}
+
+    requirements = get_project_requirements(proj["project_id"])
+    if not requirements:
+        return {"error": f"{proj['title']} has no required skills saved."}
+
+    person_skills = get_person_skills(emp["employee_id"], "employee")
+    levels = {s.get("skill_id"): s.get("proficiency_level") for s in person_skills}
+
+    covered, below, related, missing_mandatory, missing_optional = [], [], [], [], []
+    for req in requirements:
+        sid = req.get("skill_id")
+        name = skill_names.get(sid, sid)
+        mandatory = bool(req.get("is_mandatory"))
+        needed = req.get("min_proficiency")
+
+        if sid in levels:
+            have = levels[sid]
+            try:
+                is_below = bool(have and needed and float(have) < float(needed))
+            except (TypeError, ValueError):
+                is_below = False
+            if is_below:
+                below.append(f"{name} (has {have}, needs {needed})")
+            else:
+                covered.append(name)
+            continue
+
+        closest, best = None, 0.0
+        try:
+            for s in person_skills:
+                sim = cosine_similarity(req.get("embedding"), s.get("embedding"))
+                if sim > best:
+                    best, closest = sim, skill_names.get(s.get("skill_id"))
+        except Exception:
+            pass
+        if closest and best >= 0.75:
+            related.append(f"{name} (closest: {closest})")
+        elif mandatory:
+            missing_mandatory.append(name)
+        else:
+            missing_optional.append(name)
+
+    return {
+        "mentor": emp["name"],
+        "project": proj["title"],
+        "covered": covered,
+        "below_required_level": below,
+        "related_skill_only": related,
+        "missing_mandatory": missing_mandatory,
+        "missing_optional": missing_optional,
+    }
