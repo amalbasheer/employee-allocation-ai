@@ -576,7 +576,7 @@ def assign_allocation(
             .all()
         )
         for old_alloc in previous_active_allocations:
-            old_alloc.status = "replaced"
+            old_alloc.status = "accepted"
 
     # 5. Transition target allocation status to assigned
     allocation.status = "assigned"
