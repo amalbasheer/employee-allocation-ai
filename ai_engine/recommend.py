@@ -5,6 +5,8 @@ Ties together project_taxonomy (who's needed), db.py (real data),
 and matching.py (the ranking math).
 """
 
+import re
+
 from sqlalchemy import text
 from datetime import date, datetime
 from .matching import cosine_similarity
@@ -614,18 +616,24 @@ def get_unassigned_items() -> dict:
     return result
 
 
-def find_double_bookings() -> dict:
-    """Mentors with two commitments on the same day and session, with overlapping dates."""
-    far_past, far_future = date(2000, 1, 1), date(2100, 1, 1)
-    commitments = {}   # mentor_id -> list of commitments
+def _base_name(name):
+    return re.sub(r"\s*(online|offline)\s*$", "", name or "", flags=re.I).lower()
 
-    def add(mentor_id, kind, name, days, session, start, end):
+
+def find_double_bookings() -> dict:
+    """Mentors with two different commitments on the same day and session, with overlapping dates.
+    Offline and Online copies of the same batch are not counted, and neither are two soft skill batches."""
+    far_past, far_future = date(2000, 1, 1), date(2100, 1, 1)
+    commitments = {}
+
+    def add(mentor_id, kind, name, days, session, start, end, group=None, softskill=False):
         if not mentor_id or not session or not days:
             return
         commitments.setdefault(mentor_id, []).append({
             "kind": kind, "name": name, "days": days,
             "session": session.lower().strip(),
             "start": start or far_past, "end": end or far_future,
+            "group": group, "softskill": softskill,
         })
 
     with engine.connect() as conn:
@@ -633,13 +641,16 @@ def find_double_bookings() -> dict:
             text("SELECT employee_id, name FROM company_employees")).fetchall()}
 
         for r in conn.execute(text("""
-            SELECT mentor_id, batch_name, day_of_week, session, start_date, end_date
+            SELECT mentor_id, batch_name, day_of_week, session, start_date, end_date, domain
             FROM student_batches
             WHERE mentor_id IS NOT NULL
               AND LOWER(status) NOT IN ('completed', 'cancelled')
               AND end_date >= CURRENT_DATE
         """)).fetchall():
-            add(r[0], "batch", r[1], _days_set(r[2]), r[3], r[4], r[5])
+            is_soft = ((r[6] or "").lower() == "softskill"
+                       or "softskill" in (r[1] or "").lower().replace(" ", ""))
+            add(r[0], "batch", r[1], _days_set(r[2]), r[3], r[4], r[5],
+                group=(r[6], r[4], _base_name(r[1])), softskill=is_soft)
 
         for r in conn.execute(text("""
             SELECT a.resource_id, p.title, p.day_of_week, p.session, p.start_date, p.end_date
@@ -659,14 +670,17 @@ def find_double_bookings() -> dict:
               AND LOWER(status) NOT IN ('completed', 'cancelled')
               AND start_date >= CURRENT_DATE
         """)).fetchall():
-            day = {_DAYS[r[3].weekday()]}
-            add(r[0], "training", r[1], day, r[2], r[3], r[3])
+            add(r[0], "training", r[1], {_DAYS[r[3].weekday()]}, r[2], r[3], r[3])
 
     conflicts = []
     for mentor_id, items in commitments.items():
         for i in range(len(items)):
             for j in range(i + 1, len(items)):
                 a, b = items[i], items[j]
+                if a["group"] is not None and a["group"] == b["group"]:
+                    continue
+                if a["softskill"] and b["softskill"]:
+                    continue
                 shared_days = a["days"] & b["days"]
                 if (a["session"] == b["session"] and shared_days
                         and a["start"] <= b["end"] and b["start"] <= a["end"]):
