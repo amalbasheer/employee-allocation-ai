@@ -328,6 +328,7 @@ def generate_next_log_id(db: Session) -> str:
 
     return f"rp2-log-{max_num + 1:04d}"
 
+
 @router.post("/propose", response_model=AllocationResponse, status_code=status.HTTP_201_CREATED)
 def propose_allocation(
     payload: ProposeAllocationRequest,

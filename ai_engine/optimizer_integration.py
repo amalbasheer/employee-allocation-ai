@@ -55,7 +55,7 @@ def get_bulk_names(employee_ids: list[str]) -> dict[str, str]:
 
 
 def _fetch_single_project_candidates(project_id: str):
-    """Helper worker to fetch candidates for one project concurrently."""
+    """Helper worker to fetch candidate team-leads and ALL ranked interns for one project concurrently."""
     t_start = time.time()
     project = get_project(project_id)
     if not project:
@@ -63,23 +63,22 @@ def _fetch_single_project_candidates(project_id: str):
 
     result = recommend_candidates_for_project(project_id)
     eligible = result.get("eligible_team_leads", [])
-    interns = result.get("interns", [])
+    interns = result.get("interns", [])  # MUST return the full ranked list of interns
     session = result.get("session", None)
     day_of_week = result.get("day_of_week", None)
-    top_intern = interns[0] if interns else None
 
     logging.info(f"Project {project_id} candidate fetch took: {time.time() - t_start:.2f}s")
     return {
         "project_id": project_id,
         "eligible": eligible,
-        "top_intern": top_intern,
+        "interns": interns,  # Pass entire ranked list
         "session": session,
         "day_of_week": day_of_week,
     }
 
 
 def optimize_multiple_projects(project_ids: list[str]) -> dict:
-    """Optimizes team-lead assignment across multiple open projects in parallel."""
+    """Optimizes team-lead and intern recommendations across multiple open projects in parallel."""
     MAX_BATCH_SIZE = 10
     if len(project_ids) > MAX_BATCH_SIZE:
         logging.warning(f"Batch size {len(project_ids)} exceeds limit. Capping to {MAX_BATCH_SIZE}.")
@@ -88,9 +87,9 @@ def optimize_multiple_projects(project_ids: list[str]) -> dict:
     t0 = time.time()
     projects_for_optimizer = []
     projects_with_ranked_candidates = {}
-    intern_suggestions = {}
+    all_project_interns = {}
 
-    # PARALLEL FETCH: Run candidate recommendation calls concurrently
+    # 1. PARALLEL FETCH: Fetch candidate team leads and ranked interns concurrently
     max_workers = min(len(project_ids), 8)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_pid = {
@@ -103,8 +102,8 @@ def optimize_multiple_projects(project_ids: list[str]) -> dict:
                 pid = res["project_id"]
                 projects_for_optimizer.append({"project_id": pid})
                 projects_with_ranked_candidates[pid] = res["eligible"]
-                intern_suggestions[pid] = res["top_intern"]
-                # Store the recommended session and day of week
+                all_project_interns[pid] = res.get("interns", [])  # Store ranked interns
+                
                 projects_for_optimizer[-1]["session"] = res["session"]
                 projects_for_optimizer[-1]["day_of_week"] = res["day_of_week"]
 
@@ -113,13 +112,15 @@ def optimize_multiple_projects(project_ids: list[str]) -> dict:
     if not projects_for_optimizer:
         return {"assignments": [], "unstaffed_projects": project_ids}
 
+    # 2. RUN TEAM LEAD OPTIMIZER
     score_matrix = build_score_matrix(projects_with_ranked_candidates, min_score=40.0)
 
     all_candidates_by_id = {}
     for ranked in projects_with_ranked_candidates.values():
         for c in ranked:
-            all_candidates_by_id[c["id"]] = {
-                "id": c["id"],
+            c_id = str(c.get("id") or c.get("candidate_id"))
+            all_candidates_by_id[c_id] = {
+                "id": c_id,
                 "active_project_count": c.get("active_project_count", 0),
             }
 
@@ -127,13 +128,43 @@ def optimize_multiple_projects(project_ids: list[str]) -> dict:
         projects_for_optimizer, list(all_candidates_by_id.values()), score_matrix
     )
 
-    # BULK DATA ENRICHMENT (O(1) database round-trips)
-    candidate_ids = list({a["candidate_id"] for a in raw_assignments})
-    intern_ids = list({
-        intern_suggestions[a["project_id"]]["id"]
-        for a in raw_assignments
-        if intern_suggestions.get(a["project_id"])
-    })
+    # 3. SEQUENTIAL UNIQUE INTERN SELECTION (PREVIEW STAGE)
+    assigned_intern_ids = set()
+    project_intern_map = {}
+
+    # Process in the order of assignments returned by the optimizer
+    for a in raw_assignments:
+        pid = a["project_id"]
+        candidate_interns = all_project_interns.get(pid, [])
+        
+        selected_intern = None
+        for intern in candidate_interns:
+            # Safely extract intern ID (supports 'id', 'intern_id', or 'user_id')
+            raw_id = intern.get("id") or intern.get("intern_id") or intern.get("user_id")
+            if raw_id is None:
+                continue
+            
+            norm_id = str(raw_id)
+            
+            # Pick the top recommended intern that hasn't been suggested to another project in this batch
+            if norm_id not in assigned_intern_ids:
+                selected_intern = intern
+                assigned_intern_ids.add(norm_id)
+                logging.info(f"[Optimization Preview] Suggested Intern {norm_id} ({intern.get('name')}) for Project {pid}")
+                break
+        
+        if not selected_intern and candidate_interns:
+            logging.warning(f"[Optimization Preview] No unassigned intern remaining for Project {pid}.")
+
+        project_intern_map[pid] = selected_intern
+
+    # 4. BULK DATA ENRICHMENT FOR DISPLAY
+    candidate_ids = [str(a["candidate_id"]) for a in raw_assignments]
+    intern_ids = [
+        str(intern.get("id") or intern.get("intern_id") or intern.get("user_id"))
+        for intern in project_intern_map.values()
+        if intern is not None
+    ]
 
     employee_names = get_bulk_names(candidate_ids)
     candidate_skills_map = get_bulk_person_skills(candidate_ids, person_type="employee")
@@ -141,18 +172,24 @@ def optimize_multiple_projects(project_ids: list[str]) -> dict:
 
     enriched_assignments = []
     for a in raw_assignments:
-        cand_id = a["candidate_id"]
-        top_intern = intern_suggestions.get(a["project_id"])
-        top_intern_id = top_intern["id"] if top_intern else None
+        pid = a["project_id"]
+        cand_id = str(a["candidate_id"])
+        
+        top_intern = project_intern_map.get(pid)
+        top_intern_raw_id = (
+            top_intern.get("id") or top_intern.get("intern_id") or top_intern.get("user_id")
+            if top_intern else None
+        )
+        top_intern_id = str(top_intern_raw_id) if top_intern_raw_id is not None else None
 
         enriched_assignments.append({
-            "project_id": a["project_id"],
+            "project_id": pid,
             "candidate_id": cand_id,
             "candidate_name": employee_names.get(cand_id, "Unknown"),
             "candidate_skills": candidate_skills_map.get(cand_id, []),
             "score": a["score"],
             "suggested_intern_id": top_intern_id,
-            "suggested_intern_name": top_intern["name"] if top_intern else None,
+            "suggested_intern_name": top_intern.get("name") if top_intern else None,
             "suggested_intern_skills": intern_skills_map.get(top_intern_id, []) if top_intern_id else [],
         })
 
