@@ -11,3 +11,4 @@ pgvector>=0.2.0
 pydantic>=2.0.0
 mangum>=0.17.0
 supabase>=2.0.0
+APScheduler==3.11.3

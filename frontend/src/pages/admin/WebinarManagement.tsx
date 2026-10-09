@@ -138,7 +138,7 @@ export const TrainingManagement: React.FC = () => {
   const [newInst, setNewInst] = useState('');
   const [newAud, setNewAud] = useState('');
   const [newMode, setNewMode] = useState<'online' | 'offline'>('online');
-  const [newDom, setNewDom] = useState<'Data Science' | 'Data Analytics'>('Data Science');
+  const [newDom, setNewDom] = useState<'Data Science' | 'Data Analytics' | 'Soft Skill'>('Data Science');
   const [newSes, setNewSes] = useState<'Morning' | 'Evening' | 'Full Day'>('Morning');
   const [editingEngagementId, setEditingEngagementId] = useState<string | null>(null);
 
@@ -489,7 +489,11 @@ const handleOpenEditModal = (engagement: TrainingEngagement) => {
   setNewInst(engagement.institution_name || '');
   setNewAud(engagement.audience || '');
   setNewMode(engagement.mode === 'offline' ? 'offline' : 'online');
-  setNewDom(engagement.domain === 'Data Analytics' ? 'Data Analytics' : 'Data Science');
+  setNewDom(
+  engagement.domain === 'Data Analytics' || engagement.domain === 'Soft Skill'
+    ? engagement.domain
+    : 'Data Science'
+  );
   setNewSes(engagement.session === 'Morning' ? 'Morning' : 'Evening');
   setIsModalOpen(true);
 };
@@ -1479,6 +1483,7 @@ const handleBulkDeleteEngagements = async () => {
               >
                 <option value="Data Science">Data Science</option>
                 <option value="Data Analytics">Data Analytics</option>
+                <option value="Soft Skill">Soft Skills</option>
               </select>
             </div>
             <div>
